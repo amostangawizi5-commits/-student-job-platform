@@ -1,0 +1,3038 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/language_provider.dart';
+import '../../services/api_service.dart';
+import '../../widgets/change_pin_dialog.dart';
+import '../../widgets/reset_pin_dialog.dart';
+import '../../widgets/language_picker_dialog.dart';
+import '../auth/login_screen.dart';
+import 'post_job_screen.dart';
+import 'company_applications_screen.dart';
+import 'edit_company_profile_screen.dart';
+import 'company_notifications_screen.dart';
+
+enum _CompanyMoreAction { settings, language, logout }
+
+class CompanyDashboard extends StatefulWidget {
+  final int initialIndex;
+  final String? initialJobId;
+  final String? initialJobTitle;
+
+  const CompanyDashboard({
+    super.key,
+    this.initialIndex = 0,
+    this.initialJobId,
+    this.initialJobTitle,
+  });
+
+  @override
+  State<CompanyDashboard> createState() => _CompanyDashboardState();
+}
+
+class _CompanyDashboardState extends State<CompanyDashboard> {
+  final ApiService _apiService = ApiService();
+  int _currentIndex = 0;
+  int _unreadNotifications = 0;
+  final List<int> _tabHistory = [];
+
+  String? _selectedJobId;
+  String? _selectedJobTitle;
+
+  String _formatToday() {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    const weekdays = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+
+    final now = DateTime.now();
+    final weekday = weekdays[now.weekday - 1];
+    final month = months[now.month - 1];
+    return '$weekday, ${now.day} $month ${now.year}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex >= 0 && widget.initialIndex <= 3
+        ? widget.initialIndex
+        : 0;
+    _selectedJobId = widget.initialJobId;
+    _selectedJobTitle = widget.initialJobTitle;
+    _tabHistory.add(_currentIndex);
+    _loadUnreadNotificationCount();
+  }
+
+  void _selectJob(String jobId, String jobTitle) {
+    navigateToTab(2, jobId: jobId, jobTitle: jobTitle);
+  }
+
+  void navigateToTab(int index, {String? jobId, String? jobTitle}) {
+    setState(() {
+      if (_currentIndex != index) {
+        _tabHistory.add(index);
+      }
+      _currentIndex = index;
+      _selectedJobId = jobId;
+      _selectedJobTitle = jobTitle;
+    });
+  }
+
+  bool _handleBackPress() {
+    if (_tabHistory.length > 1) {
+      final previousTab = _tabHistory[_tabHistory.length - 2];
+      setState(() {
+        _tabHistory.removeLast();
+        _currentIndex = previousTab;
+        if (previousTab != 2) {
+          _selectedJobId = null;
+          _selectedJobTitle = null;
+        }
+      });
+      return false;
+    }
+
+    if (_currentIndex != 0) {
+      setState(() {
+        _currentIndex = 0;
+        _selectedJobId = null;
+        _selectedJobTitle = null;
+        _tabHistory
+          ..clear()
+          ..add(0);
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _loadUnreadNotificationCount({bool forceRefresh = false}) async {
+    try {
+      final response = await _apiService.getUnreadNotificationCount(
+        forceRefresh: forceRefresh,
+      );
+      if (response['success'] == true && mounted) {
+        final rawCount = response['data']?['count'];
+        setState(() => _unreadNotifications = int.tryParse('$rawCount') ?? 0);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CompanyNotificationsScreen()),
+    );
+    _loadUnreadNotificationCount(forceRefresh: true);
+  }
+
+  void _handleRouteNavigationResult(dynamic result) {
+    if (result is Map && result['targetIndex'] is int) {
+      navigateToTab(result['targetIndex'] as int);
+    }
+  }
+
+  List<Widget> _buildScreens() {
+    return [
+      const CompanyHomeScreen(),
+      CompanyJobsScreen(selectJob: _selectJob),
+      CompanyApplicationsTab(
+        key: ValueKey(_selectedJobId),
+        jobId: _selectedJobId,
+        jobTitle: _selectedJobTitle,
+        onGoToJobs: () => navigateToTab(1),
+      ),
+      const CompanyProfileScreen(),
+    ];
+  }
+
+  Future<void> _logout() async {
+    final language = context.read<LanguageProvider>();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(language.tr('logout_title')),
+        content: Text(language.tr('logout_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(language.tr('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text(language.tr('logout')),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) return;
+
+    await authProvider.logout();
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(language.tr('logout_success')),
+        backgroundColor: Colors.green,
+      ),
+    );
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
+  Future<void> _showLanguageDialog() async {
+    final language = context.read<LanguageProvider>();
+    final currentLanguageCode = language.localeCode;
+    final selectedLanguage = await showDialog<String>(
+      context: context,
+      builder: (_) => LanguagePickerDialog(
+        titleText: language.tr('change_language_title'),
+        cancelText: language.tr('cancel'),
+        applyText: language.tr('apply'),
+        currentLanguageCode: currentLanguageCode,
+        options: [
+          LanguageOption(code: 'en', label: language.nativeLanguageName('en')),
+          LanguageOption(code: 'sw', label: language.nativeLanguageName('sw')),
+        ],
+      ),
+    );
+
+    if (selectedLanguage == null ||
+        selectedLanguage == currentLanguageCode ||
+        !mounted) {
+      return;
+    }
+
+    await context.read<LanguageProvider>().setLocaleCode(selectedLanguage);
+    if (!mounted) return;
+    final updatedLanguage = context.read<LanguageProvider>();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          updatedLanguage.tr('language_changed_to', {
+            'language': updatedLanguage.nativeLanguageName(selectedLanguage),
+          }),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSettingsSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final language = sheetContext.watch<LanguageProvider>();
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  language.tr('company_settings'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.language_outlined),
+                  title: Text(language.tr('language')),
+                  subtitle: Text(language.selectedLanguageName),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _showLanguageDialog();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.person_outline),
+                  title: Text(language.tr('company_profile')),
+                  subtitle: Text(language.tr('open_profile_tab')),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    navigateToTab(3);
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.notifications_outlined),
+                  title: Text(language.tr('notifications')),
+                  subtitle: Text(language.tr('open_company_notifications')),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _openNotifications();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleMoreAction(_CompanyMoreAction action) async {
+    switch (action) {
+      case _CompanyMoreAction.settings:
+        await _showSettingsSheet();
+        break;
+      case _CompanyMoreAction.language:
+        await _showLanguageDialog();
+        break;
+      case _CompanyMoreAction.logout:
+        await _logout();
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
+    final today = _formatToday();
+
+    return PopScope(
+      canPop: _tabHistory.length <= 1 && _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+
+        final shouldExit = _handleBackPress();
+        if (shouldExit && mounted) {
+          Navigator.of(context).pop(result);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF2C3E50),
+          elevation: 0,
+          titleSpacing: 8,
+          title: Row(
+            children: [
+              Container(
+                height: 55,
+                width: 55,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withValues(alpha: 0.2),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: Image.asset(
+                    'assets/images/internshiplogo.png',
+                    height: 55,
+                    width: 55,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.verified,
+                        size: 35,
+                        color: Colors.blue,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: language.tr('notifications'),
+              onPressed: _openNotifications,
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(
+                    Icons.notifications_outlined,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                  if (_unreadNotifications > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: Text(
+                          _unreadNotifications > 99
+                              ? '99+'
+                              : '$_unreadNotifications',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            PopupMenuButton<_CompanyMoreAction>(
+              tooltip: language.tr('more_actions'),
+              onSelected: _handleMoreAction,
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: _CompanyMoreAction.settings,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.settings_outlined, size: 18),
+                      const SizedBox(width: 10),
+                      Text(language.tr('settings')),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _CompanyMoreAction.language,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.language_outlined, size: 18),
+                      const SizedBox(width: 10),
+                      Text(language.tr('change_language')),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: _CompanyMoreAction.logout,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.logout_rounded, size: 18),
+                      const SizedBox(width: 10),
+                      Text(language.tr('logout')),
+                    ],
+                  ),
+                ),
+              ],
+              icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+            ),
+            const SizedBox(width: 4),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(42),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              alignment: Alignment.center,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.calendar_today_rounded,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      today,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        body: IndexedStack(index: _currentIndex, children: _buildScreens()),
+        bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: _currentIndex,
+          onTap: (index) {
+            navigateToTab(index);
+            _loadUnreadNotificationCount();
+          },
+          selectedItemColor: const Color(0xFF2C3E50),
+          unselectedItemColor: Colors.grey.shade600,
+          items: [
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.dashboard_outlined),
+              activeIcon: const Icon(Icons.dashboard),
+              label: language.tr('dashboard'),
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.work_outline),
+              activeIcon: const Icon(Icons.work),
+              label: language.tr('my_jobs'),
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.people_outline),
+              activeIcon: const Icon(Icons.people),
+              label: language.tr('applications'),
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.business_outlined),
+              activeIcon: const Icon(Icons.business),
+              label: language.tr('profile'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============ HELPER FUNCTIONS ============
+int getApplicantsCount(dynamic count) {
+  if (count is int) return count;
+  if (count is String) return int.tryParse(count) ?? 0;
+  return 0;
+}
+
+String getDaysLeft(String? deadlineStr) {
+  if (deadlineStr == null) return 'No deadline';
+  try {
+    final deadline = DateTime.parse(deadlineStr);
+    final difference = deadline.difference(DateTime.now());
+    final daysLeft = difference.inDays;
+    if (difference.isNegative) return 'Expired';
+    if (daysLeft > 0) return '$daysLeft days left';
+    return 'Closes today';
+  } catch (e) {
+    return 'Invalid date';
+  }
+}
+
+String formatDeadlineDateTime(String? deadlineStr) {
+  if (deadlineStr == null) return 'No deadline';
+  try {
+    final deadline = DateTime.parse(deadlineStr);
+    final day = deadline.day.toString().padLeft(2, '0');
+    final month = deadline.month.toString().padLeft(2, '0');
+    final hour = deadline.hour.toString().padLeft(2, '0');
+    final minute = deadline.minute.toString().padLeft(2, '0');
+    return '$day/$month/${deadline.year} $hour:$minute';
+  } catch (e) {
+    return 'Invalid date';
+  }
+}
+
+// ============ COMPANY HOME SCREEN ============
+class CompanyHomeScreen extends StatefulWidget {
+  const CompanyHomeScreen({super.key});
+
+  @override
+  State<CompanyHomeScreen> createState() => _CompanyHomeScreenState();
+}
+
+class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
+  final ApiService _apiService = ApiService();
+  List<dynamic> _jobs = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData({bool forceRefresh = false}) async {
+    setState(() => _isLoading = true);
+    try {
+      final jobsResponse = await _apiService.getCompanyJobs(
+        forceRefresh: forceRefresh,
+      );
+      if (jobsResponse['success']) {
+        setState(() {
+          _jobs = jobsResponse['data'];
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _goToJobsTab() {
+    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
+    dashboard?.navigateToTab(1);
+  }
+
+  void _goToApplicationsTab() {
+    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
+    dashboard?.navigateToTab(2);
+  }
+
+  void _showJobDetailsDialog(BuildContext context, dynamic job) {
+    final isActive = job['status'] == 'open';
+    final applicantsCount = getApplicantsCount(job['applications_count']);
+    final daysLeft = getDaysLeft(job['application_deadline']);
+    final deadlineLabel = formatDeadlineDateTime(job['application_deadline']);
+    final requiredApplicants = getApplicantsCount(job['required_applicants']);
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C3E50).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.work,
+                      color: const Color(0xFF2C3E50),
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          job['title'],
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          job['company_name'] ?? 'Company',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isActive
+                          ? Colors.green.shade50
+                          : Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      isActive ? 'Active' : 'Closed',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isActive
+                            ? Colors.green.shade700
+                            : Colors.red.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+              _buildDetailRow(
+                Icons.location_on,
+                'Location',
+                job['location'] ?? 'Not specified',
+              ),
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                Icons.attach_money,
+                'Salary',
+                job['salary_range'] ?? 'Not specified',
+              ),
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                Icons.work,
+                'Job Type',
+                job['type'] ?? 'Not specified',
+              ),
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                Icons.people,
+                'Applicants',
+                '$applicantsCount applicants',
+              ),
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                Icons.groups,
+                'Needed',
+                '$requiredApplicants applicants',
+              ),
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                Icons.access_time,
+                'Deadline',
+                '$deadlineLabel ($daysLeft)',
+              ),
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 12),
+              const Text(
+                'Description',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                job['description'] ?? 'No description provided',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade700,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Target Candidates',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: (job['target_candidates'] as List? ?? []).map((
+                  target,
+                ) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _formatTargetLabel(target),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2C3E50),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: Colors.grey.shade600),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 80,
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatTargetLabel(String target) {
+    switch (target) {
+      case 'current_students':
+        return 'Current Students';
+      case 'fresh_graduates':
+        return 'Fresh Graduates';
+      case '1-2_years':
+        return '1-2 Years Exp';
+      case '2-3_years':
+        return '2-3 Years Exp';
+      case '3+_years':
+        return '3+ Years Exp';
+      default:
+        return target;
+    }
+  }
+
+  void _showStatsDialog(BuildContext context) {
+    final user = Provider.of<AuthProvider>(context, listen: false).user;
+    final companyName = user?['company_data']?['company_name'] ?? 'Company';
+
+    int totalApplicants = 0;
+    int activeJobs = 0;
+    int closedJobs = 0;
+
+    for (var job in _jobs) {
+      if (job['status'] == 'open') {
+        activeJobs++;
+      } else {
+        closedJobs++;
+      }
+      totalApplicants += getApplicantsCount(job['applications_count']);
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.purple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.analytics, color: Colors.purple),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Company Statistics',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildStatRow('Company Name', companyName),
+            const Divider(),
+            _buildStatRow('Total Jobs', '${_jobs.length}'),
+            _buildStatRow(
+              'Active Jobs',
+              activeJobs.toString(),
+              color: Colors.green,
+            ),
+            _buildStatRow(
+              'Closed Jobs',
+              closedJobs.toString(),
+              color: Colors.red,
+            ),
+            const Divider(),
+            _buildStatRow(
+              'Total Applicants',
+              totalApplicants.toString(),
+              color: Colors.blue,
+            ),
+            _buildStatRow(
+              'Average per Job',
+              _jobs.isEmpty
+                  ? '0'
+                  : (totalApplicants / _jobs.length).toStringAsFixed(1),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(String label, String value, {Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color ?? Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompanyHeaderCard({
+    required String companyName,
+    required int activeJobs,
+    required int totalApplicants,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2C3E50), Color(0xFF34495E)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.business,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome back,',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
+                    ),
+                    Text(
+                      companyName,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _goToJobsTab,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          activeJobs.toString(),
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          'Active Jobs',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _goToApplicationsTab,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          totalApplicants.toString(),
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          'Total Applicants',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = Provider.of<AuthProvider>(context).user;
+    final companyName = user?['company_data']?['company_name'] ?? 'Company';
+
+    int totalApplicants = 0;
+    int activeJobs = 0;
+
+    for (var job in _jobs) {
+      if (job['status'] == 'open') activeJobs++;
+      totalApplicants += getApplicantsCount(job['applications_count']);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.grey.shade50, Colors.white],
+        ),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _buildCompanyHeaderCard(
+              companyName: companyName,
+              activeJobs: activeJobs,
+              totalApplicants: totalApplicants,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Quick Actions',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _buildActionCard(
+                        icon: Icons.add_circle_outline,
+                        title: 'Post Job',
+                        color: Colors.blue,
+                        onTap: () async {
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PostJobScreen(),
+                            ),
+                          );
+                          if (!context.mounted) return;
+                          final dashboard = context
+                              .findAncestorStateOfType<
+                                _CompanyDashboardState
+                              >();
+                          dashboard?._handleRouteNavigationResult(result);
+                          _loadData(forceRefresh: true);
+                        },
+                      ),
+                      _buildActionCard(
+                        icon: Icons.people_outline,
+                        title: 'View Jobs',
+                        color: Colors.green,
+                        onTap: () {
+                          final dashboard = context
+                              .findAncestorStateOfType<
+                                _CompanyDashboardState
+                              >();
+                          dashboard?.navigateToTab(1);
+                        },
+                      ),
+                      _buildActionCard(
+                        icon: Icons.search,
+                        title: 'Find Talent',
+                        color: Colors.orange,
+                        onTap: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Find Talent feature coming soon!'),
+                              backgroundColor: Colors.orange,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildActionCard(
+                        icon: Icons.analytics,
+                        title: 'Statistics',
+                        color: Colors.purple,
+                        onTap: () {
+                          _showStatsDialog(context);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Recent Job Postings',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          final dashboard = context
+                              .findAncestorStateOfType<
+                                _CompanyDashboardState
+                              >();
+                          dashboard?.navigateToTab(1);
+                        },
+                        child: const Text('View All →'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _jobs.isEmpty
+                      ? Container(
+                          padding: const EdgeInsets.all(40),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Column(
+                            children: [
+                              Icon(
+                                Icons.work_off,
+                                size: 48,
+                                color: Colors.grey,
+                              ),
+                              SizedBox(height: 12),
+                              Text('No jobs posted yet'),
+                              Text('Click + to create your first job'),
+                            ],
+                          ),
+                        )
+                      : Column(
+                          children: _jobs.take(3).map((job) {
+                            return _buildJobCard(job);
+                          }).toList(),
+                        ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    final cardWidth = ((MediaQuery.of(context).size.width - 44) / 2)
+        .clamp(120.0, 220.0)
+        .toDouble();
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: cardWidth,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withValues(alpha: 0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJobCard(dynamic job) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C3E50).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.work,
+                  color: const Color(0xFF2C3E50),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      job['title'],
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      job['location'] ?? 'Location not specified',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: job['status'] == 'open'
+                      ? Colors.green.shade50
+                      : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  job['status'] == 'open' ? 'Active' : 'Closed',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: job['status'] == 'open'
+                        ? Colors.green.shade700
+                        : Colors.red.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _buildInfoBadge(
+                icon: Icons.people,
+                label:
+                    '${getApplicantsCount(job['applications_count'])} applicants',
+                color: Colors.blue,
+              ),
+              const SizedBox(width: 10),
+              _buildInfoBadge(
+                icon: Icons.groups,
+                label:
+                    '${getApplicantsCount(job['required_applicants'])} needed',
+                color: Colors.teal,
+              ),
+              const SizedBox(width: 10),
+              _buildInfoBadge(
+                icon: Icons.access_time,
+                label: getDaysLeft(job['application_deadline']),
+                color: getDaysLeft(job['application_deadline']).contains('left')
+                    ? Colors.orange
+                    : Colors.red,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  _showJobDetailsDialog(context, job);
+                },
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  minimumSize: const Size(80, 38),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text(
+                  'Details',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CompanyApplicationsScreen(
+                        jobId: '${job['job_id']}',
+                        jobTitle: '${job['title']}',
+                      ),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2C3E50),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  minimumSize: const Size(90, 38),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text(
+                  'View',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoBadge({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CompanyJobsScreen extends StatefulWidget {
+  final void Function(String jobId, String jobTitle) selectJob;
+
+  const CompanyJobsScreen({super.key, required this.selectJob});
+
+  @override
+  State<CompanyJobsScreen> createState() => _CompanyJobsScreenState();
+}
+
+class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
+  final ApiService _apiService = ApiService();
+  bool _isLoading = true;
+  String? _error;
+  List<dynamic> _jobs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadJobs();
+  }
+
+  Future<void> _loadJobs({bool forceRefresh = false}) async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final response = await _apiService.getCompanyJobs(
+        forceRefresh: forceRefresh,
+      );
+      if (response['success'] == true) {
+        setState(() {
+          _jobs = response['data'] ?? [];
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = response['message']?.toString() ?? 'Failed to load jobs';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _targetLabel(String target) {
+    switch (target) {
+      case 'current_students':
+        return 'Current Students';
+      case 'fresh_graduates':
+        return 'Fresh Graduates';
+      case '1-2_years':
+        return '1-2 Years Exp';
+      case '2-3_years':
+        return '2-3 Years Exp';
+      case '3+_years':
+        return '3+ Years Exp';
+      default:
+        return target;
+    }
+  }
+
+  Future<void> _openPostJob({Map<String, dynamic>? job}) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PostJobScreen(
+          jobId: job?['job_id']?.toString(),
+          initialJobData: job,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
+    dashboard?._handleRouteNavigationResult(result);
+    _loadJobs(forceRefresh: true);
+  }
+
+  void _goToApplicationsTab() {
+    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
+    dashboard?.navigateToTab(2);
+  }
+
+  Widget _buildTopNavigationBar() {
+    Widget navItem({
+      required String label,
+      required IconData icon,
+      required bool selected,
+      required VoidCallback onTap,
+      required Color color,
+    }) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            decoration: BoxDecoration(
+              color: selected ? color : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: selected ? Colors.white : Colors.grey.shade700,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? Colors.white : Colors.grey.shade800,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          navItem(
+            label: 'My Jobs',
+            icon: Icons.work_rounded,
+            selected: true,
+            onTap: () {},
+            color: const Color(0xFF2C3E50),
+          ),
+          const SizedBox(width: 6),
+          navItem(
+            label: 'Applications',
+            icon: Icons.groups_rounded,
+            selected: false,
+            onTap: _goToApplicationsTab,
+            color: const Color(0xFF2C3E50),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(String status) {
+    final isActive = status == 'open';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.green.shade50 : Colors.red.shade50,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        isActive ? 'Active' : 'Closed',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: isActive ? Colors.green.shade700 : Colors.red.shade700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJobsList() {
+    if (_jobs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.work_outline, size: 64, color: Colors.grey.shade400),
+              const SizedBox(height: 12),
+              const Text('No jobs posted yet'),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PostJobScreen()),
+                  );
+                  if (!mounted) return;
+                  final dashboard = context
+                      .findAncestorStateOfType<_CompanyDashboardState>();
+                  dashboard?._handleRouteNavigationResult(result);
+                  _loadJobs(forceRefresh: true);
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Post Job'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _loadJobs(forceRefresh: true),
+      child: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 16),
+        itemCount: _jobs.length + 1,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openPostJob(),
+                      icon: const Icon(Icons.add_circle_outline, size: 18),
+                      label: const Text('Post Job'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _loadJobs(forceRefresh: true),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Refresh'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final job = _jobs[index - 1];
+          final title = '${job['title'] ?? 'Untitled Job'}';
+          final jobId = '${job['job_id']}';
+          final applicants = getApplicantsCount(job['applications_count']);
+          final requiredApplicants = getApplicantsCount(
+            job['required_applicants'],
+          );
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      _buildStatusChip('${job['status'] ?? 'closed'}'),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${job['location'] ?? 'Location not specified'}',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: (job['target_candidates'] as List? ?? []).map((
+                      target,
+                    ) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          _targetLabel('$target'),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '$applicants applicants • $requiredApplicants needed',
+                        style: TextStyle(
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => _openPostJob(job: job),
+                            child: const Text('Edit'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: () => widget.selectJob(jobId, title),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2C3E50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: const Text('Applicants'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () => _loadJobs(forceRefresh: true),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _buildTopNavigationBar(),
+        Expanded(child: _buildJobsList()),
+      ],
+    );
+  }
+}
+
+class CompanyApplicationsTab extends StatefulWidget {
+  final String? jobId;
+  final String? jobTitle;
+  final VoidCallback? onGoToJobs;
+
+  const CompanyApplicationsTab({
+    super.key,
+    required this.jobId,
+    required this.jobTitle,
+    this.onGoToJobs,
+  });
+
+  @override
+  State<CompanyApplicationsTab> createState() => _CompanyApplicationsTabState();
+}
+
+class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
+  final ApiService _apiService = ApiService();
+  bool _isLoading = false;
+  String? _error;
+  List<dynamic> _applications = [];
+
+  String _formatErrorMessage(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.toLowerCase().contains('network')) {
+      return 'Network error';
+    }
+    return message;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApplications();
+  }
+
+  @override
+  void didUpdateWidget(covariant CompanyApplicationsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.jobId != widget.jobId ||
+        oldWidget.jobTitle != widget.jobTitle) {
+      _loadApplications();
+    }
+  }
+
+  bool get _showAllApplications => widget.jobId == null;
+
+  int _countByStatus(String status) {
+    return _applications
+        .where((app) => '${app['status'] ?? 'pending'}' == status)
+        .length;
+  }
+
+  Future<void> _loadApplications() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final response = _showAllApplications
+          ? await _apiService.getCompanyApplications()
+          : await _apiService.getJobApplications(widget.jobId!);
+
+      if (response['success'] == true) {
+        setState(() {
+          _applications = response['data'] ?? [];
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error =
+              response['message']?.toString() ?? 'Failed to load applications';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = _formatErrorMessage(e);
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<DateTime?> _pickInterviewDateTime() async {
+    final now = DateTime.now();
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: DateTime(now.year + 3),
+    );
+    if (pickedDate == null) return null;
+    if (!mounted) return null;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    );
+    if (pickedTime == null) return null;
+
+    return DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+  }
+
+  String _formatDateOnly(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  Future<String?> _promptForVenue() async {
+    return showDialog<String>(
+      context: context,
+      builder: (_) => const _InterviewVenueDialog(),
+    );
+  }
+
+  Future<Map<String, String>?> _collectReportingDates() async {
+    final now = DateTime.now();
+    final startDate = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: DateTime(now.year + 3),
+      helpText: 'Select reporting start date',
+    );
+    if (startDate == null || !mounted) return null;
+
+    final endDate = await showDatePicker(
+      context: context,
+      initialDate: startDate.add(const Duration(days: 1)),
+      firstDate: startDate,
+      lastDate: DateTime(now.year + 3),
+      helpText: 'Select reporting end date',
+    );
+    if (endDate == null) return null;
+
+    return {
+      'reporting_start_date': _formatDateOnly(startDate),
+      'reporting_end_date': _formatDateOnly(endDate),
+    };
+  }
+
+  Future<void> _scheduleInterview(String applicationId) async {
+    final selectedDateTime = await _pickInterviewDateTime();
+    if (selectedDateTime == null || !mounted) return;
+    final interviewVenue = await _promptForVenue();
+    if (interviewVenue == null || interviewVenue.isEmpty) return;
+    await _updateStatus(
+      applicationId,
+      'interview',
+      interviewDate: selectedDateTime.toIso8601String(),
+      interviewVenue: interviewVenue,
+    );
+  }
+
+  Future<void> _acceptApplicant(String applicationId) async {
+    final reportingDates = await _collectReportingDates();
+    if (reportingDates == null) return;
+
+    await _updateStatus(
+      applicationId,
+      'accepted',
+      reportingStartDate: reportingDates['reporting_start_date'],
+      reportingEndDate: reportingDates['reporting_end_date'],
+    );
+  }
+
+  Future<void> _updateStatus(
+    String applicationId,
+    String status, {
+    String? interviewDate,
+    String? interviewVenue,
+    String? reportingStartDate,
+    String? reportingEndDate,
+  }) async {
+    try {
+      final payload = <String, dynamic>{'status': status};
+      if (interviewDate != null) payload['interview_date'] = interviewDate;
+      if (interviewVenue != null) payload['interview_venue'] = interviewVenue;
+      if (reportingStartDate != null) {
+        payload['reporting_start_date'] = reportingStartDate;
+      }
+      if (reportingEndDate != null) {
+        payload['reporting_end_date'] = reportingEndDate;
+      }
+
+      final response = await _apiService.put(
+        '/api/applications/$applicationId',
+        payload,
+        requiresAuth: true,
+      );
+
+      if (response['success'] == true) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Application updated to $status'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadApplications();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response['message']?.toString() ?? 'Failed to update status',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_formatErrorMessage(e)),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'shortlisted':
+        return const Color(0xFF5C7FA3);
+      case 'interview':
+        return const Color(0xFF7D6AA8);
+      case 'accepted':
+        return const Color(0xFF5D8D73);
+      case 'rejected':
+        return const Color(0xFFB26B6B);
+      default:
+        return const Color(0xFFB38A45);
+    }
+  }
+
+  Color _statusBackground(String status) {
+    switch (status) {
+      case 'shortlisted':
+        return const Color(0xFFEAF1F7);
+      case 'interview':
+        return const Color(0xFFF1ECF8);
+      case 'accepted':
+        return const Color(0xFFEAF4EE);
+      case 'rejected':
+        return const Color(0xFFF8ECEC);
+      default:
+        return const Color(0xFFF8F1E3);
+    }
+  }
+
+  bool _hasReachedStatus(String currentStatus, String targetStatus) {
+    const order = ['pending', 'shortlisted', 'interview', 'accepted'];
+    final currentIndex = order.indexOf(currentStatus);
+    final targetIndex = order.indexOf(targetStatus);
+    if (currentStatus == 'rejected') return false;
+    if (currentIndex == -1 || targetIndex == -1) return false;
+    return currentIndex >= targetIndex;
+  }
+
+  Widget _buildActionButton({
+    required String label,
+    required Color color,
+    required bool isActive,
+    required bool isEnabled,
+    required VoidCallback? onPressed,
+  }) {
+    final foreground = isEnabled || isActive ? color : Colors.grey.shade500;
+    final background = isActive
+        ? color.withValues(alpha: 0.14)
+        : (isEnabled ? Colors.white : Colors.grey.shade100);
+
+    return OutlinedButton(
+      onPressed: isEnabled ? onPressed : null,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: foreground,
+        backgroundColor: background,
+        side: BorderSide(
+          color: isEnabled || isActive
+              ? color.withValues(alpha: 0.55)
+              : Colors.grey.shade300,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        elevation: 0,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  void _showApplicationsSummary() {
+    final total = _applications.length;
+    final shortlisted = _countByStatus('shortlisted');
+    final interviewed = _countByStatus('interview');
+    final accepted = _countByStatus('accepted');
+    final rejected = _countByStatus('rejected');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Applications Summary'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSummaryLine('Total', total.toString()),
+            _buildSummaryLine('Shortlisted', shortlisted.toString()),
+            _buildSummaryLine('Interviewed', interviewed.toString()),
+            _buildSummaryLine('Accepted', accepted.toString()),
+            _buildSummaryLine('Rejected', rejected.toString()),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey.shade700)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  void _showAllApplicationsFromTop() {
+    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
+    dashboard?.navigateToTab(2);
+  }
+
+  Widget _buildTopNavigationBar() {
+    Widget navItem({
+      required String label,
+      required IconData icon,
+      required bool selected,
+      required VoidCallback onTap,
+      required Color color,
+    }) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            decoration: BoxDecoration(
+              color: selected ? color : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: selected ? Colors.white : Colors.grey.shade700,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? Colors.white : Colors.grey.shade800,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          navItem(
+            label: _showAllApplications ? 'All Applications' : 'This Job',
+            icon: Icons.grid_view_rounded,
+            selected: true,
+            onTap: () {
+              if (!_showAllApplications) {
+                _showAllApplicationsFromTop();
+              }
+            },
+            color: const Color(0xFF2C3E50),
+          ),
+          const SizedBox(width: 6),
+          navItem(
+            label: 'My Jobs',
+            icon: Icons.work_outline_rounded,
+            selected: false,
+            onTap: () => widget.onGoToJobs?.call(),
+            color: const Color(0xFF2C3E50),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard({
+    required String label,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApplicationCard(dynamic app) {
+    final fullName = '${app['full_name'] ?? 'Unknown Applicant'}';
+    final email = '${app['email'] ?? 'No email'}';
+    final status = '${app['status'] ?? 'pending'}';
+    final statusColor = _statusColor(status);
+    final applicationId = '${app['application_id']}';
+    final jobTitle = '${app['job_title'] ?? widget.jobTitle ?? 'Selected Job'}';
+    final canShortlist = status == 'pending';
+    final canInterview = status == 'shortlisted';
+    final canAccept = status == 'interview';
+    final canReject =
+        status == 'pending' || status == 'shortlisted' || status == 'interview';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.blue.shade100,
+                  child: Text(
+                    fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
+                    style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fullName,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        email,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _statusBackground(status),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    status,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'University: ${app['university_name'] ?? 'N/A'}',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Job: $jobTitle',
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildActionButton(
+                  label: 'Shortlist',
+                  color: Colors.blue,
+                  isActive: _hasReachedStatus(status, 'shortlisted'),
+                  isEnabled: canShortlist,
+                  onPressed: () => _updateStatus(applicationId, 'shortlisted'),
+                ),
+                _buildActionButton(
+                  label: 'Interview',
+                  color: Colors.purple,
+                  isActive: _hasReachedStatus(status, 'interview'),
+                  isEnabled: canInterview,
+                  onPressed: () => _scheduleInterview(applicationId),
+                ),
+                _buildActionButton(
+                  label: 'Accept',
+                  color: Colors.green,
+                  isActive: status == 'accepted',
+                  isEnabled: canAccept,
+                  onPressed: () => _acceptApplicant(applicationId),
+                ),
+                _buildActionButton(
+                  label: 'Reject',
+                  color: Colors.red,
+                  isActive: status == 'rejected',
+                  isEnabled: canReject,
+                  onPressed: () => _updateStatus(applicationId, 'rejected'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
+              const SizedBox(height: 12),
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: _loadApplications,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadApplications,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C3E50),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.assignment_ind, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _showAllApplications
+                        ? 'All Company Applications'
+                        : 'Applications for ${widget.jobTitle ?? 'Selected Job'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _loadApplications,
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildTopNavigationBar(),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _showApplicationsSummary,
+                  icon: const Icon(
+                    Icons.insert_chart_outlined_rounded,
+                    size: 18,
+                  ),
+                  label: const Text('Statistics'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loadApplications,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Refresh'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 560;
+              final cards = [
+                _buildSummaryCard(
+                  label: 'Total',
+                  value: '${_applications.length}',
+                  icon: Icons.groups_2_outlined,
+                  color: const Color(0xFF2C3E50),
+                ),
+                _buildSummaryCard(
+                  label: 'Interviewed',
+                  value: '${_countByStatus('interview')}',
+                  icon: Icons.event_available_outlined,
+                  color: Colors.purple,
+                ),
+                _buildSummaryCard(
+                  label: 'Accepted',
+                  value: '${_countByStatus('accepted')}',
+                  icon: Icons.check_circle_outline,
+                  color: Colors.green,
+                ),
+              ];
+
+              if (compact) {
+                return Column(
+                  children: [
+                    for (final card in cards) ...[
+                      card,
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  for (int i = 0; i < cards.length; i++) ...[
+                    Expanded(child: cards[i]),
+                    if (i != cards.length - 1) const SizedBox(width: 10),
+                  ],
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          if (_applications.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.inbox_outlined,
+                    size: 48,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _showAllApplications
+                        ? 'No applications for your jobs yet'
+                        : 'No applications for this job yet',
+                  ),
+                  if (_showAllApplications) ...[
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: widget.onGoToJobs,
+                      child: const Text('Go to My Jobs'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ..._applications.map(_buildApplicationCard),
+        ],
+      ),
+    );
+  }
+}
+
+class _InterviewVenueDialog extends StatefulWidget {
+  const _InterviewVenueDialog();
+
+  @override
+  State<_InterviewVenueDialog> createState() => _InterviewVenueDialogState();
+}
+
+class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
+  final TextEditingController _controller = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final venue = _controller.text.trim();
+    if (venue.isEmpty) {
+      setState(() {
+        _errorText = 'Venue is required';
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(venue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      scrollable: true,
+      title: const Text('Interview Venue'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: TextField(
+          controller: _controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          textInputAction: TextInputAction.done,
+          maxLines: 2,
+          onSubmitted: (_) => _submit(),
+          decoration: InputDecoration(
+            labelText: 'Venue / Hall',
+            hintText: 'Example: Main Hall, Room 4',
+            errorText: _errorText,
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(onPressed: _submit, child: const Text('Continue')),
+      ],
+    );
+  }
+}
+
+class CompanyProfileScreen extends StatelessWidget {
+  const CompanyProfileScreen({super.key});
+
+  Widget _buildTopNavigationBar(BuildContext context) {
+    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
+
+    Widget navItem({
+      required String label,
+      required IconData icon,
+      required bool selected,
+      required VoidCallback onTap,
+      required Color color,
+    }) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            decoration: BoxDecoration(
+              color: selected ? color : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: selected ? Colors.white : Colors.grey.shade700,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? Colors.white : Colors.grey.shade800,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          navItem(
+            label: 'Home',
+            icon: Icons.dashboard_rounded,
+            selected: false,
+            onTap: () => dashboard?.navigateToTab(0),
+            color: const Color(0xFF2C3E50),
+          ),
+          const SizedBox(width: 6),
+          navItem(
+            label: 'My Jobs',
+            icon: Icons.work_rounded,
+            selected: false,
+            onTap: () => dashboard?.navigateToTab(1),
+            color: const Color(0xFF2C3E50),
+          ),
+          const SizedBox(width: 6),
+          navItem(
+            label: 'Applications',
+            icon: Icons.groups_rounded,
+            selected: false,
+            onTap: () => dashboard?.navigateToTab(2),
+            color: const Color(0xFF2C3E50),
+          ),
+          const SizedBox(width: 6),
+          navItem(
+            label: 'Profile',
+            icon: Icons.business_rounded,
+            selected: true,
+            onTap: () {},
+            color: const Color(0xFF2C3E50),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF2C3E50)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value.isEmpty ? 'Not provided' : value,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = Provider.of<AuthProvider>(context).user;
+    final company = user?['company_data'] ?? {};
+    final companyName = '${company['company_name'] ?? 'Company'}';
+    final rawLogoUrl = company['logo_url']?.toString();
+    final logoUrl = rawLogoUrl == null || rawLogoUrl.isEmpty
+        ? null
+        : (rawLogoUrl.startsWith('http://') || rawLogoUrl.startsWith('https://')
+              ? rawLogoUrl
+              : '${ApiService().baseUrl}$rawLogoUrl');
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildTopNavigationBar(context),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withValues(alpha: 0.12),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 38,
+                  backgroundColor: const Color(
+                    0xFF2C3E50,
+                  ).withValues(alpha: 0.1),
+                  backgroundImage: logoUrl != null && logoUrl.isNotEmpty
+                      ? NetworkImage(logoUrl)
+                      : null,
+                  child: logoUrl == null || logoUrl.isEmpty
+                      ? Text(
+                          companyName.isNotEmpty
+                              ? companyName[0].toUpperCase()
+                              : 'C',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2C3E50),
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  companyName,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${company['industry'] ?? 'Industry not set'}',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const EditCompanyProfileScreen(),
+                        ),
+                      );
+                      if (!context.mounted) return;
+                      final dashboard = context
+                          .findAncestorStateOfType<_CompanyDashboardState>();
+                      dashboard?._handleRouteNavigationResult(result);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2C3E50),
+                    ),
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Edit Profile'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final changed = await showChangePinDialog(context);
+                      if (!context.mounted || changed != true) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('PIN updated successfully'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF2C3E50),
+                      side: const BorderSide(color: Color(0xFF2C3E50)),
+                    ),
+                    icon: const Icon(Icons.pin_outlined),
+                    label: const Text('Change PIN'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final email = user?['email']?.toString() ?? '';
+                      if (email.isEmpty) return;
+                      final changed = await showResetPinDialog(
+                        context,
+                        email: email,
+                      );
+                      if (!context.mounted || changed != true) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('PIN reset successfully'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orange.shade800,
+                      side: BorderSide(color: Colors.orange.shade400),
+                    ),
+                    icon: const Icon(Icons.lock_reset_rounded),
+                    label: const Text('Reset PIN'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildInfoTile(
+            icon: Icons.location_on_outlined,
+            label: 'Location',
+            value: '${company['location'] ?? ''}',
+          ),
+          _buildInfoTile(
+            icon: Icons.language_outlined,
+            label: 'Website',
+            value: '${company['website_url'] ?? ''}',
+          ),
+          _buildInfoTile(
+            icon: Icons.groups_outlined,
+            label: 'Company Size',
+            value: '${company['company_size'] ?? ''}',
+          ),
+          _buildInfoTile(
+            icon: Icons.email_outlined,
+            label: 'Email',
+            value: '${user?['email'] ?? ''}',
+          ),
+          _buildInfoTile(
+            icon: Icons.phone_outlined,
+            label: 'Phone',
+            value: '${user?['phone'] ?? ''}',
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${company['description'] ?? 'No company description added yet.'}',
+              style: TextStyle(color: Colors.grey.shade700, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
