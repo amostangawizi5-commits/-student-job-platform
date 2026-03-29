@@ -22,6 +22,14 @@ const poolConfig = process.env.DATABASE_URL
 // Create PostgreSQL connection pool
 const pool = new Pool(poolConfig);
 
+pool.on('connect', (client) => {
+    client
+        .query('SET search_path TO public')
+        .catch((error) =>
+            console.error('❌ Failed to set PostgreSQL search_path:', error.message)
+        );
+});
+
 // Test database connection
 const connectDB = async () => {
     try {

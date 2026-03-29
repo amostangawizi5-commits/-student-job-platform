@@ -3,8 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiService {
-  // Local fallback for development on the same LAN as the backend server.
-  static const String _defaultLanBaseUrl = 'http://192.168.43.183:5000';
+  // Default mobile backend points to the hosted production API.
+  static const String _defaultApiBaseUrl =
+      'https://student-job-platform-api.onrender.com';
   static const String _webBaseUrl = 'http://localhost:5000';
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
@@ -38,10 +39,10 @@ class ApiService {
       return _webBaseUrl;
     }
 
-    return _defaultLanBaseUrl;
+    return _defaultApiBaseUrl;
   }
 
-  // Physical phones should point to the laptop's LAN IP.
+  // Native apps use the hosted API unless overridden with --dart-define.
   final String baseUrl = _resolveBaseUrl();
 
   final Dio _dio = _sharedDio;
