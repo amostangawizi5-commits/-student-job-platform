@@ -57,6 +57,9 @@ During setup, provide:
 - `PUBLIC_API_URL`
 - `RESET_PASSWORD_BASE_URL`
 - `BREVO_API_KEY`
+- `RESEND_API_KEY`
+- `RESEND_FROM`
+- `RESEND_REPLY_TO`
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
@@ -65,6 +68,12 @@ During setup, provide:
 Set both URL variables to your final public backend URL, for example:
 
 `https://student-job-platform-api.onrender.com`
+
+For password reset emails that work from anywhere:
+
+- Set `PUBLIC_API_URL` and `RESET_PASSWORD_BASE_URL` to the same public HTTPS backend URL.
+- Configure either `RESEND_API_KEY` or `BREVO_API_KEY` for delivery.
+- Do not rely on Gmail SMTP alone on Render free services.
 
 ## 6. Verify Backend
 
@@ -97,6 +106,8 @@ flutter build appbundle --release --dart-define=API_BASE_URL=https://your-api.on
 - Do not keep production secrets in Git.
 - The current local fallback IP in the Flutter app is for development only.
 - Password reset links must use the public HTTPS API URL in production.
+- If `PUBLIC_API_URL` and `RESET_PASSWORD_BASE_URL` are missing, the backend now falls back to the incoming public request host when building reset links.
 - Render free services sleep on idle and wake on the next request.
 - Render free services cannot use SMTP ports `25`, `465`, or `587`, so API mail providers such as Brevo are recommended.
 - In Brevo, verify the sender email you place in `EMAIL_FROM`, otherwise sends can be rejected.
+- In Resend, verify the sending domain or sender address used in `RESEND_FROM`, otherwise password reset emails may not reach inboxes.

@@ -38,13 +38,48 @@ const hashResetToken = (token) => {
     return crypto.createHash('sha256').update(token).digest('hex');
 };
 
-const getPasswordResetBaseUrl = () => {
-    const candidate =
-        process.env.RESET_PASSWORD_BASE_URL ||
-        process.env.PUBLIC_API_URL ||
-        `http://localhost:${process.env.PORT || 5000}`;
+const normalizeBaseUrl = (value) => `${value || ''}`.trim().replace(/\/+$/, '');
 
-    return `${candidate}`.trim().replace(/\/+$/, '');
+const getRequestBaseUrl = (req) => {
+    const origin = normalizeBaseUrl(req.headers.origin);
+    if (origin) {
+        return origin;
+    }
+
+    const forwardedProto = `${req.headers['x-forwarded-proto'] || ''}`
+        .split(',')[0]
+        .trim();
+    const forwardedHost = `${req.headers['x-forwarded-host'] || req.headers.host || ''}`
+        .split(',')[0]
+        .trim();
+
+    if (!forwardedHost) {
+        return '';
+    }
+
+    const protocol =
+        forwardedProto ||
+        req.protocol ||
+        (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+
+    return normalizeBaseUrl(`${protocol}://${forwardedHost}`);
+};
+
+const getPasswordResetBaseUrl = (req) => {
+    const configuredBaseUrl = normalizeBaseUrl(
+        process.env.RESET_PASSWORD_BASE_URL || process.env.PUBLIC_API_URL
+    );
+
+    if (configuredBaseUrl) {
+        return configuredBaseUrl;
+    }
+
+    const requestBaseUrl = getRequestBaseUrl(req);
+    if (requestBaseUrl) {
+        return requestBaseUrl;
+    }
+
+    return normalizeBaseUrl(`http://localhost:${process.env.PORT || 5000}`);
 };
 
 const shouldExposeResetDebugData = () => {
@@ -57,6 +92,39 @@ const shouldExposeResetDebugData = () => {
     }
 
     return process.env.NODE_ENV !== 'production';
+};
+
+const buildPasswordResetDebugResponse = ({
+    resetLink,
+    rawToken,
+    genericMessage,
+    emailError
+}) => {
+    if (!shouldExposeResetDebugData()) {
+        return {
+            statusCode: 503,
+            body: {
+                success: false,
+                message: 'Unable to send password reset email right now. Please try again later.'
+            }
+        };
+    }
+
+    const debugMessage =
+        emailError?.message
+            ? `Email delivery failed on the server. Use the reset link below instead. (${emailError.message})`
+            : `${genericMessage} Email delivery is unavailable right now, so use the reset link below instead.`;
+
+    return {
+        statusCode: 200,
+        body: {
+            success: true,
+            message: debugMessage,
+            debugResetLink: resetLink,
+            debugResetToken: rawToken,
+            emailSent: false
+        }
+    };
 };
 
 const prefersJsonResponse = (req) => {
@@ -520,10 +588,12 @@ const forgotPassword = async (req, res) => {
             [user.user_id, tokenHash, expiryMinutes]
         );
 
-        const resetLink = `${getPasswordResetBaseUrl()}/api/auth/reset-password?token=${rawToken}`;
+        const resetLink = `${getPasswordResetBaseUrl(req)}/api/auth/reset-password?token=${rawToken}`;
+
+        let emailResult = null;
 
         try {
-            await sendPasswordResetEmail({
+            emailResult = await sendPasswordResetEmail({
                 to: user.email,
                 userName: user.full_name,
                 resetLink,
@@ -532,11 +602,30 @@ const forgotPassword = async (req, res) => {
             });
         } catch (emailError) {
             console.error('Forgot password email error:', emailError);
+            const debugResponse = buildPasswordResetDebugResponse({
+                resetLink,
+                rawToken,
+                genericMessage,
+                emailError
+            });
+
+            return res.status(debugResponse.statusCode).json(debugResponse.body);
+        }
+
+        if (emailResult?.skipped) {
+            const debugResponse = buildPasswordResetDebugResponse({
+                resetLink,
+                rawToken,
+                genericMessage
+            });
+
+            return res.status(debugResponse.statusCode).json(debugResponse.body);
         }
 
         const responseBody = {
             success: true,
-            message: genericMessage
+            message: genericMessage,
+            emailSent: true
         };
 
         if (shouldExposeResetDebugData()) {

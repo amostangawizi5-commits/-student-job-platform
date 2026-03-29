@@ -4,6 +4,10 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const os = require('os');
 const path = require('path');
+const {
+    isEmailConfigured,
+    getConfiguredEmailProviders
+} = require('./src/services/email.service');
 
 // Load environment variables
 dotenv.config();
@@ -157,6 +161,15 @@ const startServer = async () => {
             console.log(`📝 API URL: http://localhost:${PORT}`);
             if (publicApiUrl) {
                 console.log(`🌍 Public API URL: ${publicApiUrl}`);
+            }
+            if (isEmailConfigured()) {
+                console.log(
+                    `📧 Email providers configured: ${getConfiguredEmailProviders().join(', ')}`
+                );
+            } else {
+                console.warn(
+                    '📧 Email is not configured. Password reset emails will not be delivered.'
+                );
             }
             const lanUrls = getLanUrls();
             if (lanUrls.length > 0) {

@@ -38,6 +38,24 @@ function isEmailConfigured() {
     return isBrevoConfigured() || isResendConfigured() || isSmtpConfigured();
 }
 
+function getConfiguredEmailProviders() {
+    const providers = [];
+
+    if (isBrevoConfigured()) {
+        providers.push('brevo');
+    }
+
+    if (isResendConfigured()) {
+        providers.push('resend');
+    }
+
+    if (isSmtpConfigured()) {
+        providers.push('smtp');
+    }
+
+    return providers;
+}
+
 function getTransporter() {
     if (transporter) return transporter;
 
@@ -188,31 +206,62 @@ async function sendViaResend({ to, subject, text, html }) {
 }
 
 async function sendMail({ to, subject, text, html }) {
-    if (isBrevoConfigured()) {
-        return sendViaBrevo({ to, subject, text, html });
-    }
+    const configuredProviders = getConfiguredEmailProviders();
+    const providerErrors = [];
+    const payload = { to, subject, text, html };
 
-    if (isResendConfigured()) {
-        return sendViaResend({ to, subject, text, html });
-    }
-
-    if (!isSmtpConfigured()) {
+    if (configuredProviders.length === 0) {
         console.warn(
             'Email service skipped: configure BREVO_API_KEY, RESEND_API_KEY, or SMTP credentials.'
         );
-        return { skipped: true };
+        return {
+            skipped: true,
+            reason: 'not_configured'
+        };
     }
 
-    const mailer = getTransporter();
-    await mailer.sendMail({
-        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-        to,
-        subject,
-        text: stripMarkdown(text),
-        html: html || htmlFromText(text)
-    });
+    if (isBrevoConfigured()) {
+        try {
+            return await sendViaBrevo(payload);
+        } catch (error) {
+            const message = error?.message || `${error}`;
+            providerErrors.push(`Brevo: ${message}`);
+            console.error('Brevo email send failed:', error);
+        }
+    }
 
-    return { skipped: false, provider: 'smtp' };
+    if (isResendConfigured()) {
+        try {
+            return await sendViaResend(payload);
+        } catch (error) {
+            const message = error?.message || `${error}`;
+            providerErrors.push(`Resend: ${message}`);
+            console.error('Resend email send failed:', error);
+        }
+    }
+
+    if (isSmtpConfigured()) {
+        try {
+            const mailer = getTransporter();
+            await mailer.sendMail({
+                from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+                to,
+                subject,
+                text: stripMarkdown(text),
+                html: html || htmlFromText(text)
+            });
+
+            return { skipped: false, provider: 'smtp' };
+        } catch (error) {
+            const message = error?.message || `${error}`;
+            providerErrors.push(`SMTP: ${message}`);
+            console.error('SMTP email send failed:', error);
+        }
+    }
+
+    throw new Error(
+        `All configured email providers failed. ${providerErrors.join(' | ')}`
+    );
 }
 
 async function sendApplicationStatusEmail({
@@ -357,6 +406,7 @@ async function sendPasswordChangedEmail({
 
 module.exports = {
     isEmailConfigured,
+    getConfiguredEmailProviders,
     sendApplicationStatusEmail,
     sendPasswordResetEmail,
     sendPasswordChangedEmail

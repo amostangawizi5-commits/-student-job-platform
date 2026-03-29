@@ -18,9 +18,9 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: PUBLIC_API_URL
-        sync: false
+        value: https://student-job-platform-api.onrender.com
       - key: RESET_PASSWORD_BASE_URL
-        sync: false
+        value: https://student-job-platform-api.onrender.com
       - key: ALLOWED_ORIGINS
         value: ""
       - key: BREVO_API_KEY
@@ -43,6 +43,8 @@ services:
         sync: false
       - key: PASSWORD_RESET_TOKEN_TTL_MINUTES
         value: 60
+      - key: EXPOSE_RESET_DEBUG_LINKS
+        value: "false"
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY

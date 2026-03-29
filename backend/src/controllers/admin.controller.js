@@ -23,13 +23,60 @@ const hashResetToken = (token) => {
     return crypto.createHash('sha256').update(token).digest('hex');
 };
 
-const getPasswordResetBaseUrl = () => {
-    const candidate =
-        process.env.RESET_PASSWORD_BASE_URL ||
-        process.env.PUBLIC_API_URL ||
-        `http://localhost:${process.env.PORT || 5000}`;
+const normalizeBaseUrl = (value) => `${value || ''}`.trim().replace(/\/+$/, '');
 
-    return `${candidate}`.trim().replace(/\/+$/, '');
+const getRequestBaseUrl = (req) => {
+    const origin = normalizeBaseUrl(req.headers.origin);
+    if (origin) {
+        return origin;
+    }
+
+    const forwardedProto = `${req.headers['x-forwarded-proto'] || ''}`
+        .split(',')[0]
+        .trim();
+    const forwardedHost = `${req.headers['x-forwarded-host'] || req.headers.host || ''}`
+        .split(',')[0]
+        .trim();
+
+    if (!forwardedHost) {
+        return '';
+    }
+
+    const protocol =
+        forwardedProto ||
+        req.protocol ||
+        (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+
+    return normalizeBaseUrl(`${protocol}://${forwardedHost}`);
+};
+
+const getPasswordResetBaseUrl = (req) => {
+    const configuredBaseUrl = normalizeBaseUrl(
+        process.env.RESET_PASSWORD_BASE_URL || process.env.PUBLIC_API_URL
+    );
+
+    if (configuredBaseUrl) {
+        return configuredBaseUrl;
+    }
+
+    const requestBaseUrl = getRequestBaseUrl(req);
+    if (requestBaseUrl) {
+        return requestBaseUrl;
+    }
+
+    return normalizeBaseUrl(`http://localhost:${process.env.PORT || 5000}`);
+};
+
+const shouldExposeResetDebugData = () => {
+    const flag = `${process.env.EXPOSE_RESET_DEBUG_LINKS || ''}`
+        .trim()
+        .toLowerCase();
+
+    if (['1', 'true', 'yes', 'on'].includes(flag)) {
+        return true;
+    }
+
+    return process.env.NODE_ENV !== 'production';
 };
 
 // Get all users
@@ -398,7 +445,7 @@ const resetUserPassword = async (req, res) => {
             [id, tokenHash, expiryMinutes]
         );
 
-        const resetLink = `${getPasswordResetBaseUrl()}/api/auth/reset-password?token=${rawToken}`;
+        const resetLink = `${getPasswordResetBaseUrl(req)}/api/auth/reset-password?token=${rawToken}`;
         let emailResult = { skipped: true };
         try {
             emailResult = await sendPasswordResetEmail({
@@ -410,17 +457,37 @@ const resetUserPassword = async (req, res) => {
             });
         } catch (emailError) {
             console.error('Password reset email error:', emailError);
+            return res.status(503).json({
+                success: false,
+                message: 'Unable to send password reset email right now.',
+                ...(shouldExposeResetDebugData()
+                    ? {
+                        debugResetLink: resetLink,
+                        debugResetToken: rawToken
+                    }
+                    : {})
+            });
         }
 
-        const message = emailResult.skipped
-            ? `Reset link created for ${user.full_name || 'user'}, but email was not sent`
-            : `Reset link sent successfully to ${user.email}`;
+        if (emailResult.skipped) {
+            return res.status(503).json({
+                success: false,
+                message: 'Password reset email is not configured on the server.',
+                ...(shouldExposeResetDebugData()
+                    ? {
+                        debugResetLink: resetLink,
+                        debugResetToken: rawToken
+                    }
+                    : {})
+            });
+        }
+        const message = `Reset link sent successfully to ${user.email}`;
 
         res.json({
             success: true,
             message,
             data: {
-                email_sent: !emailResult.skipped,
+                email_sent: true,
                 email: user.email,
                 expires_in_minutes: expiryMinutes
             }
