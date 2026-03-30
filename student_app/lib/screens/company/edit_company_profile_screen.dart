@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -37,6 +38,8 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
   String? _selectedCompanySize;
   String? _selectedIndustry;
   String? _logoUrl;
+  String? _stampUrl;
+  String? _signatureUrl;
   bool _isLoading = false;
   bool _isChangingPassword = false;
 
@@ -92,6 +95,8 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
 
       _companyNameController.text = companyData?['company_name'] ?? '';
       _logoUrl = companyData?['logo_url']?.toString();
+      _stampUrl = companyData?['stamp_url']?.toString();
+      _signatureUrl = companyData?['signature_url']?.toString();
 
       String? industry = companyData?['industry'];
       if (industry != null && !_industries.contains(industry)) {
@@ -118,12 +123,12 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
   }
 
-  String? _resolveLogoUrl(String? logoPath) {
-    if (logoPath == null || logoPath.isEmpty) return null;
-    if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
-      return logoPath;
+  String? _resolveAssetUrl(String? assetPath) {
+    if (assetPath == null || assetPath.isEmpty) return null;
+    if (assetPath.startsWith('http://') || assetPath.startsWith('https://')) {
+      return assetPath;
     }
-    return '${_apiService.baseUrl}$logoPath';
+    return '${_apiService.baseUrl}$assetPath';
   }
 
   Future<void> _uploadLogo() async {
@@ -131,6 +136,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['jpg', 'jpeg', 'png'],
+        withData: kIsWeb,
       );
       if (!mounted) return;
 
@@ -148,7 +154,8 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         }
 
         final filePath = file.path;
-        if (filePath == null || filePath.isEmpty) {
+        final fileBytes = file.bytes;
+        if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Selected file path is invalid'),
@@ -159,7 +166,11 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         }
         setState(() => _isLoading = true);
 
-        final response = await _apiService.uploadCompanyLogo(filePath);
+        final response = await _apiService.uploadCompanyLogo(
+          filePath: filePath,
+          fileBytes: fileBytes,
+          fileName: file.name,
+        );
         if (!mounted) return;
 
         if (response['success']) {
@@ -510,7 +521,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               ),
                               child: Builder(
                                 builder: (context) {
-                                  final logoPreviewUrl = _resolveLogoUrl(
+                                  final logoPreviewUrl = _resolveAssetUrl(
                                     _logoUrl,
                                   );
                                   if (logoPreviewUrl != null) {
@@ -571,7 +582,94 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // ========== CARD 2: COMPANY INFORMATION ==========
+                // ========== CARD 2: ACCEPTANCE LETTER ASSETS ==========
+                Container(
+                  width: MediaQuery.of(context).size.width * 0.85,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withValues(alpha: 0.08),
+                        spreadRadius: 1,
+                        blurRadius: 8,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.approval_rounded,
+                              color: Color(0xFF2C3E50),
+                              size: 20,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Acceptance Letter Assets',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2C3E50),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Upload a JPG/JPEG company stamp and signature once. Accepted response letters will use them automatically.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            _buildLetterAssetTile(
+                              title: 'Company Stamp',
+                              subtitle:
+                                  'Used on the official rubber stamp area',
+                              assetUrl: _stampUrl,
+                              emptyIcon: Icons.verified_outlined,
+                              onTap: () => _uploadAcceptanceLetterAsset(
+                                isSignature: false,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            _buildLetterAssetTile(
+                              title: 'Digital Signature',
+                              subtitle:
+                                  'Placed on the authorizing officer signature line',
+                              assetUrl: _signatureUrl,
+                              emptyIcon: Icons.draw_outlined,
+                              onTap: () => _uploadAcceptanceLetterAsset(
+                                isSignature: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'If these are not uploaded yet, the PDF will still be generated with blank spaces for manual stamping and signing.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // ========== CARD 3: COMPANY INFORMATION ==========
                 Container(
                   width:
                       MediaQuery.of(context).size.width *
@@ -836,7 +934,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // ========== CARD 3: CHANGE PASSWORD ==========
+                // ========== CARD 4: CHANGE PASSWORD ==========
                 Container(
                   width:
                       MediaQuery.of(context).size.width *
@@ -1059,6 +1157,183 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 const SizedBox(height: 20),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _uploadAcceptanceLetterAsset({required bool isSignature}) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg'],
+        withData: kIsWeb,
+      );
+      if (!mounted || result == null) return;
+
+      final file = result.files.first;
+      if (file.size > 5 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('File size should be less than 5MB'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final filePath = file.path;
+      final fileBytes = file.bytes;
+      if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selected file path is invalid'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      setState(() => _isLoading = true);
+      final response = isSignature
+          ? await _apiService.uploadCompanySignature(
+              filePath: filePath,
+              fileBytes: fileBytes,
+              fileName: file.name,
+            )
+          : await _apiService.uploadCompanyStamp(
+              filePath: filePath,
+              fileBytes: fileBytes,
+              fileName: file.name,
+            );
+      if (!mounted) return;
+
+      if (response['success'] == true) {
+        final uploadedUrl =
+            response['data']?[isSignature ? 'signature_url' : 'stamp_url']
+                ?.toString();
+        setState(() {
+          if (isSignature) {
+            _signatureUrl = uploadedUrl;
+          } else {
+            _stampUrl = uploadedUrl;
+          }
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isSignature
+                  ? 'Digital signature uploaded successfully!'
+                  : 'Company stamp uploaded successfully!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        await Provider.of<AuthProvider>(context, listen: false).loadProfile();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response['message'] ?? 'Upload failed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Widget _buildLetterAssetTile({
+    required String title,
+    required String subtitle,
+    required String? assetUrl,
+    required IconData emptyIcon,
+    required VoidCallback onTap,
+    double previewWidth = 110,
+    double previewHeight = 72,
+  }) {
+    final previewUrl = _resolveAssetUrl(assetUrl);
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2C3E50),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                height: previewHeight,
+                width: previewWidth,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                alignment: Alignment.center,
+                child: previewUrl == null
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(emptyIcon, color: Colors.grey.shade500),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Upload JPG',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ],
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: Image.network(
+                          previewUrl,
+                          fit: BoxFit.contain,
+                          width: double.infinity,
+                          height: double.infinity,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(emptyIcon, color: Colors.grey.shade500);
+                          },
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                previewUrl == null ? 'Tap to upload' : 'Tap to replace',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blueGrey.shade700,
+                ),
+              ),
+            ],
           ),
         ),
       ),

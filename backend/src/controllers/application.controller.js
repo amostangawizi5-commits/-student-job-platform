@@ -2,6 +2,8 @@ const ApplicationModel = require('../models/application.model');
 const NotificationModel = require('../models/notification.model');
 const { query } = require('../config/database');
 const { sendApplicationStatusEmail } = require('../services/email.service');
+const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
+const { buildAcceptanceLetterPdf } = require('../services/acceptance-letter.service');
 
 function formatInterviewDate(dateValue) {
     if (!dateValue) return null;
@@ -35,11 +37,46 @@ function cleanTextValue(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+async function getApplicationWithOwnership(applicationId) {
+    const result = await query(
+        `SELECT
+            a.*,
+            j.title as job_title,
+            j.company_id,
+            c.company_name,
+            c.company_id as company_id,
+            c.location as company_location,
+            c.website_url as company_website_url,
+            c.logo_url,
+            c.stamp_url,
+            c.signature_url,
+            s.program,
+            u2.name as university_name,
+            u.email as student_email,
+            u.full_name as student_name,
+            cu.email as company_email,
+            cu.phone as company_phone
+         FROM applications a
+         JOIN jobs j ON a.job_id = j.job_id
+         JOIN companies c ON j.company_id = c.company_id
+         JOIN students s ON a.student_id = s.student_id
+         JOIN users u ON a.student_id = u.user_id
+         JOIN users cu ON c.company_id = cu.user_id
+         LEFT JOIN universities u2 ON s.university_id = u2.university_id
+         WHERE a.application_id = $1`,
+        [applicationId]
+    );
+
+    return result.rows[0] || null;
+}
+
 // Apply for a job
 const applyForJob = async (req, res) => {
+    let uploadedSupportiveDocument = null;
     try {
         const { job_id, cover_letter } = req.body;
         const student_id = req.user.user_id;
+        const supportiveDocument = req.file;
 
         const jobData = await query(
             `SELECT job_id, title, status, application_deadline
@@ -79,6 +116,13 @@ const applyForJob = async (req, res) => {
             });
         }
 
+        if (!supportiveDocument) {
+            return res.status(400).json({
+                success: false,
+                message: 'Supportive document PDF is required when applying'
+            });
+        }
+
         // Check if already applied
         const alreadyApplied = await ApplicationModel.hasApplied(student_id, job_id);
         if (alreadyApplied) {
@@ -88,10 +132,22 @@ const applyForJob = async (req, res) => {
             });
         }
 
+        uploadedSupportiveDocument = await uploadAsset({
+            buffer: supportiveDocument.buffer,
+            mimeType: supportiveDocument.mimetype,
+            originalName: supportiveDocument.originalname,
+            localSubdir: 'application-support-documents',
+            fileNamePrefix: 'supportive-document',
+            cloudinaryFolder: 'student-job-platform/application-support-documents',
+            cloudinaryResourceType: 'raw'
+        });
+
         const application = await ApplicationModel.create({
             student_id,
             job_id,
-            cover_letter: cover_letter || ''
+            cover_letter: cleanTextValue(cover_letter),
+            supportive_document_url: uploadedSupportiveDocument.secureUrl,
+            supportive_document_name: supportiveDocument.originalname
         });
 
         // Notify company about new application request (non-blocking)
@@ -123,10 +179,77 @@ const applyForJob = async (req, res) => {
             data: application
         });
     } catch (error) {
+        if (uploadedSupportiveDocument?.secureUrl) {
+            await deleteAssetByUrl({
+                fileUrl: uploadedSupportiveDocument.secureUrl,
+                resourceType: 'raw'
+            }).catch(() => false);
+        }
         console.error('Apply error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to submit application',
+            error: error.message
+        });
+    }
+};
+
+const reviewSupportiveDocument = async (req, res) => {
+    try {
+        const { application_id } = req.params;
+        const { supportive_document_verified, verification_notes } = req.body;
+
+        if (typeof supportive_document_verified !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'Please choose whether the supportive document is authentic or not'
+            });
+        }
+
+        const app = await getApplicationWithOwnership(application_id);
+        if (!app) {
+            return res.status(404).json({
+                success: false,
+                message: 'Application not found'
+            });
+        }
+
+        if (`${app.company_id}` !== `${req.user.user_id}`) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to review this application'
+            });
+        }
+
+        const updated = await ApplicationModel.reviewSupportiveDocument(
+            application_id,
+            supportive_document_verified,
+            cleanTextValue(verification_notes) || null
+        );
+
+        await NotificationModel.create({
+            user_id: app.student_id,
+            title: supportive_document_verified
+                ? 'Support Document Verified'
+                : 'Support Document Needs Attention',
+            message: supportive_document_verified
+                ? `Your supportive document for **${app.job_title}** at **${app.company_name}** was verified by the company.`
+                : `Your supportive document for **${app.job_title}** at **${app.company_name}** was marked as not authentic. Check your application updates for details.`,
+            type: 'application'
+        });
+
+        return res.json({
+            success: true,
+            message: supportive_document_verified
+                ? 'Supportive document marked as authentic'
+                : 'Supportive document marked as not authentic',
+            data: updated
+        });
+    } catch (error) {
+        console.error('Review supportive document error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to review supportive document',
             error: error.message
         });
     }
@@ -193,6 +316,7 @@ const getCompanyApplications = async (req, res) => {
 
 // Update application status (Company only)
 const updateApplicationStatus = async (req, res) => {
+    let uploadedResponseLetter = null;
     try {
         const { application_id } = req.params;
         const {
@@ -201,10 +325,23 @@ const updateApplicationStatus = async (req, res) => {
             interview_date,
             interview_venue,
             reporting_start_date,
-            reporting_end_date
+            reporting_end_date,
+            organization_name,
+            student_registration_number,
+            college_name,
+            section_department,
+            officer_name,
+            officer_designation,
+            officer_phone,
+            officer_email,
+            officer_region,
+            officer_district,
+            officer_area,
+            letter_date
         } = req.body;
 
         const interviewVenue = cleanTextValue(interview_venue);
+        const feedbackText = cleanTextValue(feedback);
         const reportingStart = reporting_start_date ? new Date(reporting_start_date) : null;
         const reportingEnd = reporting_end_date ? new Date(reporting_end_date) : null;
 
@@ -246,28 +383,128 @@ const updateApplicationStatus = async (req, res) => {
         }
         
         // Get application details with job and company info
-        const applicationDetails = await query(
-            `SELECT a.*, j.title as job_title, j.company_id, c.company_name, c.company_id as company_id,
-                    u.email as student_email, u.full_name as student_name
-             FROM applications a
-             JOIN jobs j ON a.job_id = j.job_id
-             JOIN companies c ON j.company_id = c.company_id
-             JOIN users u ON a.student_id = u.user_id
-             WHERE a.application_id = $1`,
-            [application_id]
-        );
-        
-        if (applicationDetails.rows.length === 0) {
+        const app = await getApplicationWithOwnership(application_id);
+
+        if (!app) {
             return res.status(404).json({
                 success: false,
                 message: 'Application not found'
             });
         }
-        
-        const app = applicationDetails.rows[0];
+
+        if (`${app.company_id}` !== `${req.user.user_id}`) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to update this application'
+            });
+        }
+
+        if (app.supportive_document_verified === null) {
+            return res.status(400).json({
+                success: false,
+                message: 'Review the supportive document before sending an application response'
+            });
+        }
+
+        if (app.supportive_document_verified === false && status !== 'rejected') {
+            return res.status(400).json({
+                success: false,
+                message: 'A document marked as not authentic can only be rejected'
+            });
+        }
+
+        if (status === 'accepted') {
+            const organizationName = cleanTextValue(organization_name) || app.company_name;
+            const registrationNumber = cleanTextValue(student_registration_number);
+            const collegeName = cleanTextValue(college_name) || 'College of Informatics and Virtual Education';
+            const sectionDepartment = cleanTextValue(section_department);
+            const officerName = cleanTextValue(officer_name);
+            const officerDesignation = cleanTextValue(officer_designation);
+            const officerPhone = cleanTextValue(officer_phone);
+            const officerEmail = cleanTextValue(officer_email);
+            const officerRegion = cleanTextValue(officer_region);
+            const officerDistrict = cleanTextValue(officer_district);
+            const officerArea = cleanTextValue(officer_area);
+            const letterDate = cleanTextValue(letter_date);
+
+            if (
+                !registrationNumber ||
+                !sectionDepartment ||
+                !officerName ||
+                !officerDesignation ||
+                !officerPhone ||
+                !officerEmail ||
+                !officerRegion ||
+                !officerDistrict ||
+                !officerArea
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Acceptance letter details are required before accepting an applicant'
+                });
+            }
+
+            const acceptanceLetterBuffer = await buildAcceptanceLetterPdf({
+                organizationName,
+                studentName: app.student_name,
+                registrationNumber,
+                collegeName,
+                universityName: app.university_name || 'University of Dodoma',
+                sectionDepartment,
+                officerName,
+                officerDesignation,
+                officerPhone,
+                officerEmail,
+                officerRegion,
+                officerDistrict,
+                officerArea,
+                startDate: reporting_start_date,
+                endDate: reporting_end_date,
+                letterDate,
+                companyLogoUrl: app.logo_url,
+                footerCompanyName: organizationName || app.company_name,
+                footerLocation: app.company_location,
+                footerPhone: app.company_phone,
+                footerEmail: app.company_email,
+                footerWebsite: app.company_website_url,
+                stampImageUrl: app.stamp_url,
+                signatureImageUrl: app.signature_url
+            });
+
+            uploadedResponseLetter = await uploadAsset({
+                buffer: acceptanceLetterBuffer,
+                mimeType: 'application/pdf',
+                originalName: `${app.student_name || 'student'}-acceptance-letter.pdf`,
+                localSubdir: 'response-letters',
+                fileNamePrefix: 'response-letter',
+                cloudinaryFolder: 'student-job-platform/response-letters',
+                cloudinaryResourceType: 'raw'
+            });
+        }
         
         // Update application status
-        const updated = await ApplicationModel.updateStatus(application_id, status, feedback);
+        const updated = await ApplicationModel.updateStatus(
+            application_id,
+            status,
+            feedbackText || null,
+            {
+                response_letter_url: uploadedResponseLetter?.secureUrl || null,
+                response_letter_name: uploadedResponseLetter
+                    ? `${app.student_name || 'student'}-acceptance-letter.pdf`
+                    : null
+            }
+        );
+
+        if (
+            uploadedResponseLetter?.secureUrl &&
+            app.response_letter_url &&
+            app.response_letter_url !== uploadedResponseLetter.secureUrl
+        ) {
+            await deleteAssetByUrl({
+                fileUrl: app.response_letter_url,
+                resourceType: 'raw'
+            });
+        }
         
         // Send notification to student based on status
         let title = '';
@@ -305,13 +542,13 @@ const updateApplicationStatus = async (req, res) => {
                     message =
                         `Congratulations! You have been accepted for the position of **${app.job_title}** at **${app.company_name}**.\n` +
                         `Reporting Period: ${reportingStartLabel} to ${reportingEndLabel}\n` +
-                        `Please report between the dates above and check your email for next steps. Welcome aboard!`;
+                        `Your acceptance response letter is ready in My Applications for download. Welcome aboard!`;
                 }
                 break;
             case 'rejected':
                 title = '📝 Application Update';
-                if (feedback && feedback.trim() !== '') {
-                    message = `Thank you for applying for **${app.job_title}** at **${app.company_name}**. After careful review, we regret to inform you that your application was not successful. Feedback: "${feedback}". Keep improving your skills and apply again!`;
+                if (feedbackText !== '') {
+                    message = `Thank you for applying for **${app.job_title}** at **${app.company_name}**. After careful review, we regret to inform you that your application was not successful. Feedback: "${feedbackText}". Keep improving your skills and apply again!`;
                 } else {
                     message = `Thank you for applying for **${app.job_title}** at **${app.company_name}**. After careful review, we regret to inform you that your application was not successful. Don't give up! Keep learning and apply for other opportunities.`;
                 }
@@ -348,6 +585,12 @@ const updateApplicationStatus = async (req, res) => {
             data: updated
         });
     } catch (error) {
+        if (uploadedResponseLetter?.secureUrl) {
+            await deleteAssetByUrl({
+                fileUrl: uploadedResponseLetter.secureUrl,
+                resourceType: 'raw'
+            }).catch(() => false);
+        }
         console.error('Update status error:', error);
         res.status(500).json({
             success: false,
@@ -359,6 +602,7 @@ const updateApplicationStatus = async (req, res) => {
 
 module.exports = {
     applyForJob,
+    reviewSupportiveDocument,
     getMyApplications,
     getJobApplications,
     getCompanyApplications,

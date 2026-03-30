@@ -755,10 +755,8 @@ const forgotPassword = async (req, res) => {
 
         const resetLink = `${getPasswordResetBaseUrl(req)}/api/auth/reset-password?token=${rawToken}`;
 
-        let emailResult = null;
-
         try {
-            emailResult = await sendPasswordResetEmail({
+            await sendPasswordResetEmail({
                 to: user.email,
                 userName: user.full_name,
                 resetLink,
@@ -767,38 +765,17 @@ const forgotPassword = async (req, res) => {
             });
         } catch (emailError) {
             console.error('Forgot password email error:', emailError);
-            const debugResponse = buildPasswordResetDebugResponse({
-                resetLink,
-                rawToken,
-                genericMessage,
-                emailError
+            return res.json({
+                success: true,
+                message: genericMessage
             });
-
-            return res.status(debugResponse.statusCode).json(debugResponse.body);
         }
 
-        if (emailResult?.skipped) {
-            const debugResponse = buildPasswordResetDebugResponse({
-                resetLink,
-                rawToken,
-                genericMessage
-            });
-
-            return res.status(debugResponse.statusCode).json(debugResponse.body);
-        }
-
-        const responseBody = {
+        return res.json({
             success: true,
             message: genericMessage,
             emailSent: true
-        };
-
-        if (shouldExposeResetDebugData()) {
-            responseBody.debugResetLink = resetLink;
-            responseBody.debugResetToken = rawToken;
-        }
-
-        return res.json(responseBody);
+        });
     } catch (error) {
         console.error('Forgot password error:', error);
         return res.status(500).json({

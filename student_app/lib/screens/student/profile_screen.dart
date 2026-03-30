@@ -30,6 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isUploadingProfileImage = false;
   bool _isDeletingProfileImage = false;
   String? _selectedResumePath;
+  Uint8List? _selectedResumeBytes;
   String? _selectedResumeName;
   int? _selectedResumeSize;
 
@@ -166,14 +167,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'doc', 'docx'],
+        withData: kIsWeb,
       );
 
       if (result != null) {
         final file = result.files.single;
         final String? filePath = file.path;
+        final fileBytes = file.bytes;
 
         if (!mounted) return;
-        if (filePath == null || filePath.isEmpty) {
+        if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
@@ -197,6 +200,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         setState(() {
           _selectedResumePath = filePath;
+          _selectedResumeBytes = fileBytes;
           _selectedResumeName = file.name;
           _selectedResumeSize = file.size;
         });
@@ -212,16 +216,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ============ RESUME UPLOAD METHOD ============
   Future<void> _uploadResume() async {
     try {
-      if (_selectedResumePath == null || _selectedResumePath!.isEmpty) {
+      if (!_hasSelectedResume) {
         await _pickResume();
-        if (_selectedResumePath == null || _selectedResumePath!.isEmpty) {
+        if (!_hasSelectedResume) {
           return;
         }
       }
 
       setState(() => _isLoading = true);
 
-      final response = await _apiService.uploadResume(_selectedResumePath!);
+      final response = await _apiService.uploadResume(
+        filePath: _selectedResumePath,
+        fileBytes: _selectedResumeBytes,
+        fileName: _selectedResumeName ?? 'resume_upload',
+      );
       if (!mounted) return;
 
       if (_isSuccessResponse(response)) {
@@ -233,6 +241,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
         setState(() {
           _selectedResumePath = null;
+          _selectedResumeBytes = null;
           _selectedResumeName = null;
           _selectedResumeSize = null;
         });
@@ -259,9 +268,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _clearSelectedResume() {
     setState(() {
       _selectedResumePath = null;
+      _selectedResumeBytes = null;
       _selectedResumeName = null;
       _selectedResumeSize = null;
     });
+  }
+
+  bool get _hasSelectedResume {
+    return (_selectedResumePath?.isNotEmpty ?? false) ||
+        _selectedResumeBytes != null;
   }
 
   String _formatFileSize(int bytes) {
@@ -285,7 +300,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _pickOrUploadResume() async {
-    if (_selectedResumePath == null || _selectedResumePath!.isEmpty) {
+    if (!_hasSelectedResume) {
       await _pickResume();
       return;
     }
@@ -309,13 +324,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['jpg', 'jpeg', 'png'],
+        withData: kIsWeb,
       );
 
       if (!mounted || result == null) return;
 
       final file = result.files.single;
       final filePath = file.path;
-      if (filePath == null || filePath.isEmpty) {
+      final fileBytes = file.bytes;
+      if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Unable to read selected image.'),
@@ -336,7 +353,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       setState(() => _isUploadingProfileImage = true);
-      final response = await _apiService.uploadStudentProfileImage(filePath);
+      final response = await _apiService.uploadStudentProfileImage(
+        filePath: filePath,
+        fileBytes: fileBytes,
+        fileName: file.name,
+      );
       if (!mounted) return;
 
       if (_isSuccessResponse(response)) {
@@ -495,6 +516,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _downloadUploadedResume(String resumePath) async {
     if (_isDownloadingResume) return;
+
+    if (kIsWeb) {
+      await _openUploadedResume(resumePath);
+      return;
+    }
 
     setState(() => _isDownloadingResume = true);
 
@@ -1468,7 +1494,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       ),
                                     ),
                                     child: Text(
-                                      _selectedResumePath == null
+                                      !_hasSelectedResume
                                           ? 'Choose CV'
                                           : 'Upload',
                                       style: const TextStyle(fontSize: 13),

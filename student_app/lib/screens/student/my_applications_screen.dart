@@ -1,4 +1,10 @@
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_service.dart';
 
 class MyApplicationsScreen extends StatefulWidget {
@@ -20,6 +26,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   List<dynamic> _applications = [];
   bool _isLoading = true;
   String _selectedFilter = 'all';
+  final Set<String> _downloadingResponseLetters = <String>{};
 
   @override
   void initState() {
@@ -170,6 +177,140 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     }
   }
 
+  String _resolveFileUrl(String path) {
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '${_apiService.baseUrl}$normalized';
+  }
+
+  Future<Directory> _getDownloadDirectory() async {
+    if (Platform.isAndroid) {
+      final androidDownload = Directory('/storage/emulated/0/Download');
+      if (await androidDownload.exists()) {
+        return androidDownload;
+      }
+    }
+
+    final downloads = await getDownloadsDirectory();
+    if (downloads != null) return downloads;
+
+    return getApplicationDocumentsDirectory();
+  }
+
+  String _sanitizeFileName(String fileName) {
+    final trimmed = fileName.trim();
+    final fallback =
+        'response_letter_${DateTime.now().millisecondsSinceEpoch}.pdf';
+    final normalized = trimmed.isEmpty ? fallback : trimmed;
+    return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+  }
+
+  Future<void> _openFile(
+    String? fileUrl, {
+    required String invalidMessage,
+    required String failureMessage,
+  }) async {
+    if (fileUrl == null || fileUrl.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final uri = Uri.tryParse(_resolveFileUrl(fileUrl));
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(failureMessage), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _downloadFile(
+    String? fileUrl, {
+    required String fileName,
+    required String invalidMessage,
+    required String failureMessage,
+    required String successLabel,
+  }) async {
+    if (fileUrl == null || fileUrl.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    if (kIsWeb) {
+      await _openFile(
+        fileUrl,
+        invalidMessage: invalidMessage,
+        failureMessage: failureMessage,
+      );
+      return;
+    }
+
+    final resolvedUrl = _resolveFileUrl(fileUrl);
+
+    setState(() => _downloadingResponseLetters.add(resolvedUrl));
+
+    try {
+      final downloadDir = await _getDownloadDirectory();
+      if (!await downloadDir.exists()) {
+        await downloadDir.create(recursive: true);
+      }
+
+      final safeFileName = _sanitizeFileName(fileName);
+      final savePath = '${downloadDir.path}/$safeFileName';
+      await Dio().download(resolvedUrl, savePath);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$successLabel: $savePath'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$failureMessage: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingResponseLetters.remove(resolvedUrl));
+      }
+    }
+  }
+
+  String _documentReviewText(dynamic verifiedValue) {
+    if (verifiedValue == true) return 'Authentic';
+    if (verifiedValue == false) return 'Not Authentic';
+    return 'Pending Review';
+  }
+
+  Color _documentReviewColor(dynamic verifiedValue) {
+    if (verifiedValue == true) return Colors.green;
+    if (verifiedValue == false) return Colors.red;
+    return Colors.orange;
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredApplications = _getFilteredApplications();
@@ -274,6 +415,25 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           final statusColor = _getStatusColor(status);
           final statusText = _getStatusText(status);
           final statusIcon = _getStatusIcon(status);
+          final reviewColor = _documentReviewColor(
+            app['supportive_document_verified'],
+          );
+          final reviewText = _documentReviewText(
+            app['supportive_document_verified'],
+          );
+          final verificationNotes =
+              app['supportive_document_verification_notes']?.toString();
+          final companyFeedback = app['company_feedback']?.toString();
+          final responseLetterUrl = app['response_letter_url']?.toString();
+          final responseLetterName =
+              app['response_letter_name']?.toString() ?? 'response_letter.pdf';
+          final isDownloadingResponseLetter =
+              responseLetterUrl != null &&
+              _downloadingResponseLetters.contains(
+                _resolveFileUrl(responseLetterUrl),
+              );
+          final supportiveDocumentUrl = app['supportive_document_url']
+              ?.toString();
 
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
@@ -348,6 +508,63 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: reviewColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: reviewColor.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.verified_outlined,
+                              size: 16,
+                              color: reviewColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Supportive Document: $reviewText',
+                              style: TextStyle(
+                                color: reviewColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (verificationNotes != null &&
+                            verificationNotes.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Verification notes: $verificationNotes',
+                            style: TextStyle(color: Colors.grey.shade700),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () => _openFile(
+                              supportiveDocumentUrl,
+                              invalidMessage:
+                                  'Supportive document link is invalid.',
+                              failureMessage:
+                                  'Unable to open supportive document.',
+                            ),
+                            icon: const Icon(Icons.open_in_new, size: 16),
+                            label: const Text('Open Supportive PDF'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Icon(
@@ -395,6 +612,68 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                       ),
                     ],
                   ),
+                  if (companyFeedback != null &&
+                      companyFeedback.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        'Company feedback: $companyFeedback',
+                        style: TextStyle(color: Colors.grey.shade800),
+                      ),
+                    ),
+                  ],
+                  if (responseLetterUrl != null &&
+                      responseLetterUrl.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFD7E0EA)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.picture_as_pdf_outlined),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Response letter: $responseLetterName',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: isDownloadingResponseLetter
+                                ? null
+                                : () => _downloadFile(
+                                    responseLetterUrl,
+                                    fileName: responseLetterName,
+                                    invalidMessage:
+                                        'Response letter link is invalid.',
+                                    failureMessage:
+                                        'Failed to download response letter',
+                                    successLabel:
+                                        'Response letter downloaded to',
+                                  ),
+                            child: Text(
+                              isDownloadingResponseLetter
+                                  ? 'Downloading...'
+                                  : 'Download',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

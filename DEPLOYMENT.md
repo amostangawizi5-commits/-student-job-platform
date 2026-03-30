@@ -101,7 +101,28 @@ cd student_app
 flutter build appbundle --release --dart-define=API_BASE_URL=https://your-api.onrender.com
 ```
 
-## 8. Important Production Notes
+## 8. Build The Web App For iPhone And Browser Users
+
+Build the Flutter web bundle with the same public HTTPS API URL:
+
+```bash
+cd student_app
+flutter build web --release --dart-define=API_BASE_URL=https://your-api.onrender.com
+```
+
+The generated static site will be in:
+
+`student_app/build/web`
+
+Upload that folder to any static host such as Netlify, Vercel, Cloudflare Pages, or Firebase Hosting.
+
+Important:
+
+- Do not use `http://localhost:5000` for production web builds.
+- iPhone users must open the hosted web URL over HTTPS.
+- The app now defaults web builds to the hosted Render API unless you override `API_BASE_URL`.
+
+## 9. Important Production Notes
 
 - Do not keep production secrets in Git.
 - The current local fallback IP in the Flutter app is for development only.

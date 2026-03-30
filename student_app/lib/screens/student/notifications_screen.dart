@@ -56,6 +56,49 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  Future<void> _deleteNotification(Map<String, dynamic> notification) async {
+    final notificationId = '${notification['notification_id'] ?? ''}';
+    if (notificationId.isEmpty) return;
+
+    try {
+      final response = await _apiService.deleteNotification(notificationId);
+      if (!mounted) return;
+
+      if (response['success'] == true) {
+        setState(() {
+          _notifications.removeWhere(
+            (item) => '${item['notification_id']}' == notificationId,
+          );
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Notification deleted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            response['message']?.toString() ?? 'Failed to delete notification',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting notification: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   IconData _getIconForType(String type) {
     switch (type) {
       case 'shortlisted':
@@ -198,130 +241,167 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ? rawMessage
                     : _cleanNotificationMessage(rawMessage);
 
-                return GestureDetector(
-                  onTap: () => _markAsRead(notification['notification_id']),
-                  child: Container(
+                return Dismissible(
+                  key: ValueKey('${notification['notification_id']}'),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
                     margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    alignment: Alignment.centerRight,
                     decoration: BoxDecoration(
-                      color: isRead
-                          ? Colors.white
-                          : AppTheme.primaryBlue.withValues(alpha: 0.05),
+                      color: Colors.red.shade400,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isRead
-                            ? Colors.grey.shade200
-                            : AppTheme.primaryBlue.withValues(alpha: 0.3),
-                      ),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: iconColor.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              _getIconForType(type),
-                              color: iconColor,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  notification['title'],
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: isRead
-                                        ? FontWeight.normal
-                                        : FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  message,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                if (type == 'interview' &&
-                                    interviewDate != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 8),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.event,
-                                          size: 14,
-                                          color: Colors.black87,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            'Interview Date: $interviewDate',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black87,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                if (type == 'interview' &&
-                                    interviewVenue != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.place,
-                                          size: 14,
-                                          color: Colors.black87,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            'Interview Venue: $interviewVenue',
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black87,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatDate(notification['created_at']),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (!isRead)
+                    child: const Icon(Icons.delete_outline, color: Colors.white),
+                  ),
+                  confirmDismiss: (_) async {
+                    await _deleteNotification(notification);
+                    return false;
+                  },
+                  child: GestureDetector(
+                    onTap: () => _markAsRead('${notification['notification_id']}'),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: isRead
+                            ? Colors.white
+                            : AppTheme.primaryBlue.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isRead
+                              ? Colors.grey.shade200
+                              : AppTheme.primaryBlue.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
                             Container(
-                              width: 10,
-                              height: 10,
+                              padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: AppTheme.primaryBlue,
-                                shape: BoxShape.circle,
+                                color: iconColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                _getIconForType(type),
+                                color: iconColor,
+                                size: 24,
                               ),
                             ),
-                        ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    notification['title'],
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: isRead
+                                          ? FontWeight.normal
+                                          : FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    message,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  if (type == 'interview' &&
+                                      interviewDate != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.event,
+                                            size: 14,
+                                            color: Colors.black87,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'Interview Date: $interviewDate',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black87,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  if (type == 'interview' &&
+                                      interviewVenue != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.place,
+                                            size: 14,
+                                            color: Colors.black87,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'Interview Venue: $interviewVenue',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.black87,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _formatDate(notification['created_at']),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Column(
+                              children: [
+                                PopupMenuButton<String>(
+                                  icon: const Icon(Icons.more_vert, size: 20),
+                                  onSelected: (value) {
+                                    if (value == 'delete') {
+                                      _deleteNotification(notification);
+                                    }
+                                  },
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem<String>(
+                                      value: 'delete',
+                                      child: Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                                if (!isRead)
+                                  Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryBlue,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

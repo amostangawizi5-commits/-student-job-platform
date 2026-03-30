@@ -124,6 +124,9 @@ class UserModel {
         const studentData = payload.student_data && typeof payload.student_data === 'object'
             ? payload.student_data
             : null;
+        const companyData = payload.company_data && typeof payload.company_data === 'object'
+            ? payload.company_data
+            : null;
 
         const allowedUserFields = new Set([
             'full_name',
@@ -188,6 +191,42 @@ class UserModel {
                     `UPDATE students SET ${studentFields.join(', ')}
                      WHERE student_id = $${studentIndex}`,
                     studentValues
+                );
+            }
+        }
+
+        if (companyData) {
+            const allowedCompanyFields = new Set([
+                'company_name',
+                'industry',
+                'company_size',
+                'location',
+                'description',
+                'website_url',
+                'logo_url',
+                'stamp_url',
+                'signature_url'
+            ]);
+
+            const companyFields = [];
+            const companyValues = [];
+            let companyIndex = 1;
+
+            for (const [key, value] of Object.entries(companyData)) {
+                if (!allowedCompanyFields.has(key)) continue;
+                if (value !== undefined) {
+                    companyFields.push(`${key} = $${companyIndex}`);
+                    companyValues.push(value);
+                    companyIndex++;
+                }
+            }
+
+            if (companyFields.length > 0) {
+                companyValues.push(userId);
+                await query(
+                    `UPDATE companies SET ${companyFields.join(', ')}
+                     WHERE company_id = $${companyIndex}`,
+                    companyValues
                 );
             }
         }

@@ -8,6 +8,7 @@ const useSsl =
 const poolConfig = process.env.DATABASE_URL
     ? {
           connectionString: process.env.DATABASE_URL,
+          options: '-c search_path=public',
           ssl: useSsl ? { rejectUnauthorized: false } : false,
       }
     : {
@@ -16,19 +17,36 @@ const poolConfig = process.env.DATABASE_URL
           host: process.env.DB_HOST,
           port: process.env.DB_PORT,
           database: process.env.DB_NAME,
+          options: '-c search_path=public',
           ssl: useSsl ? { rejectUnauthorized: false } : false,
       };
 
 // Create PostgreSQL connection pool
 const pool = new Pool(poolConfig);
 
-pool.on('connect', (client) => {
-    client
-        .query('SET search_path TO public')
-        .catch((error) =>
-            console.error('❌ Failed to set PostgreSQL search_path:', error.message)
-        );
-});
+const ensureApplicationWorkflowSchema = async () => {
+    await pool.query(`
+        ALTER TABLE applications
+        ADD COLUMN IF NOT EXISTS supportive_document_url TEXT,
+        ADD COLUMN IF NOT EXISTS supportive_document_name TEXT,
+        ADD COLUMN IF NOT EXISTS supportive_document_verified BOOLEAN,
+        ADD COLUMN IF NOT EXISTS supportive_document_verification_notes TEXT,
+        ADD COLUMN IF NOT EXISTS supportive_document_reviewed_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS response_letter_url TEXT,
+        ADD COLUMN IF NOT EXISTS response_letter_name TEXT,
+        ADD COLUMN IF NOT EXISTS response_letter_sent_at TIMESTAMP
+    `);
+};
+
+const ensureCompanyProfileSchema = async () => {
+    await pool.query(`
+        ALTER TABLE companies
+        ADD COLUMN IF NOT EXISTS website_url TEXT,
+        ADD COLUMN IF NOT EXISTS logo_url TEXT,
+        ADD COLUMN IF NOT EXISTS stamp_url TEXT,
+        ADD COLUMN IF NOT EXISTS signature_url TEXT
+    `);
+};
 
 // Test database connection
 const connectDB = async () => {
@@ -36,6 +54,8 @@ const connectDB = async () => {
         const client = await pool.connect();
         console.log('✅ PostgreSQL connected successfully');
         client.release();
+        await ensureApplicationWorkflowSchema();
+        await ensureCompanyProfileSchema();
         return true;
     } catch (error) {
         console.error('❌ PostgreSQL connection error:', error.message);

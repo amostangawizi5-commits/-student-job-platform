@@ -39,6 +39,16 @@ class NotificationModel {
         return result.rows[0];
     }
 
+    static async deleteForUser(notification_id, user_id) {
+        const result = await query(
+            `DELETE FROM notifications
+             WHERE notification_id = $1 AND user_id = $2
+             RETURNING notification_id`,
+            [notification_id, user_id]
+        );
+        return result.rows[0] || null;
+    }
+
     // Mark all as read
     static async markAllAsRead(user_id) {
         await query(

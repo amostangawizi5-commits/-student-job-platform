@@ -87,6 +87,9 @@ class LanguageProvider extends ChangeNotifier {
       'login_failed_check_credentials': 'Login failed. Check your credentials.',
       'reset_email_sent':
           'If an account with that email exists, a reset link has been sent.',
+      'reset_email_resent':
+          'If an account with that email exists, the reset link has been sent again.',
+      'resend': 'Resend',
       'reset_now': 'Reset Now',
       'reset_link_ready': 'Reset Link Ready',
       'reset_link_ready_body':
@@ -349,6 +352,9 @@ class LanguageProvider extends ChangeNotifier {
           'Imeshindikana kuingia. Angalia taarifa zako.',
       'reset_email_sent':
           'Kama akaunti yenye barua pepe hiyo ipo, link ya kurejesha nenosiri imetumwa.',
+      'reset_email_resent':
+          'Kama akaunti yenye barua pepe hiyo ipo, link ya kurejesha nenosiri imetumwa tena.',
+      'resend': 'Tuma tena',
       'reset_now': 'Weka upya sasa',
       'reset_link_ready': 'Link ya kuweka upya iko tayari',
       'reset_link_ready_body':

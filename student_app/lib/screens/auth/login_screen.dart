@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
-import 'reset_password_screen.dart';
 import 'register_screen.dart';
 import '../student/student_dashboard.dart';
 import '../company/company_dashboard.dart';
@@ -31,6 +29,48 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _resendForgotPasswordEmail(String email) async {
+    final language = context.read<LanguageProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final normalizedEmail = email.trim();
+
+    if (!normalizedEmail.contains('@')) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(language.tr('enter_valid_email_address')),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final response = await _apiService.forgotPassword(normalizedEmail);
+      if (!mounted) return;
+
+      final success = response['success'] == true;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? language.tr('reset_email_resent')
+                : response['message']?.toString() ??
+                      language.tr('failed_send_password_reset_link'),
+          ),
+          backgroundColor: success ? AppTheme.primaryGreen : Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -113,107 +153,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final message =
         response['message']?.toString() ?? language.tr('reset_email_sent');
-    final debugResetLink = response['debugResetLink']?.toString();
-    final hasDebugResetLink =
-        debugResetLink != null && debugResetLink.trim().isNotEmpty;
     final isEmailSent = response['emailSent'] != false;
+    final requestEmail =
+        response['requestEmail']?.toString() ?? _emailController.text.trim();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isEmailSent ? AppTheme.primaryGreen : Colors.orange,
-        duration: Duration(seconds: hasDebugResetLink ? 8 : 4),
+        duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: language.tr('reset_now'),
+          label: language.tr('resend'),
           textColor: Colors.white,
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
-            );
-          },
+          onPressed: () => _resendForgotPasswordEmail(requestEmail),
         ),
       ),
-    );
-
-    if (!hasDebugResetLink) return;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 20,
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                language.tr('reset_link_ready'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                language.tr('reset_link_ready_body'),
-                style: TextStyle(color: Colors.grey.shade700, height: 1.4),
-              ),
-              const SizedBox(height: 14),
-              SelectableText(
-                debugResetLink,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.primaryBlue,
-                ),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: debugResetLink),
-                    );
-                    if (!sheetContext.mounted) return;
-                    ScaffoldMessenger.of(sheetContext).showSnackBar(
-                      SnackBar(
-                        content: Text(language.tr('reset_link_copied')),
-                        backgroundColor: AppTheme.primaryGreen,
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryBlue,
-                  ),
-                  child: Text(language.tr('copy_reset_link')),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () {
-                    Navigator.of(sheetContext).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const ResetPasswordScreen(),
-                      ),
-                    );
-                  },
-                  child: Text(language.tr('open_reset_screen')),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -692,12 +646,8 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     try {
       final response = await widget.apiService.forgotPassword(email);
       if (!mounted) return;
-      final debugResetLink = response['debugResetLink']?.toString();
-      final hasDebugResetLink =
-          debugResetLink != null && debugResetLink.trim().isNotEmpty;
-
-      if (response['success'] == true || hasDebugResetLink) {
-        Navigator.of(context).pop(response);
+      if (response['success'] == true) {
+        Navigator.of(context).pop({...response, 'requestEmail': email});
         return;
       }
 

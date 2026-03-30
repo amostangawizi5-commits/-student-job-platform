@@ -1,5 +1,8 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
@@ -8,7 +11,6 @@ import '../../widgets/reset_pin_dialog.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../auth/login_screen.dart';
 import 'post_job_screen.dart';
-import 'company_applications_screen.dart';
 import 'edit_company_profile_screen.dart';
 import 'company_notifications_screen.dart';
 
@@ -29,6 +31,27 @@ class CompanyDashboard extends StatefulWidget {
   @override
   State<CompanyDashboard> createState() => _CompanyDashboardState();
 }
+
+class _PickedPdfFile {
+  final String? filePath;
+  final Uint8List? fileBytes;
+  final String fileName;
+
+  const _PickedPdfFile({
+    required this.filePath,
+    required this.fileBytes,
+    required this.fileName,
+  });
+}
+
+typedef _AcceptanceInputBuilder =
+    Widget Function({
+      required TextEditingController controller,
+      required String label,
+      String? hint,
+      TextInputType keyboardType,
+      int maxLines,
+    });
 
 class _CompanyDashboardState extends State<CompanyDashboard> {
   final ApiService _apiService = ApiService();
@@ -1446,15 +1469,13 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
               const SizedBox(width: 10),
               ElevatedButton(
                 onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CompanyApplicationsScreen(
+                  context
+                      .findAncestorStateOfType<_CompanyDashboardState>()
+                      ?.navigateToTab(
+                        2,
                         jobId: '${job['job_id']}',
                         jobTitle: '${job['title']}',
-                      ),
-                    ),
-                  );
+                      );
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2C3E50),
@@ -1932,6 +1953,83 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     return message;
   }
 
+  String _resolveFileUrl(String path) {
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '${_apiService.baseUrl}$normalized';
+  }
+
+  Future<void> _openFileUrl(
+    String? fileUrl, {
+    required String invalidMessage,
+    required String failureMessage,
+  }) async {
+    if (fileUrl == null || fileUrl.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final uri = Uri.tryParse(_resolveFileUrl(fileUrl));
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(failureMessage), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<_PickedPdfFile?> _pickPdfFile({required String emptyMessage}) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf'],
+      withData: kIsWeb,
+    );
+
+    if (!mounted || result == null) return null;
+
+    final file = result.files.single;
+    final filePath = file.path;
+    final fileBytes = file.bytes;
+
+    if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(emptyMessage), backgroundColor: Colors.red),
+      );
+      return null;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('PDF must be 5MB or less.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return null;
+    }
+
+    return _PickedPdfFile(
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: file.name,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2054,6 +2152,70 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     };
   }
 
+  Widget _buildAcceptanceLetterInput({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return '$label is required';
+          }
+          return null;
+        },
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<Map<String, String>?> _collectAcceptanceLetterData(
+    Map<String, dynamic> application,
+  ) async {
+    final studentName =
+        application['full_name']?.toString() ??
+        application['student_name']?.toString() ??
+        'the student';
+    final jobTitle = application['job_title']?.toString() ?? 'this position';
+    final companyAssets =
+        context.read<AuthProvider>().user?['company_data']
+            as Map<String, dynamic>?;
+    final hasDigitalStamp = '${companyAssets?['stamp_url'] ?? ''}'
+        .trim()
+        .isNotEmpty;
+    final hasDigitalSignature = '${companyAssets?['signature_url'] ?? ''}'
+        .trim()
+        .isNotEmpty;
+    return showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => _AcceptanceLetterDialog(
+        initialOrganizationName: application['company_name']?.toString() ?? '',
+        initialCollegeName: 'College of Informatics and Virtual Education',
+        initialLetterDate: _formatDateOnly(DateTime.now()),
+        studentName: studentName,
+        jobTitle: jobTitle,
+        hasDigitalStamp: hasDigitalStamp,
+        hasDigitalSignature: hasDigitalSignature,
+        buildInput: _buildAcceptanceLetterInput,
+      ),
+    );
+  }
+
   Future<void> _scheduleInterview(String applicationId) async {
     final selectedDateTime = await _pickInterviewDateTime();
     if (selectedDateTime == null || !mounted) return;
@@ -2067,42 +2229,166 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     );
   }
 
-  Future<void> _acceptApplicant(String applicationId) async {
+  Future<void> _acceptApplicant(Map<String, dynamic> application) async {
+    final applicationId = '${application['application_id'] ?? ''}';
+    if (applicationId.isEmpty) return;
+
     final reportingDates = await _collectReportingDates();
     if (reportingDates == null) return;
+    final acceptanceLetterData = await _collectAcceptanceLetterData(
+      application,
+    );
+    if (acceptanceLetterData == null) return;
 
     await _updateStatus(
       applicationId,
       'accepted',
       reportingStartDate: reportingDates['reporting_start_date'],
       reportingEndDate: reportingDates['reporting_end_date'],
+      acceptanceLetterData: acceptanceLetterData,
     );
+  }
+
+  Future<void> _rejectApplicant(String applicationId) async {
+    final responseLetter = await _pickPdfFile(
+      emptyMessage: 'Unable to read the selected response letter PDF.',
+    );
+    if (responseLetter == null || !mounted) return;
+
+    final feedbackController = TextEditingController();
+    try {
+      final feedback = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Rejection Notes'),
+          content: TextField(
+            controller: feedbackController,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Feedback',
+              hintText: 'Optional explanation for the student',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, feedbackController.text),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || feedback == null) return;
+      await _updateStatus(
+        applicationId,
+        'rejected',
+        feedback: feedback.trim(),
+        responseLetter: responseLetter,
+      );
+    } finally {
+      feedbackController.dispose();
+    }
+  }
+
+  Future<void> _reviewSupportiveDocument(
+    String applicationId, {
+    required bool isAuthentic,
+  }) async {
+    final notesController = TextEditingController();
+    try {
+      final notes = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(
+            isAuthentic ? 'Verify as Authentic' : 'Mark as Not Authentic',
+          ),
+          content: TextField(
+            controller: notesController,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Review notes',
+              hintText: isAuthentic
+                  ? 'Optional note about the verified document'
+                  : 'Explain why the document is not authentic',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, notesController.text),
+              child: const Text('Save Review'),
+            ),
+          ],
+        ),
+      );
+
+      if (notes == null) return;
+
+      final response = await _apiService.reviewApplicationDocument(
+        applicationId: applicationId,
+        isAuthentic: isAuthentic,
+        verificationNotes: notes,
+      );
+
+      if (!mounted) return;
+      if (response['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response['message']?.toString() ?? 'Document reviewed',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadApplications();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response['message']?.toString() ??
+                  'Failed to review supportive document',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      notesController.dispose();
+    }
   }
 
   Future<void> _updateStatus(
     String applicationId,
     String status, {
+    String? feedback,
     String? interviewDate,
     String? interviewVenue,
     String? reportingStartDate,
     String? reportingEndDate,
+    Map<String, dynamic>? acceptanceLetterData,
+    _PickedPdfFile? responseLetter,
   }) async {
     final language = context.read<LanguageProvider>();
     try {
-      final payload = <String, dynamic>{'status': status};
-      if (interviewDate != null) payload['interview_date'] = interviewDate;
-      if (interviewVenue != null) payload['interview_venue'] = interviewVenue;
-      if (reportingStartDate != null) {
-        payload['reporting_start_date'] = reportingStartDate;
-      }
-      if (reportingEndDate != null) {
-        payload['reporting_end_date'] = reportingEndDate;
-      }
-
-      final response = await _apiService.put(
-        '/api/applications/$applicationId',
-        payload,
-        requiresAuth: true,
+      final response = await _apiService.updateApplicationStatusWithLetter(
+        applicationId: applicationId,
+        status: status,
+        feedback: feedback,
+        interviewDate: interviewDate,
+        interviewVenue: interviewVenue,
+        reportingStartDate: reportingStartDate,
+        reportingEndDate: reportingEndDate,
+        acceptanceLetterData: acceptanceLetterData,
+        responseLetterPath: responseLetter?.filePath,
+        responseLetterBytes: responseLetter?.fileBytes,
+        responseLetterName: responseLetter?.fileName,
       );
 
       if (response['success'] == true) {
@@ -2407,11 +2693,35 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final applicationId = '${app['application_id']}';
     final jobTitle =
         '${app['job_title'] ?? widget.jobTitle ?? language.tr('selected_job')}';
-    final canShortlist = status == 'pending';
-    final canInterview = status == 'shortlisted';
-    final canAccept = status == 'interview';
+    final supportiveDocumentUrl = app['supportive_document_url']?.toString();
+    final supportiveDocumentName =
+        app['supportive_document_name']?.toString() ??
+        'supportive_document.pdf';
+    final responseLetterUrl = app['response_letter_url']?.toString();
+    final responseLetterName =
+        app['response_letter_name']?.toString() ?? 'response_letter.pdf';
+    final verificationNotes = app['supportive_document_verification_notes']
+        ?.toString();
+    final documentReviewed = app['supportive_document_verified'] != null;
+    final isDocumentAuthentic = app['supportive_document_verified'] == true;
+    final canShortlist = status == 'pending' && isDocumentAuthentic;
+    final canInterview = status == 'shortlisted' && isDocumentAuthentic;
+    final canAccept = status == 'interview' && isDocumentAuthentic;
     final canReject =
-        status == 'pending' || status == 'shortlisted' || status == 'interview';
+        (status == 'pending' ||
+            status == 'shortlisted' ||
+            status == 'interview') &&
+        documentReviewed;
+    final reviewLabel = !documentReviewed
+        ? 'Pending document review'
+        : isDocumentAuthentic
+        ? 'Document verified'
+        : 'Document not authentic';
+    final reviewColor = !documentReviewed
+        ? const Color(0xFFB38A45)
+        : isDocumentAuthentic
+        ? const Color(0xFF2E7D32)
+        : const Color(0xFFC62828);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2485,6 +2795,121 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
               style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
             ),
             const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: reviewColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: reviewColor.withValues(alpha: 0.24)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.verified_outlined,
+                        size: 18,
+                        color: reviewColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          reviewLabel,
+                          style: TextStyle(
+                            color: reviewColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Supportive PDF: $supportiveDocumentName',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                  ),
+                  if (verificationNotes != null &&
+                      verificationNotes.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Review notes: $verificationNotes',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _openFileUrl(
+                          supportiveDocumentUrl,
+                          invalidMessage:
+                              'Supportive document link is invalid.',
+                          failureMessage: 'Unable to open supportive document.',
+                        ),
+                        icon: const Icon(Icons.open_in_new, size: 16),
+                        label: const Text('Open PDF'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _reviewSupportiveDocument(
+                          applicationId,
+                          isAuthentic: true,
+                        ),
+                        icon: const Icon(Icons.check_circle_outline, size: 16),
+                        label: const Text('Authentic'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _reviewSupportiveDocument(
+                          applicationId,
+                          isAuthentic: false,
+                        ),
+                        icon: const Icon(Icons.gpp_bad_outlined, size: 16),
+                        label: const Text('Not Authentic'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (responseLetterUrl != null && responseLetterUrl.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F7FB),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFD6E0EA)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.picture_as_pdf_outlined),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Response letter: $responseLetterName',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _openFileUrl(
+                        responseLetterUrl,
+                        invalidMessage: 'Response letter link is invalid.',
+                        failureMessage: 'Unable to open response letter.',
+                      ),
+                      child: const Text('Open'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -2508,14 +2933,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   color: Colors.green,
                   isActive: status == 'accepted',
                   isEnabled: canAccept,
-                  onPressed: () => _acceptApplicant(applicationId),
+                  onPressed: () => _acceptApplicant(app),
                 ),
                 _buildActionButton(
                   label: language.tr('reject'),
                   color: Colors.red,
                   isActive: status == 'rejected',
                   isEnabled: canReject,
-                  onPressed: () => _updateStatus(applicationId, 'rejected'),
+                  onPressed: () => _rejectApplicant(applicationId),
                 ),
               ],
             ),
@@ -2693,6 +3118,238 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
             ),
           ..._applications.map(_buildApplicationCard),
         ],
+      ),
+    );
+  }
+}
+
+class _AcceptanceLetterDialog extends StatefulWidget {
+  final String initialOrganizationName;
+  final String initialCollegeName;
+  final String initialLetterDate;
+  final String studentName;
+  final String jobTitle;
+  final bool hasDigitalStamp;
+  final bool hasDigitalSignature;
+  final _AcceptanceInputBuilder buildInput;
+
+  const _AcceptanceLetterDialog({
+    required this.initialOrganizationName,
+    required this.initialCollegeName,
+    required this.initialLetterDate,
+    required this.studentName,
+    required this.jobTitle,
+    required this.hasDigitalStamp,
+    required this.hasDigitalSignature,
+    required this.buildInput,
+  });
+
+  @override
+  State<_AcceptanceLetterDialog> createState() =>
+      _AcceptanceLetterDialogState();
+}
+
+class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _organizationNameController;
+  late final TextEditingController _registrationNumberController;
+  late final TextEditingController _collegeNameController;
+  late final TextEditingController _sectionDepartmentController;
+  late final TextEditingController _officerNameController;
+  late final TextEditingController _officerDesignationController;
+  late final TextEditingController _officerPhoneController;
+  late final TextEditingController _officerEmailController;
+  late final TextEditingController _officerRegionController;
+  late final TextEditingController _officerDistrictController;
+  late final TextEditingController _officerAreaController;
+  late final TextEditingController _letterDateController;
+
+  @override
+  void initState() {
+    super.initState();
+    _organizationNameController = TextEditingController(
+      text: widget.initialOrganizationName,
+    );
+    _registrationNumberController = TextEditingController();
+    _collegeNameController = TextEditingController(
+      text: widget.initialCollegeName,
+    );
+    _sectionDepartmentController = TextEditingController();
+    _officerNameController = TextEditingController();
+    _officerDesignationController = TextEditingController();
+    _officerPhoneController = TextEditingController();
+    _officerEmailController = TextEditingController();
+    _officerRegionController = TextEditingController();
+    _officerDistrictController = TextEditingController();
+    _officerAreaController = TextEditingController();
+    _letterDateController = TextEditingController(
+      text: widget.initialLetterDate,
+    );
+  }
+
+  @override
+  void dispose() {
+    _organizationNameController.dispose();
+    _registrationNumberController.dispose();
+    _collegeNameController.dispose();
+    _sectionDepartmentController.dispose();
+    _officerNameController.dispose();
+    _officerDesignationController.dispose();
+    _officerPhoneController.dispose();
+    _officerEmailController.dispose();
+    _officerRegionController.dispose();
+    _officerDistrictController.dispose();
+    _officerAreaController.dispose();
+    _letterDateController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    FocusScope.of(context).unfocus();
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
+    Navigator.of(context).pop({
+      'organization_name': _organizationNameController.text.trim(),
+      'student_registration_number': _registrationNumberController.text.trim(),
+      'college_name': _collegeNameController.text.trim(),
+      'section_department': _sectionDepartmentController.text.trim(),
+      'officer_name': _officerNameController.text.trim(),
+      'officer_designation': _officerDesignationController.text.trim(),
+      'officer_phone': _officerPhoneController.text.trim(),
+      'officer_email': _officerEmailController.text.trim(),
+      'officer_region': _officerRegionController.text.trim(),
+      'officer_district': _officerDistrictController.text.trim(),
+      'officer_area': _officerAreaController.text.trim(),
+      'letter_date': _letterDateController.text.trim(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final buildInput = widget.buildInput;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 520,
+          maxHeight: screenSize.height * 0.86,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Acceptance Letter Details',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fill in the response letter details for ${widget.studentName} (${widget.jobTitle}).',
+                          style: TextStyle(color: Colors.grey.shade700),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          widget.hasDigitalStamp || widget.hasDigitalSignature
+                              ? 'Saved company stamp/signature will be inserted automatically where available.'
+                              : 'No digital stamp or signature uploaded yet. The PDF will keep manual spaces for stamping and signing.',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        buildInput(
+                          controller: _organizationNameController,
+                          label: 'Organization / Institution',
+                          hint: 'Example: ABC Company Limited',
+                        ),
+                        buildInput(
+                          controller: _registrationNumberController,
+                          label: 'Student Registration Number',
+                          hint: 'Example: UDOM/2023/12345',
+                        ),
+                        buildInput(
+                          controller: _collegeNameController,
+                          label: 'College Name',
+                        ),
+                        buildInput(
+                          controller: _sectionDepartmentController,
+                          label: 'Section / Department',
+                          hint: 'Example: ICT Department',
+                        ),
+                        buildInput(
+                          controller: _officerNameController,
+                          label: 'Authorizing Officer Name',
+                        ),
+                        buildInput(
+                          controller: _officerDesignationController,
+                          label: 'Officer Designation',
+                        ),
+                        buildInput(
+                          controller: _officerPhoneController,
+                          label: 'Officer Phone Number',
+                          keyboardType: TextInputType.phone,
+                        ),
+                        buildInput(
+                          controller: _officerEmailController,
+                          label: 'Officer Email Address',
+                          keyboardType: TextInputType.emailAddress,
+                        ),
+                        buildInput(
+                          controller: _officerRegionController,
+                          label: 'Region',
+                        ),
+                        buildInput(
+                          controller: _officerDistrictController,
+                          label: 'District',
+                        ),
+                        buildInput(
+                          controller: _officerAreaController,
+                          label: 'Area / Physical Address',
+                          hint: 'Example: Mtumba, Dodoma',
+                        ),
+                        buildInput(
+                          controller: _letterDateController,
+                          label: 'Letter Date',
+                          hint: 'YYYY-MM-DD',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _submit,
+                      child: const Text('Generate Letter'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

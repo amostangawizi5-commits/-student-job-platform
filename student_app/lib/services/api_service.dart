@@ -6,7 +6,7 @@ class ApiService {
   // Default mobile backend points to the hosted production API.
   static const String _defaultApiBaseUrl =
       'https://student-job-platform-api.onrender.com';
-  static const String _webBaseUrl = 'http://localhost:5000';
+  static const String _webBaseUrl = _defaultApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -105,7 +105,6 @@ class ApiService {
 
   static void _invalidateCachesForPath(String path) {
     if (path.startsWith('/api/auth/profile') ||
-        path.startsWith('/api/company/profile') ||
         path.startsWith('/api/resume')) {
       _invalidateProfileCache();
     }
@@ -238,9 +237,10 @@ class ApiService {
       } else if (e.type == DioExceptionType.receiveTimeout) {
         throw Exception('Server not responding. Please try again.');
       } else if (e.type == DioExceptionType.connectionError) {
-        throw Exception(
-          'Cannot connect to server at $baseUrl. If you are testing on a phone, rebuild with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000',
-        );
+        final overrideHint = kIsWeb
+            ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
+            : 'If you are testing on a phone, rebuild with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000';
+        throw Exception('Cannot connect to server at $baseUrl. $overrideHint');
       }
 
       if (e.response != null) {
@@ -261,6 +261,22 @@ class ApiService {
       _log('❌ Unexpected error: $e');
       throw Exception('Unexpected error: $e');
     }
+  }
+
+  Future<MultipartFile> _createMultipartFile({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    if (fileBytes != null) {
+      return MultipartFile.fromBytes(fileBytes, filename: fileName);
+    }
+
+    if (filePath != null && filePath.trim().isNotEmpty) {
+      return MultipartFile.fromFile(filePath, filename: fileName);
+    }
+
+    throw ArgumentError('A file path or file bytes is required for upload.');
   }
 
   // ==================== AUTH METHODS ====================
@@ -549,15 +565,52 @@ class ApiService {
   }
 
   // ==================== APPLICATION METHODS ====================
-  Future<Map<String, dynamic>> applyForJob(String jobId) async {
-    final response = await _request(
-      'POST',
-      '/api/applications',
-      data: {'job_id': jobId},
-      requiresAuth: true,
-    );
-    _invalidateJobsCache();
-    return response;
+  Future<Map<String, dynamic>> applyForJob({
+    required String jobId,
+    String coverLetter = '',
+    String? supportiveDocumentPath,
+    Uint8List? supportiveDocumentBytes,
+    required String supportiveDocumentName,
+  }) async {
+    try {
+      final token = await getToken();
+      final formData = FormData.fromMap({
+        'job_id': jobId,
+        'cover_letter': coverLetter,
+        'supportive_document': await _createMultipartFile(
+          filePath: supportiveDocumentPath,
+          fileBytes: supportiveDocumentBytes,
+          fileName: supportiveDocumentName,
+        ),
+      });
+
+      final response = await _dio.post(
+        '$baseUrl/api/applications',
+        data: formData,
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'multipart/form-data',
+          },
+        ),
+      );
+      _invalidateJobsCache();
+      return response.data;
+    } on DioException catch (e) {
+      _log('❌ Error applying for job: $e');
+      final errorData = e.response?.data;
+      if (errorData is Map &&
+          (errorData['message'] != null || errorData['error'] != null)) {
+        return {
+          'success': false,
+          'message': errorData['message'] ?? errorData['error'],
+        };
+      }
+      return {
+        'success': false,
+        'message': 'Failed to submit application: ${e.message}',
+      };
+    }
   }
 
   Future<Map<String, dynamic>> getMyApplications() async {
@@ -594,6 +647,103 @@ class ApiService {
       data: {'status': status},
       requiresAuth: true,
     );
+  }
+
+  Future<Map<String, dynamic>> reviewApplicationDocument({
+    required String applicationId,
+    required bool isAuthentic,
+    String? verificationNotes,
+  }) async {
+    return await _request(
+      'PUT',
+      '/api/applications/$applicationId/document-review',
+      data: {
+        'supportive_document_verified': isAuthentic,
+        'verification_notes': verificationNotes?.trim() ?? '',
+      },
+      requiresAuth: true,
+    );
+  }
+
+  Future<Map<String, dynamic>> updateApplicationStatusWithLetter({
+    required String applicationId,
+    required String status,
+    String? feedback,
+    String? interviewDate,
+    String? interviewVenue,
+    String? reportingStartDate,
+    String? reportingEndDate,
+    Map<String, dynamic>? acceptanceLetterData,
+    String? responseLetterPath,
+    Uint8List? responseLetterBytes,
+    String? responseLetterName,
+  }) async {
+    try {
+      final token = await getToken();
+      final data = <String, dynamic>{
+        'status': status,
+        ...(feedback == null ? const {} : {'feedback': feedback}),
+        ...(interviewDate == null
+            ? const {}
+            : {'interview_date': interviewDate}),
+        ...(interviewVenue == null
+            ? const {}
+            : {'interview_venue': interviewVenue}),
+        ...(reportingStartDate == null
+            ? const {}
+            : {'reporting_start_date': reportingStartDate}),
+        ...(reportingEndDate == null
+            ? const {}
+            : {'reporting_end_date': reportingEndDate}),
+        ...?acceptanceLetterData,
+      };
+
+      final hasResponseLetterUpload =
+          responseLetterPath != null ||
+          responseLetterBytes != null ||
+          (responseLetterName != null && responseLetterName.trim().isNotEmpty);
+
+      if (hasResponseLetterUpload) {
+        data['response_letter'] = await _createMultipartFile(
+          filePath: responseLetterPath,
+          fileBytes: responseLetterBytes,
+          fileName: responseLetterName ?? 'response_letter.pdf',
+        );
+
+        final response = await _dio.put(
+          '$baseUrl/api/applications/$applicationId',
+          data: FormData.fromMap(data),
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'multipart/form-data',
+            },
+          ),
+        );
+        return response.data;
+      }
+
+      final response = await _dio.put(
+        '$baseUrl/api/applications/$applicationId',
+        data: data,
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      return response.data;
+    } on DioException catch (e) {
+      _log('❌ Error updating application status: $e');
+      final errorData = e.response?.data;
+      if (errorData is Map &&
+          (errorData['message'] != null || errorData['error'] != null)) {
+        return {
+          'success': false,
+          'message': errorData['message'] ?? errorData['error'],
+        };
+      }
+      return {
+        'success': false,
+        'message': 'Failed to update application: ${e.message}',
+      };
+    }
   }
 
   // ==================== SKILLS METHODS ====================
@@ -657,6 +807,17 @@ class ApiService {
       'data': {'count': 0},
     };
     _unreadNotificationsCacheTime = DateTime.now();
+    return response;
+  }
+
+  Future<Map<String, dynamic>> deleteNotification(String notificationId) async {
+    final response = await _request(
+      'DELETE',
+      '/api/notifications/$notificationId',
+      requiresAuth: true,
+    );
+    _unreadNotificationsCache = null;
+    _unreadNotificationsCacheTime = null;
     return response;
   }
 
@@ -763,7 +924,11 @@ class ApiService {
   }
 
   // ==================== RESUME METHODS ====================
-  Future<Map<String, dynamic>> uploadResume(String filePath) async {
+  Future<Map<String, dynamic>> uploadResume({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
     try {
       final token = await getToken();
       DioException? lastError;
@@ -772,9 +937,10 @@ class ApiService {
       for (final fieldName in const ['resume', 'cv', 'file', 'resume_file']) {
         try {
           FormData formData = FormData.fromMap({
-            fieldName: await MultipartFile.fromFile(
-              filePath,
-              filename: filePath.split('/').last,
+            fieldName: await _createMultipartFile(
+              filePath: filePath,
+              fileBytes: fileBytes,
+              fileName: fileName,
             ),
           });
 
@@ -835,16 +1001,18 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadStudentProfileImage(
-    String filePath,
-  ) async {
+  Future<Map<String, dynamic>> uploadStudentProfileImage({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
     try {
       final token = await getToken();
-      final fileName = filePath.split('/').last;
       final formData = FormData.fromMap({
-        'profile_image': await MultipartFile.fromFile(
-          filePath,
-          filename: fileName,
+        'profile_image': await _createMultipartFile(
+          filePath: filePath,
+          fileBytes: fileBytes,
+          fileName: fileName,
         ),
       });
 
@@ -884,7 +1052,7 @@ class ApiService {
   // ==================== COMPANY METHODS ====================
   Future<Map<String, dynamic>> getCompanyProfile() async {
     try {
-      return await _request('GET', '/api/company/profile', requiresAuth: true);
+      return await _request('GET', '/api/auth/profile', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting company profile: $e');
       return {'success': false, 'message': e.toString()};
@@ -897,7 +1065,7 @@ class ApiService {
     try {
       final response = await _request(
         'PUT',
-        '/api/company/profile',
+        '/api/auth/profile',
         data: data,
         requiresAuth: true,
       );
@@ -910,62 +1078,85 @@ class ApiService {
   }
 
   // ==================== COMPANY LOGO METHODS ====================
-  Future<Map<String, dynamic>> uploadCompanyLogo(String filePath) async {
+  Future<Map<String, dynamic>> _uploadCompanyImageAsset({
+    required String endpoint,
+    required String fieldName,
+    required String fileName,
+    String? filePath,
+    Uint8List? fileBytes,
+    required String errorLabel,
+  }) async {
     try {
       final token = await getToken();
-      DioException? lastError;
-      final fileName = filePath.split('/').last;
+      final formData = FormData.fromMap({
+        fieldName: await _createMultipartFile(
+          filePath: filePath,
+          fileBytes: fileBytes,
+          fileName: fileName,
+        ),
+      });
 
-      const endpoints = ['/api/company/logo', '/api/company/upload-logo'];
-      const fieldNames = ['logo', 'file', 'image', 'logo_file'];
-
-      for (final endpoint in endpoints) {
-        for (final fieldName in fieldNames) {
-          try {
-            final formData = FormData.fromMap({
-              fieldName: await MultipartFile.fromFile(
-                filePath,
-                filename: fileName,
-              ),
-            });
-
-            final response = await _dio.post(
-              '$baseUrl$endpoint',
-              data: formData,
-              options: Options(headers: {'Authorization': 'Bearer $token'}),
-            );
-            _invalidateProfileCache();
-            return response.data;
-          } on DioException catch (e) {
-            lastError = e;
-            final statusCode = e.response?.statusCode ?? 0;
-
-            // Retry with next field/endpoint for common payload/route issues.
-            if (statusCode == 400 ||
-                statusCode == 404 ||
-                statusCode == 415 ||
-                statusCode == 422) {
-              continue;
-            }
-            rethrow;
-          }
-        }
-      }
-
-      throw lastError ??
-          DioException(
-            requestOptions: RequestOptions(path: '/api/company/logo'),
-            message: 'Logo upload failed',
-          );
+      final response = await _dio.post(
+        '$baseUrl$endpoint',
+        data: formData,
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      _invalidateProfileCache();
+      return response.data;
     } on DioException catch (e) {
-      _log('❌ Error uploading logo: $e');
+      _log('❌ Error uploading $errorLabel: $e');
       final errorData = e.response?.data;
       if (errorData is Map &&
           (errorData['message'] != null || errorData['error'] != null)) {
         throw Exception(errorData['message'] ?? errorData['error']);
       }
-      throw Exception('Failed to upload logo: ${e.message}');
+      throw Exception('Failed to upload $errorLabel: ${e.message}');
     }
+  }
+
+  Future<Map<String, dynamic>> uploadCompanyLogo({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    return _uploadCompanyImageAsset(
+      endpoint: '/api/company/logo',
+      fieldName: 'logo',
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      errorLabel: 'logo',
+    );
+  }
+
+  Future<Map<String, dynamic>> uploadCompanyStamp({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    return _uploadCompanyImageAsset(
+      endpoint: '/api/company/stamp',
+      fieldName: 'stamp',
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      errorLabel: 'stamp',
+    );
+  }
+
+  Future<Map<String, dynamic>> uploadCompanySignature({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    return _uploadCompanyImageAsset(
+      endpoint: '/api/company/signature',
+      fieldName: 'signature',
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      errorLabel: 'signature',
+    );
   }
 
   // ==================== ADMIN METHODS ====================
