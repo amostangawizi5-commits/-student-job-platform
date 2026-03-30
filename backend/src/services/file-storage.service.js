@@ -80,7 +80,6 @@ const uploadToCloudinary = async ({
         folder,
         public_id: publicId,
         overwrite: 'true',
-        resource_type: resourceType,
         timestamp
     };
 
@@ -91,7 +90,6 @@ const uploadToCloudinary = async ({
         folder,
         public_id: publicId,
         overwrite: 'true',
-        resource_type: resourceType,
         timestamp: `${timestamp}`,
         signature
     });
