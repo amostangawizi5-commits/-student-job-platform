@@ -37,6 +37,21 @@ function cleanTextValue(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+async function ensureStudentProfileExists({ userId, role }) {
+    if (!userId || !['student', 'graduate'].includes(`${role}`)) {
+        return;
+    }
+
+    const studentType = role === 'graduate' ? 'graduate' : 'current';
+
+    await query(
+        `INSERT INTO students (student_id, student_type)
+         VALUES ($1, $2)
+         ON CONFLICT (student_id) DO NOTHING`,
+        [userId, studentType]
+    );
+}
+
 async function getApplicationWithOwnership(applicationId) {
     const result = await query(
         `SELECT
@@ -77,6 +92,11 @@ const applyForJob = async (req, res) => {
         const { job_id, cover_letter } = req.body;
         const student_id = req.user.user_id;
         const supportiveDocument = req.file;
+
+        await ensureStudentProfileExists({
+            userId: student_id,
+            role: req.user.role
+        });
 
         const jobData = await query(
             `SELECT job_id, title, status, application_deadline
