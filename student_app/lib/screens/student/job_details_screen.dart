@@ -18,6 +18,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   Job? _job;
   bool _isLoading = true;
   bool _isApplying = false;
+  String? _loadErrorMessage;
 
   @override
   void initState() {
@@ -26,31 +27,55 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   }
 
   Future<void> _loadJobDetails() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadErrorMessage = null;
+    });
+
     try {
       final response = await _apiService.getJobById(widget.jobId);
-      if (response['success']) {
-        setState(() {
-          _job = Job.fromJson(response['data']);
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      debugPrint('Error loading job details: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading job details: $e')),
+      if (response['success'] != true) {
+        throw Exception(
+          ApiService.responseMessage(
+            response,
+            fallback: 'Unable to load this job right now.',
+          ),
         );
       }
+
+      final rawData = response['data'];
+      if (rawData is! Map) {
+        throw const FormatException('Job details response is invalid.');
+      }
+
+      final parsedJob = Job.fromJson(Map<String, dynamic>.from(rawData));
+
+      if (!mounted) return;
+
+      setState(() {
+        _job = parsedJob;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading job details: $e');
+      final message = ApiService.normalizeErrorMessage(
+        e,
+        fallback: 'Unable to load this job right now.',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _job = null;
+        _isLoading = false;
+        _loadErrorMessage = message;
+      });
     }
   }
 
   Future<void> _applyForJob() async {
     if (_job == null) {
-      debugPrint('Error: Job is null');
+      _showMessage('Job details are not available yet. Please refresh.');
       return;
     }
 
@@ -73,30 +98,33 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
 
       if (response['success']) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Application submitted successfully!'),
-              backgroundColor: Colors.green,
-            ),
+          _showMessage(
+            'Application submitted successfully!',
+            backgroundColor: Colors.green,
           );
           // Go back to browse jobs after successful application
           Navigator.pop(context);
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Application failed'),
-              backgroundColor: Colors.red,
+          _showMessage(
+            ApiService.responseMessage(
+              response,
+              fallback: 'Failed to submit application.',
             ),
+            backgroundColor: Colors.red,
           );
         }
       }
     } catch (e) {
       debugPrint('Apply error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        _showMessage(
+          ApiService.normalizeErrorMessage(
+            e,
+            fallback: 'Failed to submit application.',
+          ),
+          backgroundColor: Colors.red,
         );
       }
     } finally {
@@ -133,23 +161,28 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             final file = result.files.single;
             final filePath = file.path;
             final fileBytes = file.bytes;
+            final fileName = file.name.trim();
 
             if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Unable to read the selected PDF.'),
-                  backgroundColor: Colors.red,
-                ),
+              _showMessage(
+                'Unable to read the selected PDF.',
+                backgroundColor: Colors.red,
+              );
+              return;
+            }
+
+            if (!_isPdfFileName(fileName)) {
+              _showMessage(
+                'Please choose a PDF document only.',
+                backgroundColor: Colors.red,
               );
               return;
             }
 
             if (file.size > 5 * 1024 * 1024) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Supportive document must be 5MB or less.'),
-                  backgroundColor: Colors.red,
-                ),
+              _showMessage(
+                'Supportive document must be 5MB or less.',
+                backgroundColor: Colors.red,
               );
               return;
             }
@@ -157,7 +190,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             setModalState(() {
               selectedFilePath = filePath;
               selectedFileBytes = fileBytes;
-              selectedFileName = file.name;
+              selectedFileName = fileName;
               selectedFileSize = file.size;
             });
           }
@@ -173,10 +206,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                 children: [
                   const Text(
                     'Submit Application',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -239,13 +269,17 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                         if (selectedFileName == null ||
                             (selectedFilePath == null &&
                                 selectedFileBytes == null)) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Please upload a supportive document PDF.',
-                              ),
-                              backgroundColor: Colors.red,
-                            ),
+                          _showMessage(
+                            'Please upload a supportive document PDF.',
+                            backgroundColor: Colors.red,
+                          );
+                          return;
+                        }
+
+                        if (!_isPdfFileName(selectedFileName!)) {
+                          _showMessage(
+                            'Supportive document must be a PDF file.',
+                            backgroundColor: Colors.red,
                           );
                           return;
                         }
@@ -301,14 +335,112 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     return '$day/$month/${deadline.year} $hour:$minute';
   }
 
+  bool _isPdfFileName(String fileName) {
+    return fileName.trim().toLowerCase().endsWith('.pdf');
+  }
+
+  void _showMessage(String message, {Color? backgroundColor}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: backgroundColor),
+      );
+  }
+
+  Widget _buildLoadErrorState() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Job Details'),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
+              const SizedBox(height: 16),
+              const Text(
+                'Unable to load job details',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _loadErrorMessage ?? 'Please try again.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadJobDetails,
+                child: const Text('Try Again'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMissingJobState() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Job Details'),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.work_off_outlined,
+                size: 64,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Job not found',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This job may have been removed or is no longer available.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadJobDetails,
+                child: const Text('Refresh'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    if (_loadErrorMessage != null) {
+      return _buildLoadErrorState();
+    }
+
     if (_job == null) {
-      return const Scaffold(body: Center(child: Text('Job not found')));
+      return _buildMissingJobState();
     }
 
     final difference = _job!.applicationDeadline.difference(DateTime.now());
@@ -352,7 +484,9 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        _job!.companyName[0].toUpperCase(),
+                        _job!.companyName.isNotEmpty
+                            ? _job!.companyName[0].toUpperCase()
+                            : '?',
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -505,16 +639,26 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _job!.requiredSkills.map((skill) {
-                      return Chip(
-                        label: Text(skill['name']),
-                        backgroundColor: Colors.blue.shade50,
-                        labelStyle: TextStyle(
-                          color: Colors.blue.shade700,
-                          fontSize: 13,
-                        ),
-                      );
-                    }).toList(),
+                    children: _job!.requiredSkills.isEmpty
+                        ? [
+                            Text(
+                              'No specific skills were listed for this job.',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ]
+                        : _job!.requiredSkills.map((skill) {
+                            return Chip(
+                              label: Text('${skill['name']}'),
+                              backgroundColor: Colors.blue.shade50,
+                              labelStyle: TextStyle(
+                                color: Colors.blue.shade700,
+                                fontSize: 13,
+                              ),
+                            );
+                          }).toList(),
                   ),
                 ],
               ),

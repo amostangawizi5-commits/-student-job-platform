@@ -17,6 +17,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
   final ApiService _apiService = ApiService();
   List<Job> _jobs = [];
   bool _isLoading = true;
+  String? _errorMessage;
   String _selectedView = 'open';
   String _selectedType = 'all';
   String _selectedLocation = 'all';
@@ -51,7 +52,11 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
   }
 
   Future<void> _loadJobs({bool forceRefresh = false}) async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
       final response = await _apiService.getJobs(
         view: _selectedView,
@@ -61,25 +66,61 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
         forceRefresh: forceRefresh,
       );
 
-      if (response['success']) {
-        final List<dynamic> jobsData = response['data'];
-        setState(() {
-          _jobs = jobsData.map((job) => Job.fromJson(job)).toList();
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
+      if (response['success'] != true) {
+        throw Exception(
+          ApiService.responseMessage(
+            response,
+            fallback: 'Unable to load jobs right now.',
+          ),
+        );
       }
+
+      final jobsData = response['data'];
+      if (jobsData is! List) {
+        throw const FormatException('Jobs response is invalid.');
+      }
+
+      final parsedJobs = <Job>[];
+      for (final job in jobsData) {
+        if (job is! Map) {
+          if (kDebugMode) {
+            debugPrint('Skipping malformed job entry: $job');
+          }
+          continue;
+        }
+
+        try {
+          parsedJobs.add(Job.fromJson(Map<String, dynamic>.from(job)));
+        } catch (error) {
+          if (kDebugMode) {
+            debugPrint('Skipping job due to parse error: $error');
+          }
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _jobs = parsedJobs;
+        _isLoading = false;
+      });
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Error loading jobs: $e');
       }
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading jobs: $e')));
-      }
+
+      final message = ApiService.normalizeErrorMessage(
+        e,
+        fallback: 'Unable to load jobs right now.',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _jobs = [];
+        _isLoading = false;
+        _errorMessage = message;
+      });
     }
   }
 
@@ -312,6 +353,36 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     );
   }
 
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.cloud_off, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            const Text(
+              'Unable to load jobs',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'Please try again.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => _loadJobs(forceRefresh: true),
+              child: const Text('Try Again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -341,6 +412,8 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
               hasScrollBody: false,
               child: Center(child: CircularProgressIndicator()),
             )
+          else if (_errorMessage != null && _jobs.isEmpty)
+            SliverFillRemaining(hasScrollBody: false, child: _buildErrorState())
           else if (_jobs.isEmpty)
             SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState())
           else

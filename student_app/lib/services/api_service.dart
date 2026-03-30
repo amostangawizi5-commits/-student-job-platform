@@ -184,6 +184,40 @@ class ApiService {
     return normalized;
   }
 
+  static String normalizeErrorMessage(
+    Object? error, {
+    String fallback = 'Something went wrong. Please try again.',
+  }) {
+    final message = (error?.toString() ?? '')
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('DioException: ', '')
+        .trim();
+
+    if (message.isEmpty || message.toLowerCase() == 'null') {
+      return fallback;
+    }
+
+    return message;
+  }
+
+  static String responseMessage(
+    Map<String, dynamic>? response, {
+    String fallback = 'Request failed. Please try again.',
+  }) {
+    final responseData = response?['data'];
+    final nestedMessage = responseData is Map<String, dynamic>
+        ? responseData['message']
+        : null;
+    final raw = response?['message'] ?? response?['error'] ?? nestedMessage;
+
+    final message = '$raw'.trim();
+    if (message.isEmpty || message.toLowerCase() == 'null') {
+      return fallback;
+    }
+
+    return message;
+  }
+
   Future<String?> getToken() async {
     return await _storage.read(key: _tokenStorageKey);
   }
@@ -268,15 +302,49 @@ class ApiService {
     Uint8List? fileBytes,
     required String fileName,
   }) async {
+    final contentType = _guessMultipartContentType(fileName);
+
     if (fileBytes != null) {
-      return MultipartFile.fromBytes(fileBytes, filename: fileName);
+      return MultipartFile.fromBytes(
+        fileBytes,
+        filename: fileName,
+        contentType: contentType,
+      );
     }
 
     if (filePath != null && filePath.trim().isNotEmpty) {
-      return MultipartFile.fromFile(filePath, filename: fileName);
+      return MultipartFile.fromFile(
+        filePath,
+        filename: fileName,
+        contentType: contentType,
+      );
     }
 
     throw ArgumentError('A file path or file bytes is required for upload.');
+  }
+
+  DioMediaType? _guessMultipartContentType(String fileName) {
+    final normalized = fileName.trim().toLowerCase();
+
+    if (normalized.endsWith('.pdf')) {
+      return DioMediaType.parse('application/pdf');
+    }
+    if (normalized.endsWith('.doc')) {
+      return DioMediaType.parse('application/msword');
+    }
+    if (normalized.endsWith('.docx')) {
+      return DioMediaType.parse(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+    }
+    if (normalized.endsWith('.png')) {
+      return DioMediaType.parse('image/png');
+    }
+    if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) {
+      return DioMediaType.parse('image/jpeg');
+    }
+
+    return null;
   }
 
   // ==================== AUTH METHODS ====================

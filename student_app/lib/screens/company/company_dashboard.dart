@@ -3164,6 +3164,22 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
   late final TextEditingController _officerAreaController;
   late final TextEditingController _letterDateController;
 
+  DateTime _formatSeedDate(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  String _formatDateOnly(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  DateTime? _parseDate(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return null;
+    return DateTime.tryParse(normalized);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3224,6 +3240,56 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
       'officer_area': _officerAreaController.text.trim(),
       'letter_date': _letterDateController.text.trim(),
     });
+  }
+
+  Future<void> _pickLetterDate() async {
+    final now = DateTime.now();
+    final initialDate =
+        _parseDate(_letterDateController.text) ?? _formatSeedDate(now);
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 5),
+      helpText: 'Select letter date',
+    );
+
+    if (pickedDate == null || !mounted) return;
+
+    setState(() {
+      _letterDateController.text = _formatDateOnly(pickedDate);
+    });
+  }
+
+  Widget _buildDateInput({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        readOnly: true,
+        onTap: _pickLetterDate,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return '$label is required';
+          }
+          return null;
+        },
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          suffixIcon: const Icon(Icons.calendar_month_outlined),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -3322,10 +3388,10 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                           label: 'Area / Physical Address',
                           hint: 'Example: Mtumba, Dodoma',
                         ),
-                        buildInput(
+                        _buildDateInput(
                           controller: _letterDateController,
                           label: 'Letter Date',
-                          hint: 'YYYY-MM-DD',
+                          hint: 'Tap to choose date',
                         ),
                       ],
                     ),
