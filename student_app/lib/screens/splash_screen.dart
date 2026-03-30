@@ -49,6 +49,19 @@ class _SplashScreenState extends State<SplashScreen> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
+                    Container(
+                      height: 196,
+                      width: 196,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            Colors.white.withValues(alpha: 0.22),
+                            Colors.white.withValues(alpha: 0.03),
+                          ],
+                        ),
+                      ),
+                    ),
                     SizedBox(
                       height: 188,
                       width: 188,
@@ -109,13 +122,35 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ),
               const SizedBox(height: 22),
-              const Text(
-                'internship system',
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.18),
+                  ),
+                ),
+                child: const Text(
+                  'Internship System',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Loading...',
                 style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: 0.7,
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.82),
+                  letterSpacing: 0.3,
                 ),
               ),
               const SizedBox(height: 24),

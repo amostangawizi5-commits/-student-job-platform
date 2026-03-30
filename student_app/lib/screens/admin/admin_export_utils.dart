@@ -55,9 +55,9 @@ class AdminExportUtils {
       );
 
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export saved to $path')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Export saved to $path')));
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -85,9 +85,7 @@ class AdminExportUtils {
     switch (format) {
       case AdminExportFormat.csv:
         final fileName = '$baseName.csv';
-        final bytes = Uint8List.fromList(
-          utf8.encode(_buildCsv(headers, rows)),
-        );
+        final bytes = Uint8List.fromList(utf8.encode(_buildCsv(headers, rows)));
         return _saveExportFile(
           fileName: fileName,
           bytes: bytes,
@@ -123,13 +121,17 @@ class AdminExportUtils {
     required String mimeType,
   }) async {
     if (Platform.isAndroid) {
+      final tempDirectory = await getTemporaryDirectory();
+      final tempFile = File('${tempDirectory.path}/$fileName');
+      await tempFile.writeAsBytes(bytes, flush: true);
+
       try {
         final savedPath = await _downloadsChannel.invokeMethod<String>(
-          'saveToDownloads',
+          'copyFileToDownloads',
           {
+            'sourcePath': tempFile.path,
             'fileName': fileName,
             'mimeType': mimeType,
-            'bytes': bytes,
           },
         );
 
@@ -138,6 +140,10 @@ class AdminExportUtils {
         }
       } on PlatformException {
         // Fall back to filesystem storage below.
+      } finally {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
       }
     }
 

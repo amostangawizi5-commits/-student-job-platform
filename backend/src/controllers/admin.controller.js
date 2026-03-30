@@ -4,6 +4,45 @@ const { sendPasswordResetEmail } = require('../services/email.service');
 const NotificationModel = require('../models/notification.model');
 const { getAuditLogs, logAuditEvent } = require('../services/audit-log.service');
 
+const ADMIN_APPROVED_DB_STATUSES = ['shortlisted', 'interview', 'accepted'];
+
+const normalizeAdminApplicationStatus = (status) => {
+    const normalizedStatus = `${status || ''}`.trim().toLowerCase();
+
+    if (ADMIN_APPROVED_DB_STATUSES.includes(normalizedStatus)) {
+        return 'approved';
+    }
+
+    if (['pending', 'rejected'].includes(normalizedStatus)) {
+        return normalizedStatus;
+    }
+
+    return normalizedStatus || 'pending';
+};
+
+const getAdminApplicationFilterStatuses = (status) => {
+    const normalizedStatus = normalizeAdminApplicationStatus(status);
+
+    switch (normalizedStatus) {
+        case 'approved':
+            return ADMIN_APPROVED_DB_STATUSES;
+        case 'pending':
+            return ['pending'];
+        case 'rejected':
+            return ['rejected'];
+        default:
+            return [];
+    }
+};
+
+const mapAdminDecisionToDbStatus = (status) => {
+    const normalizedStatus = normalizeAdminApplicationStatus(status);
+    if (normalizedStatus === 'approved') {
+        return 'shortlisted';
+    }
+    return normalizedStatus;
+};
+
 const PASSWORD_RESET_TABLE_SQL = `
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
         token_id SERIAL PRIMARY KEY,
@@ -270,12 +309,26 @@ const getAllApplications = async (req, res) => {
         let whereClause = '';
 
         if (status) {
-            values.push(status);
-            whereClause = 'WHERE a.status = $1';
+            const filteredStatuses = getAdminApplicationFilterStatuses(status);
+            if (filteredStatuses.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid application status filter'
+                });
+            }
+
+            values.push(filteredStatuses);
+            whereClause = 'WHERE a.status = ANY($1::text[])';
         }
 
         const result = await query(
-            `SELECT a.application_id, a.student_id, a.job_id, a.status, a.cover_letter,
+            `SELECT a.application_id, a.student_id, a.job_id,
+                    CASE
+                        WHEN a.status = ANY($${values.length + 1}::text[]) THEN 'approved'
+                        ELSE a.status
+                    END AS status,
+                    a.status AS workflow_status,
+                    a.cover_letter,
                     a.company_feedback, a.applied_date, a.updated_date,
                     u.full_name AS user_name, u.email,
                     j.title AS job_title, s.resume_url,
@@ -287,7 +340,7 @@ const getAllApplications = async (req, res) => {
              JOIN companies c ON j.company_id = c.company_id
              ${whereClause}
              ORDER BY a.applied_date DESC`,
-            values
+            [...values, ADMIN_APPROVED_DB_STATUSES]
         );
 
         res.json({ success: true, data: result.rows });
@@ -303,13 +356,16 @@ const updateAdminApplicationStatus = async (req, res) => {
         const { applicationId } = req.params;
         const { status, notify_user } = req.body;
         const allowedStatuses = new Set(['pending', 'approved', 'rejected']);
+        const normalizedStatus = normalizeAdminApplicationStatus(status);
 
-        if (!allowedStatuses.has(status)) {
+        if (!allowedStatuses.has(normalizedStatus)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid application status'
             });
         }
+
+        const dbStatus = mapAdminDecisionToDbStatus(normalizedStatus);
 
         const applicationDetails = await query(
             `SELECT a.application_id, a.student_id, u.full_name AS user_name, u.email,
@@ -334,7 +390,7 @@ const updateAdminApplicationStatus = async (req, res) => {
              SET status = $1, updated_date = CURRENT_TIMESTAMP
              WHERE application_id = $2
              RETURNING application_id, status`,
-            [status, applicationId]
+            [dbStatus, applicationId]
         );
 
         if (result.rows.length === 0) {
@@ -349,19 +405,19 @@ const updateAdminApplicationStatus = async (req, res) => {
         if (notify_user === true) {
             await NotificationModel.create({
                 user_id: details.student_id,
-                title: status === 'approved'
+                title: normalizedStatus === 'approved'
                     ? 'Application approved'
-                    : status === 'rejected'
+                    : normalizedStatus === 'rejected'
                         ? 'Application rejected'
                         : 'Application updated',
-                message: status === 'approved'
+                message: normalizedStatus === 'approved'
                     ? `Your application for ${details.job_title} at ${details.company_name} was approved by admin review.`
-                    : status === 'rejected'
+                    : normalizedStatus === 'rejected'
                         ? `Your application for ${details.job_title} at ${details.company_name} was rejected by admin review.`
                         : `Your application for ${details.job_title} was updated.`,
-                type: status === 'approved'
+                type: normalizedStatus === 'approved'
                     ? 'accepted'
-                    : status === 'rejected'
+                    : normalizedStatus === 'rejected'
                         ? 'rejected'
                         : 'application'
             });
@@ -369,8 +425,8 @@ const updateAdminApplicationStatus = async (req, res) => {
 
         await logAuditEvent({
             category: 'admin_action',
-            eventType: `Application ${status}`,
-            message: `${details.user_name || 'Applicant'} application for ${details.job_title} was ${status}`,
+            eventType: `Application ${normalizedStatus}`,
+            message: `${details.user_name || 'Applicant'} application for ${details.job_title} was ${normalizedStatus}`,
             actorUserId: req.user.user_id,
             actorName: req.user.email,
             userInvolved: details.student_id,
@@ -379,9 +435,11 @@ const updateAdminApplicationStatus = async (req, res) => {
 
         res.json({
             success: true,
-            message: `Application ${status} successfully`,
+            message: `Application ${normalizedStatus} successfully`,
             data: {
                 ...result.rows[0],
+                status: normalizedStatus,
+                workflow_status: result.rows[0].status,
                 notified_user: notify_user === true
             }
         });
@@ -535,7 +593,10 @@ const getStats = async (req, res) => {
         const totalJobs = await query('SELECT COUNT(*) FROM jobs');
         const totalApplications = await query('SELECT COUNT(*) FROM applications');
         const pendingApplications = await query('SELECT COUNT(*) FROM applications WHERE status = \'pending\'');
-        const approvedApplications = await query('SELECT COUNT(*) FROM applications WHERE status = \'approved\'');
+        const approvedApplications = await query(
+            'SELECT COUNT(*) FROM applications WHERE status = ANY($1::text[])',
+            [ADMIN_APPROVED_DB_STATUSES]
+        );
         const rejectedApplications = await query('SELECT COUNT(*) FROM applications WHERE status = \'rejected\'');
         
         res.json({

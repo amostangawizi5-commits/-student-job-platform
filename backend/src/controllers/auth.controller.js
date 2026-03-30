@@ -10,6 +10,158 @@ const {
 } = require('../services/email.service');
 const { logAuditEvent } = require('../services/audit-log.service');
 
+const TCU_REGISTERED_INSTITUTIONS = [
+    { name: 'University of Dar es Salaam (UDSM)', location: 'Dar es Salaam' },
+    { name: 'Sokoine University of Agriculture (SUA)', location: 'Morogoro' },
+    { name: 'Open University of Tanzania (OUT)', location: 'Dar es Salaam' },
+    { name: 'State University of Zanzibar (SUZA)', location: 'Zanzibar' },
+    { name: 'Mzumbe University (MU)', location: 'Morogoro' },
+    {
+        name: 'Nelson Mandela African Institution of Science and Technology (NM-AIST)',
+        location: 'Arusha',
+        aliases: ['Nelson Mandela African Institute of Science and Technology']
+    },
+    {
+        name: 'Muhimbili University of Health and Allied Sciences (MUHAS)',
+        location: 'Dar es Salaam'
+    },
+    { name: 'Ardhi University (ARU)', location: 'Dar es Salaam' },
+    { name: 'University of Dodoma (UDOM)', location: 'Dodoma' },
+    { name: 'Mbeya University of Science and Technology (MUST)', location: 'Mbeya' },
+    {
+        name: 'Moshi Cooperative University (MoCU)',
+        location: 'Moshi',
+        aliases: ['Moshi Co-operative University']
+    },
+    {
+        name: 'Mwalimu Nyerere University of Agriculture and Technology (MNUAT)',
+        location: 'Musoma'
+    },
+    {
+        name: 'Kairuki University (KU), formerly HKMU',
+        location: 'Dar es Salaam',
+        aliases: ['Hubert Kairuki Memorial University']
+    },
+    { name: 'Abdulrahman Al-Sumait University (SUMAIT)', location: 'Zanzibar' },
+    { name: 'St. Augustine University of Tanzania (SAUT)', location: 'Mwanza' },
+    { name: 'Zanzibar University (ZU)', location: 'Zanzibar' },
+    { name: 'Tumaini University Makumira (TUMA)', location: 'Arusha' },
+    { name: 'Aga Khan University (AKU)', location: 'Dar es Salaam' },
+    {
+        name: 'Catholic University of Health and Allied Sciences (CUHAS)',
+        location: 'Mwanza'
+    },
+    { name: 'University of Arusha (UoA)', location: 'Arusha' },
+    { name: 'St. Joseph University in Tanzania (SJUIT)', location: 'Dar es Salaam' },
+    { name: 'Teofilo Kisanji University (TEKU)', location: 'Mbeya' },
+    { name: 'Mwenge Catholic University (MWECAU)', location: 'Moshi' },
+    { name: 'Muslim University of Morogoro (MUM)', location: 'Morogoro' },
+    { name: 'University of Iringa (UoI)', location: 'Iringa' },
+    { name: "St. John's University of Tanzania (SJUT)", location: 'Dodoma' },
+    { name: 'Kampala International University in Tanzania (KIUT)', location: 'Dar es Salaam' },
+    { name: 'United African University of Tanzania (UAUT)', location: 'Dar es Salaam' },
+    { name: 'Ruaha Catholic University (RUCU)', location: 'Iringa' },
+    { name: 'Mwanza University (MzU)', location: 'Mwanza' },
+    {
+        name: 'Catholic University of Mbeya (CUoM), formerly CUCoM',
+        location: 'Mbeya'
+    },
+    {
+        name: 'Dar es Salaam Tumaini University (DarTU), formerly TUDARCo',
+        location: 'Dar es Salaam'
+    },
+    {
+        name: 'Rabininsia Memorial University of Health and Allied Sciences (RMUHAS)',
+        location: 'Dar es Salaam'
+    },
+    {
+        name: 'University of Medical Sciences and Technology (UMST)',
+        location: 'Dar es Salaam'
+    },
+    { name: 'Islamic University of East Africa (IUEA)', location: 'Dar es Salaam' },
+    { name: 'KCMC University', location: 'Moshi' },
+    { name: 'Dar es Salaam University College of Education (DUCE)', location: 'Dar es Salaam' },
+    { name: 'Mkwawa University College of Education (MUCE)', location: 'Iringa' },
+    {
+        name: 'Mzumbe University - Dar es Salaam Campus College (MU - Dar es Salaam Campus College)',
+        location: 'Dar es Salaam'
+    },
+    {
+        name: 'Mzumbe University - Mbeya Campus College (MU - Mbeya Campus College)',
+        location: 'Mbeya'
+    },
+    { name: 'Mbeya College of Health and Allied Sciences (MCHAS)', location: 'Mbeya' },
+    {
+        name: 'Mbeya University of Science and Technology - Rukwa Campus College (MUST - RC)',
+        location: 'Rukwa'
+    },
+    {
+        name: 'Sokoine University of Agriculture - Mizengo Pinda Campus College (SUA - MPC)',
+        location: 'Katavi'
+    },
+    {
+        name: 'Mbeya University of Science and Technology - Mtwara Campus College of Technical Education (MUST - MCCTE)',
+        location: 'Mtwara'
+    },
+    { name: 'Stefano Moshi Memorial University College (SMMUCo)', location: 'Moshi' },
+    { name: 'Archbishop Mihayo University College of Tabora (AMUCTA)', location: 'Tabora' },
+    { name: 'Jordan University College (JUCo)', location: 'Morogoro' },
+    {
+        name: 'St. Francis University College of Health and Allied Sciences (SFUCHAS)',
+        location: 'Morogoro'
+    },
+    { name: 'Stella Maris Mtwara University College (STeMMUCo)', location: 'Mtwara' },
+    { name: 'Marian University College (MARUCo)', location: 'Bagamoyo' },
+    {
+        name: 'St. Joseph University College of Health and Allied Sciences (SJCHAS)',
+        location: 'Dar es Salaam'
+    },
+    {
+        name: 'Mwenge Catholic University, Hedaru Campus College (MWECAU-HCC)',
+        location: 'Same, Kilimanjaro'
+    }
+];
+
+const OFFICIAL_INSTITUTION_NAMES = TCU_REGISTERED_INSTITUTIONS.map(({ name }) =>
+    name.toLowerCase()
+);
+
+const ensureDefaultUniversities = async () => {
+    for (const institution of TCU_REGISTERED_INSTITUTIONS) {
+        const matchNames = [institution.name, ...(institution.aliases || [])].map((value) =>
+            value.toLowerCase()
+        );
+
+        const existingResult = await query(
+            `SELECT university_id, name, location
+             FROM universities
+             WHERE LOWER(name) = ANY($1::text[])
+             ORDER BY CASE WHEN LOWER(name) = LOWER($2) THEN 0 ELSE 1 END, university_id ASC
+             LIMIT 1`,
+            [matchNames, institution.name]
+        );
+
+        const existingInstitution = existingResult.rows[0];
+        if (existingInstitution) {
+            if (
+                existingInstitution.name !== institution.name ||
+                existingInstitution.location !== institution.location
+            ) {
+                await query(
+                    'UPDATE universities SET name = $1, location = $2 WHERE university_id = $3',
+                    [institution.name, institution.location, existingInstitution.university_id]
+                );
+            }
+            continue;
+        }
+
+        await query('INSERT INTO universities (name, location) VALUES ($1, $2)', [
+            institution.name,
+            institution.location
+        ]);
+    }
+};
+
 // Generate JWT Token
 const generateToken = (userId, email, role) => {
     return jwt.sign(
@@ -493,8 +645,21 @@ const updateProfile = async (req, res) => {
 // Get All Universities (for registration dropdown)
 const getUniversities = async (req, res) => {
     try {
-        const { query } = require('../config/database');
-        const result = await query('SELECT university_id, name, location FROM universities ORDER BY name');
+        await ensureDefaultUniversities();
+        const result = await query(
+            `SELECT university_id, name, location
+             FROM (
+                 SELECT DISTINCT ON (LOWER(name))
+                     university_id,
+                     name,
+                     location
+                 FROM universities
+                 WHERE LOWER(name) = ANY($1::text[])
+                 ORDER BY LOWER(name), university_id
+             ) official_institutions
+             ORDER BY name`,
+            [OFFICIAL_INSTITUTION_NAMES]
+        );
         
         res.json({
             success: true,

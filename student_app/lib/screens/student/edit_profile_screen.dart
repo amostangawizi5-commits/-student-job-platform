@@ -85,9 +85,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final uniResponse = await _apiService.getUniversities();
       _universities = uniResponse['data'] ?? [];
 
-      // Generate years from 5 years ago to 10 years ahead
+      // Cover historical and future years for both graduates and current students.
       final currentYear = DateTime.now().year;
-      _years = List.generate(16, (i) => currentYear - 5 + i);
+      _years = List<int>.generate(
+        currentYear - 2000 + 11,
+        (i) => currentYear + 10 - i,
+      );
 
       // Fill controllers
       _fullNameController.text = user?['full_name'] ?? '';

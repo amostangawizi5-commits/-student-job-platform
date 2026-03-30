@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import 'reset_password_screen.dart';
@@ -37,6 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoggingIn = true);
 
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final language = context.read<LanguageProvider>();
       final success = await authProvider.login(
         _emailController.text.trim(),
         _passwordController.text,
@@ -51,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Login successful!'),
+              content: Text(language.tr('login_success')),
               backgroundColor: AppTheme.primaryGreen,
               duration: const Duration(seconds: 1),
             ),
@@ -85,7 +87,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isLoggingIn = false);
         final message =
             authProvider.errorMessage ??
-            'Login failed. Check your credentials.';
+            language.tr('login_failed_check_credentials');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
@@ -98,6 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _showForgotPasswordDialog() async {
+    final language = context.read<LanguageProvider>();
     final response = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) => _ForgotPasswordDialog(
@@ -109,17 +112,19 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted || response == null) return;
 
     final message =
-        response['message']?.toString() ??
-        'If an account with that email exists, a reset link has been sent.';
+        response['message']?.toString() ?? language.tr('reset_email_sent');
     final debugResetLink = response['debugResetLink']?.toString();
+    final hasDebugResetLink =
+        debugResetLink != null && debugResetLink.trim().isNotEmpty;
+    final isEmailSent = response['emailSent'] != false;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: AppTheme.primaryGreen,
-        duration: Duration(seconds: debugResetLink == null ? 4 : 8),
+        backgroundColor: isEmailSent ? AppTheme.primaryGreen : Colors.orange,
+        duration: Duration(seconds: hasDebugResetLink ? 8 : 4),
         action: SnackBarAction(
-          label: 'Reset Now',
+          label: language.tr('reset_now'),
           textColor: Colors.white,
           onPressed: () {
             Navigator.of(context).push(
@@ -130,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
 
-    if (debugResetLink == null || debugResetLink.isEmpty) return;
+    if (!hasDebugResetLink) return;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -148,13 +153,16 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Reset Link Ready',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              Text(
+                language.tr('reset_link_ready'),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                'If your email app does not open the link, copy this link or open the reset screen and paste it there.',
+                language.tr('reset_link_ready_body'),
                 style: TextStyle(color: Colors.grey.shade700, height: 1.4),
               ),
               const SizedBox(height: 14),
@@ -175,8 +183,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     );
                     if (!sheetContext.mounted) return;
                     ScaffoldMessenger.of(sheetContext).showSnackBar(
-                      const SnackBar(
-                        content: Text('Reset link copied'),
+                      SnackBar(
+                        content: Text(language.tr('reset_link_copied')),
                         backgroundColor: AppTheme.primaryGreen,
                       ),
                     );
@@ -184,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryBlue,
                   ),
-                  child: const Text('COPY RESET LINK'),
+                  child: Text(language.tr('copy_reset_link')),
                 ),
               ),
               const SizedBox(height: 10),
@@ -199,7 +207,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     );
                   },
-                  child: const Text('OPEN RESET SCREEN'),
+                  child: Text(language.tr('open_reset_screen')),
                 ),
               ),
             ],
@@ -211,6 +219,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
       body: Stack(
@@ -270,10 +280,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              const Text(
-                                'THE UNITED REPUBLIC OF TANZANIA',
+                              Text(
+                                language.tr('united_republic_of_tanzania'),
                                 textAlign: TextAlign.center,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF4A90E2),
@@ -281,20 +291,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                               const SizedBox(height: 4),
-                              const Text(
-                                'INTERNSHIP GOVERNMENT SYSTEM',
+                              Text(
+                                language.tr('internship_government_system'),
                                 textAlign: TextAlign.center,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                   color: Color(0xFF666666),
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              const Text(
-                                'Empowering Tanzanian Youth',
+                              Text(
+                                language.tr('empowering_tanzanian_youth'),
                                 textAlign: TextAlign.center,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 11,
                                   fontStyle: FontStyle.italic,
                                   color: Color(0xFF888888),
@@ -305,10 +315,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           const SizedBox(height: 32),
 
-                          const Text(
-                            'LOGIN',
+                          Text(
+                            language.tr('login'),
                             textAlign: TextAlign.center,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF333333),
@@ -325,10 +335,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                   controller: _emailController,
                                   keyboardType: TextInputType.emailAddress,
                                   decoration: InputDecoration(
-                                    labelText: 'Email / Username',
-                                    hintText: 'Enter your email address',
+                                    labelText: language.tr('email_or_username'),
+                                    hintText: language.tr(
+                                      'enter_your_email_address',
+                                    ),
                                     prefixIcon: const Icon(
-                                      Icons.person_outline,
+                                      Icons.email_outlined,
                                     ),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
@@ -354,10 +366,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please enter your email';
+                                      return language.tr(
+                                        'please_enter_your_email',
+                                      );
                                     }
                                     if (!value.contains('@')) {
-                                      return 'Enter a valid email address';
+                                      return language.tr(
+                                        'enter_valid_email_address',
+                                      );
                                     }
                                     return null;
                                   },
@@ -368,7 +384,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   controller: _passwordController,
                                   obscureText: !_isPasswordVisible,
                                   decoration: InputDecoration(
-                                    labelText: 'Password',
+                                    labelText: language.tr('password'),
                                     prefixIcon: const Icon(Icons.lock_outline),
                                     suffixIcon: IconButton(
                                       icon: Icon(
@@ -408,10 +424,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please enter your password';
+                                      return language.tr(
+                                        'please_enter_your_password',
+                                      );
                                     }
                                     if (value.length < 6) {
-                                      return 'Password must be at least 6 characters';
+                                      return language.tr('password_min_6');
                                     }
                                     return null;
                                   },
@@ -459,13 +477,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 12),
-                                    const Expanded(
+                                    Expanded(
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'Forgot Password?',
+                                            language.tr('forgot_password'),
                                             style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w700,
@@ -474,7 +492,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ),
                                           SizedBox(height: 2),
                                           Text(
-                                            'Tap here to get a reset link by email',
+                                            language.tr(
+                                              'forgot_password_prompt',
+                                            ),
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: Color(0xFF4B5563),
@@ -514,8 +534,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Text(
-                                    'LOGIN',
+                                : Text(
+                                    language.tr('login'),
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
@@ -529,7 +549,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                "Don't have an account? ",
+                                '${language.tr('dont_have_account')} ',
                                 style: AppTheme.caption,
                               ),
                               TextButton(
@@ -543,7 +563,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   );
                                 },
                                 child: Text(
-                                  'Register',
+                                  language.tr('register'),
                                   style: TextStyle(
                                     color: AppTheme.primaryBlue,
                                     fontWeight: FontWeight.w600,
@@ -562,7 +582,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           Column(
                             children: [
                               Text(
-                                '© 2026 Developed by',
+                                '© 2026 ${language.tr('developed_by_name', {'name': 'DEVELOPER GINGER'})}',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 11,
@@ -571,18 +591,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'DEVELOPER GINGER',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.primaryBlue,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Version 1.0.0',
+                                language.tr('version_value', {
+                                  'value': '1.0.0',
+                                }),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 10,
@@ -591,7 +602,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Jamhuri ya Muungano wa Tanzania',
+                                language.tr('united_republic_of_tanzania'),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 10,
@@ -613,16 +624,16 @@ class _LoginScreenState extends State<LoginScreen> {
           if (_isLoggingIn)
             Container(
               color: Colors.black.withValues(alpha: 0.5),
-              child: const Center(
+              child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(
+                    const CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
-                      'Logging in...',
+                      language.tr('logging_in'),
                       style: TextStyle(color: Colors.white, fontSize: 14),
                     ),
                   ],
@@ -666,9 +677,10 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
   }
 
   Future<void> _submit() async {
+    final language = context.read<LanguageProvider>();
     final email = _emailController.text.trim();
     if (!email.contains('@')) {
-      setState(() => _errorText = 'Enter a valid email address');
+      setState(() => _errorText = language.tr('enter_valid_email_address'));
       return;
     }
 
@@ -680,8 +692,11 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     try {
       final response = await widget.apiService.forgotPassword(email);
       if (!mounted) return;
+      final debugResetLink = response['debugResetLink']?.toString();
+      final hasDebugResetLink =
+          debugResetLink != null && debugResetLink.trim().isNotEmpty;
 
-      if (response['success'] == true) {
+      if (response['success'] == true || hasDebugResetLink) {
         Navigator.of(context).pop(response);
         return;
       }
@@ -690,7 +705,7 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
         _isSubmitting = false;
         _errorText =
             response['message']?.toString() ??
-            'Failed to send password reset link';
+            language.tr('failed_send_password_reset_link');
       });
     } catch (e) {
       if (!mounted) return;
@@ -703,18 +718,18 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
+
     return AlertDialog(
       scrollable: true,
-      title: const Text('Forgot Password'),
+      title: Text(language.tr('forgot_password')),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Enter your email address and we will send you a secure reset link.',
-            ),
+            Text(language.tr('forgot_password_description')),
             const SizedBox(height: 14),
             TextField(
               controller: _emailController,
@@ -722,7 +737,7 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _isSubmitting ? null : _submit(),
               decoration: InputDecoration(
-                labelText: 'Email address',
+                labelText: language.tr('email_address'),
                 prefixIcon: const Icon(Icons.email_outlined),
                 errorText: _errorText,
               ),
@@ -733,11 +748,13 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
       actions: [
         TextButton(
           onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(language.tr('cancel')),
         ),
         ElevatedButton(
           onPressed: _isSubmitting ? null : _submit,
-          child: Text(_isSubmitting ? 'Sending...' : 'Send Link'),
+          child: Text(
+            _isSubmitting ? language.tr('sending') : language.tr('send_link'),
+          ),
         ),
       ],
     );

@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
@@ -27,6 +27,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<dynamic> _projects = [];
   bool _isLoading = true;
   bool _isDownloadingResume = false;
+  bool _isUploadingProfileImage = false;
+  bool _isDeletingProfileImage = false;
   String? _selectedResumePath;
   String? _selectedResumeName;
   int? _selectedResumeSize;
@@ -99,6 +101,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'technologies': _normalizeTechnologies(
           project['technologies'] ?? project['tech_stack'],
         ),
+        'github_link':
+            project['github_link'] ??
+            project['githubUrl'] ??
+            project['repo_url'],
+        'live_demo_link':
+            project['live_demo_link'] ??
+            project['liveDemoLink'] ??
+            project['project_url'] ??
+            project['url'],
       };
     }).toList();
   }
@@ -264,6 +275,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return url.split('/').last;
   }
 
+  String _resolveFileUrl(String path) {
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '${_apiService.baseUrl}$normalized';
+  }
+
   Future<void> _pickOrUploadResume() async {
     if (_selectedResumePath == null || _selectedResumePath!.isEmpty) {
       await _pickResume();
@@ -273,12 +293,166 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String _resolveResumeUrl(String resumePath) {
-    final trimmed = resumePath.trim();
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return trimmed;
+    return _resolveFileUrl(resumePath);
+  }
+
+  bool _isValidHttpUrl(String value) {
+    final uri = Uri.tryParse(value.trim());
+    return uri != null &&
+        uri.hasScheme &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
+  Future<void> _pickAndUploadProfileImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png'],
+      );
+
+      if (!mounted || result == null) return;
+
+      final file = result.files.single;
+      final filePath = file.path;
+      if (filePath == null || filePath.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to read selected image.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile image must be less than 5MB'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      setState(() => _isUploadingProfileImage = true);
+      final response = await _apiService.uploadStudentProfileImage(filePath);
+      if (!mounted) return;
+
+      if (_isSuccessResponse(response)) {
+        await context.read<AuthProvider>().loadProfile();
+        await _loadData();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile photo uploaded successfully!'),
+            backgroundColor: AppTheme.primaryGreen,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response['message'] ?? 'Failed to upload profile image',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingProfileImage = false);
+      }
     }
-    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
-    return '${_apiService.baseUrl}$normalized';
+  }
+
+  Future<void> _deleteProfileImage() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Profile Photo'),
+        content: const Text(
+          'Are you sure you want to remove your profile photo?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      setState(() => _isDeletingProfileImage = true);
+      final response = await _apiService.deleteStudentProfileImage();
+      if (!mounted) return;
+
+      if (_isSuccessResponse(response)) {
+        await context.read<AuthProvider>().loadProfile();
+        await _loadData();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile photo removed successfully!'),
+            backgroundColor: AppTheme.primaryGreen,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              response['message'] ?? 'Failed to remove profile image',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDeletingProfileImage = false);
+      }
+    }
+  }
+
+  Future<void> _openProjectLink(String url) async {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || !_isValidHttpUrl(url)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid project link'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to open project link'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<Directory> _getDownloadDirectory() async {
@@ -424,6 +598,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _showAddProjectDialog() {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
+    final liveDemoController = TextEditingController();
     final techController = TextEditingController();
     List<String> technologies = [];
 
@@ -452,6 +627,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       border: OutlineInputBorder(),
                     ),
                     maxLines: 3,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: liveDemoController,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Hosted Project Link',
+                      hintText: 'https://your-project.com',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -512,10 +697,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ElevatedButton(
                 onPressed: () async {
                   if (titleController.text.isNotEmpty) {
+                    final liveDemoLink = liveDemoController.text.trim();
+                    if (liveDemoLink.isNotEmpty &&
+                        !_isValidHttpUrl(liveDemoLink)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Please enter a valid hosted project link',
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
                     await _addProject(
                       titleController.text,
                       descriptionController.text,
                       technologies,
+                      liveDemoLink,
                     );
                     if (!context.mounted) return;
                     Navigator.pop(context);
@@ -541,12 +740,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     String title,
     String description,
     List<String> technologies,
+    String liveDemoLink,
   ) async {
     try {
       final response = await _apiService.addStudentProject({
         'title': title.trim(),
         'description': description.trim(),
         'technologies': technologies,
+        'live_demo_link': liveDemoLink.isEmpty ? null : liveDemoLink,
       });
       if (!mounted) return;
       if (_isSuccessResponse(response)) {
@@ -619,13 +820,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _openResetPinDialog() async {
     final email = _user?['email']?.toString() ?? '';
     if (email.isEmpty) return;
-    final changed = await showResetPinDialog(context, email: email);
-    if (!mounted || changed != true) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('PIN reset successfully'),
-        backgroundColor: AppTheme.primaryGreen,
+    await showResetPinDialog(context, email: email);
+  }
+
+  Widget _buildProfileAvatar(String? profileImageUrl) {
+    final resolvedUrl = (profileImageUrl ?? '').trim().isEmpty
+        ? null
+        : _resolveFileUrl(profileImageUrl!);
+    final initials = _user?['full_name']?.toString().trim().isNotEmpty == true
+        ? _user!['full_name'].toString().trim()[0].toUpperCase()
+        : 'U';
+
+    return Container(
+      width: 104,
+      height: 104,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: resolvedUrl == null
+          ? Center(
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryBlue,
+                ),
+              ),
+            )
+          : Image.network(
+              resolvedUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Center(
+                child: Text(
+                  initials,
+                  style: const TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primaryBlue,
+                  ),
+                ),
+              ),
+            ),
     );
   }
 
@@ -637,6 +875,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final studentData = _user?['student_data'];
     final isGraduate = _user?['role'] == 'graduate';
+    final profileImageUrl = _user?['profile_image_url']?.toString() ?? '';
+    final hasProfileImage = profileImageUrl.trim().isNotEmpty;
     final uploadedResumeUrl = studentData?['resume_url']?.toString() ?? '';
     final hasResume = uploadedResumeUrl.isNotEmpty;
     final uploadedResumeName = _fileNameFromUrl(uploadedResumeUrl);
@@ -679,21 +919,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.all(24),
                     child: Column(
                       children: [
-                        CircleAvatar(
-                          radius: 50,
-                          backgroundColor: AppTheme.primaryBlue.withValues(
-                            alpha: 0.1,
-                          ),
-                          child: Text(
-                            _user?['full_name']?.substring(0, 1) ?? 'U',
-                            style: const TextStyle(
-                              fontSize: 40,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primaryBlue,
-                            ),
-                          ),
-                        ),
+                        _buildProfileAvatar(profileImageUrl),
                         const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed:
+                                  _isUploadingProfileImage ||
+                                      _isDeletingProfileImage
+                                  ? null
+                                  : _pickAndUploadProfileImage,
+                              icon: _isUploadingProfileImage
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(
+                                      hasProfileImage
+                                          ? Icons.edit_outlined
+                                          : Icons.camera_alt_outlined,
+                                    ),
+                              label: Text(
+                                _isUploadingProfileImage
+                                    ? 'Uploading...'
+                                    : hasProfileImage
+                                    ? 'Change Profile Photo'
+                                    : 'Upload Profile Photo',
+                              ),
+                            ),
+                            if (hasProfileImage)
+                              TextButton.icon(
+                                onPressed:
+                                    _isUploadingProfileImage ||
+                                        _isDeletingProfileImage
+                                    ? null
+                                    : _deleteProfileImage,
+                                icon: _isDeletingProfileImage
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                      ),
+                                label: Text(
+                                  _isDeletingProfileImage
+                                      ? 'Removing...'
+                                      : 'Remove Photo',
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         Text(
                           _user?['full_name'] ?? 'Student Name',
                           style: const TextStyle(
@@ -1015,6 +1303,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                             maxLines: 3,
                                             overflow: TextOverflow.ellipsis,
                                           ),
+                                          if ((project['live_demo_link'] ?? '')
+                                              .toString()
+                                              .trim()
+                                              .isNotEmpty) ...[
+                                            const SizedBox(height: 12),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                ActionChip(
+                                                  avatar: const Icon(
+                                                    Icons.open_in_new,
+                                                    size: 16,
+                                                    color: AppTheme.primaryBlue,
+                                                  ),
+                                                  label: const Text(
+                                                    'Open Hosted Project',
+                                                  ),
+                                                  onPressed: () =>
+                                                      _openProjectLink(
+                                                        project['live_demo_link']
+                                                            .toString(),
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
                                           if (project['technologies'] != null &&
                                               project['technologies']
                                                   .isNotEmpty) ...[

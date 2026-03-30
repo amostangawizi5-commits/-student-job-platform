@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -12,6 +14,14 @@ import 'widgets/reset_pin_dialog.dart';
 
 void main() {
   runApp(const MyApp());
+}
+
+bool canTrackSessionActivity({
+  required bool isAuthenticated,
+  required bool isPinVisible,
+  required bool shouldRequirePinOnResume,
+}) {
+  return isAuthenticated && !isPinVisible && !shouldRequirePinOnResume;
 }
 
 class MyApp extends StatelessWidget {
@@ -98,12 +108,18 @@ class _SessionGuard extends StatefulWidget {
 
 class _SessionGuardState extends State<_SessionGuard>
     with WidgetsBindingObserver {
+  static const Duration _inactivityTimeout = Duration(minutes: 3);
+
   final AppLockService _appLockService = AppLockService();
+  final GlobalKey<NavigatorState> _pinGateNavigatorKey =
+      GlobalKey<NavigatorState>();
   bool _isPinVisible = false;
   bool _isSetupMode = false;
   bool _isEvaluatingPin = false;
   bool _shouldRequirePinOnResume = false;
   String _authStateKey = '';
+  Timer? _inactivityTimer;
+  DateTime? _lastActivityAt;
 
   @override
   void initState() {
@@ -113,23 +129,27 @@ class _SessionGuardState extends State<_SessionGuard>
 
   @override
   void dispose() {
+    _cancelInactivityTimer();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _evaluatePinRequirement();
+      return;
+    }
+
     if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       final authProvider = context.read<AuthProvider>();
       if (authProvider.isAuthenticated) {
         _shouldRequirePinOnResume = true;
       }
-    }
-
-    if (state == AppLifecycleState.resumed) {
-      _evaluatePinRequirement();
+      _cancelInactivityTimer();
     }
   }
 
@@ -143,33 +163,44 @@ class _SessionGuardState extends State<_SessionGuard>
       }
       _isSetupMode = false;
       _shouldRequirePinOnResume = false;
+      _cancelInactivityTimer();
+      _lastActivityAt = null;
       return;
     }
 
     _isEvaluatingPin = true;
-    final hasPin = await _appLockService.hasPin();
-    if (!mounted) {
+    try {
+      final hasPin = await _appLockService.hasPin();
+      if (!mounted) {
+        return;
+      }
+
+      final shouldShowSetup = !hasPin && authProvider.requiresPinSetup;
+      final shouldShowUnlock =
+          hasPin && (authProvider.sessionRestored || _shouldRequirePinOnResume);
+
+      if (shouldShowSetup || shouldShowUnlock) {
+        setState(() {
+          _isSetupMode = shouldShowSetup;
+          _isPinVisible = true;
+        });
+        _cancelInactivityTimer();
+      } else if (!_isPinVisible && hasPin) {
+        _markUserActivity();
+      }
+    } catch (_) {
+      // Leave the current gate state unchanged if secure storage is unavailable.
+      if (!mounted) {
+        return;
+      }
+    } finally {
       _isEvaluatingPin = false;
-      return;
     }
-
-    final shouldShowSetup = !hasPin;
-    final shouldShowUnlock =
-        hasPin && (authProvider.sessionRestored || _shouldRequirePinOnResume);
-
-    if (shouldShowSetup || shouldShowUnlock) {
-      setState(() {
-        _isSetupMode = shouldShowSetup;
-        _isPinVisible = true;
-      });
-    }
-
-    _isEvaluatingPin = false;
   }
 
   void _handleAuthState(AuthProvider authProvider) {
     final nextKey =
-        '${authProvider.isAuthenticated}-${authProvider.sessionRestored}';
+        '${authProvider.isAuthenticated}-${authProvider.sessionRestored}-${authProvider.requiresPinSetup}';
     if (_authStateKey == nextKey) return;
 
     _authStateKey = nextKey;
@@ -186,6 +217,60 @@ class _SessionGuardState extends State<_SessionGuard>
     setState(() => _isPinVisible = false);
     _isSetupMode = false;
     _shouldRequirePinOnResume = false;
+    _markUserActivity();
+  }
+
+  void _cancelInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = null;
+  }
+
+  void _restartInactivityTimerIfNeeded() {
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isAuthenticated || _isPinVisible) {
+      _cancelInactivityTimer();
+      return;
+    }
+
+    final lastActivityAt = _lastActivityAt ?? DateTime.now();
+    final inactiveFor = DateTime.now().difference(lastActivityAt);
+    if (inactiveFor >= _inactivityTimeout) {
+      _triggerInactivityLock();
+      return;
+    }
+
+    _cancelInactivityTimer();
+    _inactivityTimer = Timer(_inactivityTimeout - inactiveFor, () {
+      if (!mounted) return;
+      _triggerInactivityLock();
+    });
+  }
+
+  void _markUserActivity() {
+    final authProvider = context.read<AuthProvider>();
+    if (!canTrackSessionActivity(
+      isAuthenticated: authProvider.isAuthenticated,
+      isPinVisible: _isPinVisible,
+      shouldRequirePinOnResume: _shouldRequirePinOnResume,
+    )) {
+      return;
+    }
+
+    _lastActivityAt = DateTime.now();
+    _restartInactivityTimerIfNeeded();
+  }
+
+  Future<void> _triggerInactivityLock() async {
+    if (!mounted || _isPinVisible || _isSetupMode) return;
+
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isAuthenticated) {
+      _cancelInactivityTimer();
+      return;
+    }
+
+    _shouldRequirePinOnResume = true;
+    await _evaluatePinRequirement();
   }
 
   @override
@@ -195,12 +280,30 @@ class _SessionGuardState extends State<_SessionGuard>
 
     return Stack(
       children: [
-        widget.child,
+        Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _markUserActivity(),
+          onPointerMove: (_) => _markUserActivity(),
+          onPointerPanZoomStart: (_) => _markUserActivity(),
+          onPointerSignal: (_) => _markUserActivity(),
+          child: widget.child,
+        ),
         if (_isPinVisible && authProvider.isAuthenticated)
           Positioned.fill(
-            child: AppPinGate(
-              isSetup: _isSetupMode,
-              onUnlocked: _handlePinUnlocked,
+            child: HeroControllerScope.none(
+              child: Navigator(
+                key: _pinGateNavigatorKey,
+                onGenerateRoute: (_) => PageRouteBuilder<void>(
+                  opaque: false,
+                  barrierColor: Colors.transparent,
+                  transitionDuration: Duration.zero,
+                  reverseTransitionDuration: Duration.zero,
+                  pageBuilder: (_, _, _) => AppPinGate(
+                    isSetup: _isSetupMode,
+                    onUnlocked: _handlePinUnlocked,
+                  ),
+                ),
+              ),
             ),
           ),
       ],
@@ -211,11 +314,13 @@ class _SessionGuardState extends State<_SessionGuard>
 class AppPinGate extends StatefulWidget {
   final bool isSetup;
   final Future<void> Function() onUnlocked;
+  final AppLockService? appLockService;
 
   const AppPinGate({
     super.key,
     required this.isSetup,
     required this.onUnlocked,
+    this.appLockService,
   });
 
   @override
@@ -223,7 +328,12 @@ class AppPinGate extends StatefulWidget {
 }
 
 class _AppPinGateState extends State<AppPinGate> {
-  final AppLockService _appLockService = AppLockService();
+  static const String _pinVerificationError =
+      'Unable to verify PIN right now. Please try again.';
+  static const String _pinSaveError =
+      'Unable to save PIN right now. Please try again.';
+
+  late final AppLockService _appLockService;
   final TextEditingController _pinController = TextEditingController();
   final TextEditingController _confirmPinController = TextEditingController();
   final FocusNode _pinFocusNode = FocusNode();
@@ -238,6 +348,7 @@ class _AppPinGateState extends State<AppPinGate> {
   @override
   void initState() {
     super.initState();
+    _appLockService = widget.appLockService ?? AppLockService();
     _resetPinFields();
     _pinFocusNode.addListener(_handlePinFocusChange);
     _confirmPinFocusNode.addListener(_handleConfirmPinFocusChange);
@@ -335,25 +446,33 @@ class _AppPinGateState extends State<AppPinGate> {
       _errorText = null;
     });
 
-    if (widget.isSetup) {
-      await _appLockService.savePin(pin);
+    try {
+      if (widget.isSetup) {
+        await _appLockService.savePin(pin);
+        if (!mounted) return;
+        await widget.onUnlocked();
+        return;
+      }
+
+      final isValid = await _appLockService.verifyPin(pin);
       if (!mounted) return;
+
+      if (!isValid) {
+        setState(() {
+          _isSubmitting = false;
+          _errorText = 'Incorrect PIN';
+        });
+        return;
+      }
+
       await widget.onUnlocked();
-      return;
-    }
-
-    final isValid = await _appLockService.verifyPin(pin);
-    if (!mounted) return;
-
-    if (!isValid) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _errorText = 'Incorrect PIN';
+        _errorText = widget.isSetup ? _pinSaveError : _pinVerificationError;
       });
-      return;
     }
-
-    await widget.onUnlocked();
   }
 
   Future<void> _resetPinWithPassword() async {
@@ -371,13 +490,6 @@ class _AppPinGateState extends State<AppPinGate> {
     if (!mounted || changed != true) return;
 
     await widget.onUnlocked();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('PIN reset successfully'),
-        backgroundColor: AppTheme.primaryGreen,
-      ),
-    );
   }
 
   @override
@@ -449,7 +561,7 @@ class _AppPinGateState extends State<AppPinGate> {
                     autocorrect: false,
                     enableSuggestions: false,
                     enableIMEPersonalizedLearning: false,
-                    enableInteractiveSelection: true,
+                    enableInteractiveSelection: false,
                     smartDashesType: SmartDashesType.disabled,
                     smartQuotesType: SmartQuotesType.disabled,
                     autofillHints: null,
@@ -475,7 +587,6 @@ class _AppPinGateState extends State<AppPinGate> {
                         children: [
                           if (_pinController.text.isNotEmpty)
                             IconButton(
-                              tooltip: 'Clear PIN',
                               onPressed: () => _clearPinInput(_pinController),
                               icon: const Icon(Icons.close_rounded),
                             ),
@@ -505,7 +616,7 @@ class _AppPinGateState extends State<AppPinGate> {
                       autocorrect: false,
                       enableSuggestions: false,
                       enableIMEPersonalizedLearning: false,
-                      enableInteractiveSelection: true,
+                      enableInteractiveSelection: false,
                       smartDashesType: SmartDashesType.disabled,
                       smartQuotesType: SmartQuotesType.disabled,
                       autofillHints: null,
@@ -531,7 +642,6 @@ class _AppPinGateState extends State<AppPinGate> {
                           children: [
                             if (_confirmPinController.text.isNotEmpty)
                               IconButton(
-                                tooltip: 'Clear PIN',
                                 onPressed: () =>
                                     _clearPinInput(_confirmPinController),
                                 icon: const Icon(Icons.close_rounded),

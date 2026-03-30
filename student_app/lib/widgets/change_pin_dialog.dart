@@ -2,16 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/app_lock_service.dart';
-import '../services/navigation_service.dart';
 
 Future<bool?> showChangePinDialog(
   BuildContext context, {
   String title = 'Change PIN',
 }) {
-  final dialogContext = appNavigatorKey.currentContext ?? context;
   return showDialog<bool>(
-    context: dialogContext,
-    useRootNavigator: true,
+    context: context,
+    useRootNavigator: false,
     builder: (_) => ChangePinDialog(title: title),
   );
 }
@@ -26,6 +24,11 @@ class ChangePinDialog extends StatefulWidget {
 }
 
 class _ChangePinDialogState extends State<ChangePinDialog> {
+  static const String _pinStateLoadError =
+      'Unable to load PIN settings right now. Please try again.';
+  static const String _pinUpdateError =
+      'Unable to update PIN right now. Please try again.';
+
   final AppLockService _appLockService = AppLockService();
   final TextEditingController _currentPinController = TextEditingController();
   final TextEditingController _newPinController = TextEditingController();
@@ -55,12 +58,20 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
   }
 
   Future<void> _loadPinState() async {
-    final hasPin = await _appLockService.hasPin();
-    if (!mounted) return;
-    setState(() {
-      _hasExistingPin = hasPin;
-      _isLoading = false;
-    });
+    try {
+      final hasPin = await _appLockService.hasPin();
+      if (!mounted) return;
+      setState(() {
+        _hasExistingPin = hasPin;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorText = _pinStateLoadError;
+      });
+    }
   }
 
   @override
@@ -131,6 +142,13 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
     });
   }
 
+  void _closeDialog([bool? result]) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop(result);
+    }
+  }
+
   Future<void> _submit() async {
     final currentPin = _currentPinController.text.trim();
     final newPin = _newPinController.text.trim();
@@ -142,10 +160,16 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
         return;
       }
 
-      final isCurrentPinValid = await _appLockService.verifyPin(currentPin);
-      if (!mounted) return;
-      if (!isCurrentPinValid) {
-        setState(() => _errorText = 'Current PIN is incorrect');
+      try {
+        final isCurrentPinValid = await _appLockService.verifyPin(currentPin);
+        if (!mounted) return;
+        if (!isCurrentPinValid) {
+          setState(() => _errorText = 'Current PIN is incorrect');
+          return;
+        }
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _errorText = _pinUpdateError);
         return;
       }
     }
@@ -170,9 +194,17 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
       _errorText = null;
     });
 
-    await _appLockService.savePin(newPin);
-    if (!mounted) return;
-    Navigator.of(context).pop(true);
+    try {
+      await _appLockService.savePin(newPin);
+      if (!mounted) return;
+      _closeDialog(true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _errorText = _pinUpdateError;
+      });
+    }
   }
 
   InputDecoration _pinDecoration({
@@ -225,7 +257,7 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
       autocorrect: false,
       enableSuggestions: false,
       enableIMEPersonalizedLearning: false,
-      enableInteractiveSelection: true,
+      enableInteractiveSelection: false,
       smartDashesType: SmartDashesType.disabled,
       smartQuotesType: SmartQuotesType.disabled,
       autofillHints: null,
@@ -322,7 +354,7 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+          onPressed: _isSubmitting ? null : _closeDialog,
           child: const Text('Cancel'),
         ),
         ElevatedButton(

@@ -2,8 +2,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
+import '../admin/admin_dashboard.dart';
+import '../company/company_dashboard.dart';
+import '../student/student_dashboard.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -72,7 +76,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     '1000+',
   ];
 
-  final List<int> _years = List.generate(10, (i) => DateTime.now().year + i);
+  final List<int> _years = List<int>.generate(
+    DateTime.now().year - 2000 + 11,
+    (i) => DateTime.now().year + 10 - i,
+  );
 
   @override
   void initState() {
@@ -116,7 +123,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _universities = universities;
         _universitiesError = universities.isEmpty
             ? (universitiesResponse['message']?.toString() ??
-                  'No universities available right now')
+                  context.read<LanguageProvider>().tr(
+                    'no_universities_available_right_now',
+                  ))
             : null;
         _isLoading = false;
       });
@@ -173,6 +182,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _isSubmitting = false);
 
       if (success) {
+        final language = context.read<LanguageProvider>();
         // Success Dialog
         showDialog(
           context: context,
@@ -212,8 +222,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Registration Successful!',
+                  Text(
+                    language.tr('registration_successful'),
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -231,8 +241,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       color: AppTheme.primaryGreen.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      'Welcome to Government Internship System',
+                    child: Text(
+                      language.tr('welcome_to_government_internship_system'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
@@ -301,16 +311,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Account created successfully! Please login.',
+                        final role = authProvider.user?['role'];
+
+                        if (role == 'student' || role == 'graduate') {
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const StudentDashboard(),
                             ),
-                            backgroundColor: Colors.green,
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
+                            (route) => false,
+                          );
+                        } else if (role == 'company') {
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const CompanyDashboard(),
+                            ),
+                            (route) => false,
+                          );
+                        } else if (role == 'admin') {
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AdminDashboard(),
+                            ),
+                            (route) => false,
+                          );
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primaryBlue,
@@ -319,8 +346,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text(
-                        'Continue to Login',
+                      child: Text(
+                        language.tr('continue'),
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -331,7 +358,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'You can now login with your credentials',
+                    language.tr('next_create_app_pin'),
                     style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
                   ),
                 ],
@@ -340,9 +367,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
       } else if (mounted) {
+        final language = context.read<LanguageProvider>();
         final errorMessage =
             authProvider.errorMessage ??
-            'Please check your information and try again.';
+            language.tr('please_check_information_try_again');
         // Error Dialog
         showDialog(
           context: context,
@@ -370,8 +398,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Registration Failed',
+                  Text(
+                    language.tr('registration_failed'),
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -396,8 +424,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text(
-                        'Try Again',
+                      child: Text(
+                        language.tr('try_again'),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -416,10 +444,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
       appBar: AppBar(
-        title: const Text('Create Account'),
+        title: Text(language.tr('create_account')),
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: AppTheme.textDark,
@@ -481,10 +511,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            const Text(
-                              'THE UNITED REPUBLIC OF TANZANIA',
+                            Text(
+                              language.tr('united_republic_of_tanzania'),
                               textAlign: TextAlign.center,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF4A90E2),
@@ -492,20 +522,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            const Text(
-                              'INTERNSHIP GOVERNMENT SYSTEM',
+                            Text(
+                              language.tr('internship_government_system'),
                               textAlign: TextAlign.center,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500,
                                 color: Color(0xFF666666),
                               ),
                             ),
                             const SizedBox(height: 4),
-                            const Text(
-                              'Empowering Tanzanian Youth',
+                            Text(
+                              language.tr('empowering_tanzanian_youth'),
                               textAlign: TextAlign.center,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 10,
                                 fontStyle: FontStyle.italic,
                                 color: Color(0xFF888888),
@@ -516,10 +546,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         const SizedBox(height: 24),
 
                         // Title
-                        const Text(
-                          'Create New Account',
+                        Text(
+                          language.tr('create_new_account'),
                           textAlign: TextAlign.center,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF333333),
@@ -539,7 +569,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'Loading universities...',
+                                language.tr('loading_universities'),
                                 style: TextStyle(
                                   color: Colors.grey.shade600,
                                   fontSize: 12,
@@ -551,8 +581,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ],
 
                         // Role Selection
-                        const Text(
-                          'I am a:',
+                        Text(
+                          language.tr('i_am_a'),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
@@ -578,18 +608,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               return AppTheme.textDark;
                             }),
                           ),
-                          segments: const [
+                          segments: [
                             ButtonSegment(
                               value: 'student',
-                              label: Text('Student'),
+                              label: Text(language.tr('student')),
                             ),
                             ButtonSegment(
                               value: 'graduate',
-                              label: Text('Graduate'),
+                              label: Text(language.tr('graduate')),
                             ),
                             ButtonSegment(
                               value: 'company',
-                              label: Text('Company'),
+                              label: Text(language.tr('company')),
                             ),
                           ],
                           selected: {_selectedRole},
@@ -605,7 +635,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         TextFormField(
                           controller: _fullNameController,
                           decoration: InputDecoration(
-                            labelText: 'Full Name',
+                            labelText: language.tr('full_name'),
                             prefixIcon: const Icon(Icons.person_outline),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -613,10 +643,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Full name is required';
+                              return language.tr('full_name_required');
                             }
                             if (value.trim().length < 3) {
-                              return 'Full name must be at least 3 characters';
+                              return language.tr('full_name_min_3');
                             }
                             return null;
                           },
@@ -627,7 +657,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
                           decoration: InputDecoration(
-                            labelText: 'Email',
+                            labelText: language.tr('email'),
                             prefixIcon: const Icon(Icons.email_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -635,18 +665,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Email is required';
+                              return language.tr('email_required');
                             }
                             if (!value.contains('@')) {
-                              return 'Email must contain @';
+                              return language.tr('email_must_contain_at');
                             }
                             if (!value.contains('.')) {
-                              return 'Email must contain domain (e.g., .com, .ac.tz)';
+                              return language.tr('email_must_contain_domain');
                             }
                             if (!RegExp(
                               r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
                             ).hasMatch(value)) {
-                              return 'Enter a valid email address';
+                              return language.tr('enter_valid_email_address');
                             }
                             return null;
                           },
@@ -657,16 +687,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
                           decoration: InputDecoration(
-                            labelText: 'Phone Number',
+                            labelText: language.tr('phone_number'),
                             prefixIcon: const Icon(Icons.phone_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            hintText: 'e.g., 0712345678 or +255712345678',
+                            hintText: language.tr('phone_hint_tz'),
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Phone number is required';
+                              return language.tr('phone_number_required');
                             }
                             final phone = value.replaceAll(
                               RegExp(r'[\s\-]'),
@@ -675,7 +705,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             if (!RegExp(
                               r'^(0|\+255)[0-9]{9}$',
                             ).hasMatch(phone)) {
-                              return 'Enter valid Tanzanian phone (e.g., 0712345678 or +255712345678)';
+                              return language.tr('enter_valid_tanzanian_phone');
                             }
                             return null;
                           },
@@ -687,7 +717,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           controller: _passwordController,
                           obscureText: !_isPasswordVisible,
                           decoration: InputDecoration(
-                            labelText: 'Password',
+                            labelText: language.tr('password'),
                             prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
                               icon: Icon(
@@ -705,24 +735,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            helperText:
-                                'At least 8 chars, 1 uppercase, 1 lowercase, 1 number',
+                            helperText: language.tr('password_helper'),
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Password is required';
+                              return language.tr('password_required');
                             }
                             if (value.length < 8) {
-                              return 'Password must be at least 8 characters';
+                              return language.tr('password_min_8');
                             }
                             if (!RegExp(r'[A-Z]').hasMatch(value)) {
-                              return 'Password must contain at least one uppercase letter';
+                              return language.tr('password_uppercase_required');
                             }
                             if (!RegExp(r'[a-z]').hasMatch(value)) {
-                              return 'Password must contain at least one lowercase letter';
+                              return language.tr('password_lowercase_required');
                             }
                             if (!RegExp(r'[0-9]').hasMatch(value)) {
-                              return 'Password must contain at least one number';
+                              return language.tr('password_number_required');
                             }
                             return null;
                           },
@@ -734,7 +763,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           controller: _confirmPasswordController,
                           obscureText: !_isConfirmPasswordVisible,
                           decoration: InputDecoration(
-                            labelText: 'Confirm Password',
+                            labelText: language.tr('confirm_password'),
                             prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
                               icon: Icon(
@@ -756,10 +785,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Please confirm your password';
+                              return language.tr('please_confirm_password');
                             }
                             if (value != _passwordController.text) {
-                              return 'Passwords do not match';
+                              return language.tr('passwords_do_not_match');
                             }
                             return null;
                           },
@@ -777,7 +806,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             child: DropdownButtonFormField<String>(
                               initialValue: _selectedUniversityId,
                               decoration: InputDecoration(
-                                labelText: 'University',
+                                labelText: language.tr('university'),
                                 prefixIcon: const Icon(Icons.school_outlined),
                                 suffixIcon: _isLoading
                                     ? const Padding(
@@ -792,8 +821,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                       )
                                     : (_universitiesError != null
                                           ? IconButton(
-                                              tooltip:
-                                                  'Retry loading universities',
+                                              tooltip: language.tr(
+                                                'retry_loading_universities',
+                                              ),
                                               icon: const Icon(Icons.refresh),
                                               onPressed: () =>
                                                   _loadData(forceRefresh: true),
@@ -805,7 +835,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   vertical: 14,
                                 ),
                               ),
-                              hint: const Text('Select your university'),
+                              hint: Text(language.tr('select_your_university')),
                               isExpanded: true,
                               items: _universities.isEmpty
                                   ? [
@@ -813,8 +843,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                         value: null,
                                         child: Text(
                                           _isLoading
-                                              ? 'Loading universities...'
-                                              : 'Tap refresh to load universities',
+                                              ? language.tr(
+                                                  'loading_universities',
+                                                )
+                                              : language.tr(
+                                                  'tap_refresh_to_load_universities',
+                                                ),
                                         ),
                                       ),
                                     ]
@@ -843,10 +877,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     },
                               validator: (v) {
                                 if (_universities.isEmpty) {
-                                  return 'Universities unavailable. Tap refresh icon.';
+                                  return language.tr(
+                                    'universities_unavailable_refresh',
+                                  );
                                 }
                                 return v == null
-                                    ? 'Please select a university'
+                                    ? language.tr('please_select_university')
                                     : null;
                               },
                             ),
@@ -856,7 +892,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _programController,
                             decoration: InputDecoration(
-                              labelText: 'Program / Course',
+                              labelText: language.tr('program_course'),
                               prefixIcon: const Icon(Icons.book_outlined),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -864,7 +900,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
-                                return 'Program is required';
+                                return language.tr('program_required');
                               }
                               return null;
                             },
@@ -872,13 +908,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           const SizedBox(height: 14),
 
                           if (_selectedRole == 'student') ...[
-                            const Text('Student Type:'),
+                            Text(language.tr('student_type')),
                             const SizedBox(height: 8),
                             SegmentedButton<String>(
-                              segments: const [
+                              segments: [
                                 ButtonSegment(
                                   value: 'current',
-                                  label: Text('Current Student'),
+                                  label: Text(language.tr('current_student')),
                                 ),
                               ],
                               selected: {'current'},
@@ -892,7 +928,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               dropdownColor: Colors.white,
                               style: const TextStyle(color: Colors.black),
                               decoration: InputDecoration(
-                                labelText: 'Expected Graduation Year',
+                                labelText: language.tr(
+                                  'expected_graduation_year',
+                                ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -909,19 +947,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               onChanged: (v) =>
                                   setState(() => _expectedGraduationYear = v),
                               validator: (v) => v == null
-                                  ? 'Please select graduation year'
+                                  ? language.tr('please_select_graduation_year')
                                   : null,
                             ),
                           ],
 
                           if (_selectedRole == 'graduate') ...[
-                            const Text('Graduate Type:'),
+                            Text(language.tr('graduate_type')),
                             const SizedBox(height: 8),
                             SegmentedButton<String>(
-                              segments: const [
+                              segments: [
                                 ButtonSegment(
                                   value: 'graduate',
-                                  label: Text('Graduate'),
+                                  label: Text(language.tr('graduate')),
                                 ),
                               ],
                               selected: {'graduate'},
@@ -935,7 +973,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               dropdownColor: Colors.white,
                               style: const TextStyle(color: Colors.black),
                               decoration: InputDecoration(
-                                labelText: 'Graduation Year',
+                                labelText: language.tr('graduation_year'),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -952,7 +990,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               onChanged: (v) =>
                                   setState(() => _graduationYear = v),
                               validator: (v) => v == null
-                                  ? 'Please select graduation year'
+                                  ? language.tr('please_select_graduation_year')
                                   : null,
                             ),
                             const SizedBox(height: 14),
@@ -961,37 +999,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               initialValue: _experienceLevel,
                               isExpanded: true,
                               decoration: InputDecoration(
-                                labelText: 'Experience Level',
+                                labelText: language.tr('experience_level'),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              items: const [
+                              items: [
                                 DropdownMenuItem(
                                   value: 'no_experience',
-                                  child: Text('No Experience'),
+                                  child: Text(language.tr('no_experience')),
                                 ),
                                 DropdownMenuItem(
                                   value: '0-1',
-                                  child: Text('0-1 Year'),
+                                  child: Text(
+                                    language.tr('experience_0_1_year'),
+                                  ),
                                 ),
                                 DropdownMenuItem(
                                   value: '1-2',
-                                  child: Text('1-2 Years'),
+                                  child: Text(
+                                    language.tr('experience_1_2_years'),
+                                  ),
                                 ),
                                 DropdownMenuItem(
                                   value: '2-3',
-                                  child: Text('2-3 Years'),
+                                  child: Text(
+                                    language.tr('experience_2_3_years'),
+                                  ),
                                 ),
                                 DropdownMenuItem(
                                   value: '3+',
-                                  child: Text('3+ Years'),
+                                  child: Text(
+                                    language.tr('experience_3_plus_years'),
+                                  ),
                                 ),
                               ],
                               onChanged: (v) =>
                                   setState(() => _experienceLevel = v!),
                               validator: (v) => v == null
-                                  ? 'Please select experience level'
+                                  ? language.tr(
+                                      'please_select_experience_level',
+                                    )
                                   : null,
                             ),
                           ],
@@ -1002,14 +1050,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           TextFormField(
                             controller: _companyNameController,
                             decoration: InputDecoration(
-                              labelText: 'Company Name',
+                              labelText: language.tr('company_name'),
                               prefixIcon: const Icon(Icons.business_outlined),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             validator: (v) => v?.isEmpty ?? true
-                                ? 'Company name is required'
+                                ? language.tr('company_name_required')
                                 : null,
                           ),
                           const SizedBox(height: 14),
@@ -1018,7 +1066,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             initialValue: _selectedIndustry,
                             isExpanded: true,
                             decoration: InputDecoration(
-                              labelText: 'Industry',
+                              labelText: language.tr('industry'),
                               prefixIcon: const Icon(Icons.factory_outlined),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -1050,8 +1098,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             },
                             onChanged: (v) =>
                                 setState(() => _selectedIndustry = v),
-                            validator: (v) =>
-                                v == null ? 'Please select industry' : null,
+                            validator: (v) => v == null
+                                ? language.tr('please_select_industry')
+                                : null,
                           ),
                           const SizedBox(height: 14),
 
@@ -1059,7 +1108,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             initialValue: _selectedCompanySize,
                             isExpanded: true,
                             decoration: InputDecoration(
-                              labelText: 'Company Size',
+                              labelText: language.tr('company_size'),
                               prefixIcon: const Icon(Icons.people_outline),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
@@ -1070,20 +1119,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ) {
                               return DropdownMenuItem<String>(
                                 value: size,
-                                child: Text('$size employees'),
+                                child: Text(
+                                  language.tr('employees_count', {
+                                    'size': size,
+                                  }),
+                                ),
                               );
                             }).toList(),
                             onChanged: (v) =>
                                 setState(() => _selectedCompanySize = v),
-                            validator: (v) =>
-                                v == null ? 'Please select company size' : null,
+                            validator: (v) => v == null
+                                ? language.tr('please_select_company_size')
+                                : null,
                           ),
                           const SizedBox(height: 14),
 
                           TextFormField(
                             controller: _companyLocationController,
                             decoration: InputDecoration(
-                              labelText: 'Location',
+                              labelText: language.tr('location'),
                               prefixIcon: const Icon(
                                 Icons.location_on_outlined,
                               ),
@@ -1092,7 +1146,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             validator: (v) => v?.isEmpty ?? true
-                                ? 'Location is required'
+                                ? language.tr('location_required')
                                 : null,
                           ),
                           const SizedBox(height: 14),
@@ -1101,7 +1155,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             controller: _companyDescriptionController,
                             maxLines: 3,
                             decoration: InputDecoration(
-                              labelText: 'Company Description',
+                              labelText: language.tr('company_description'),
                               prefixIcon: const Icon(
                                 Icons.description_outlined,
                               ),
@@ -1133,9 +1187,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text(
-                                  'REGISTER',
-                                  style: TextStyle(
+                              : Text(
+                                  language.tr('register'),
+                                  style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -1149,7 +1203,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              "Already have an account? ",
+                              '${language.tr('already_have_account')} ',
                               style: AppTheme.caption,
                             ),
                             TextButton(
@@ -1157,7 +1211,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 Navigator.pop(context);
                               },
                               child: Text(
-                                'Login',
+                                language.tr('login'),
                                 style: TextStyle(
                                   color: AppTheme.primaryBlue,
                                   fontWeight: FontWeight.w600,
@@ -1176,16 +1230,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                         // Copyright
                         Text(
-                          '© 2026 Developed by DEVELOPER GINGER',
+                          '© 2026 ${language.tr('developed_by_name', {'name': 'DEVELOPER GINGER'})}',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 11,
                             color: Colors.grey.shade500,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Jamhuri ya Muungano wa Tanzania',
+                          language.tr('united_republic_of_tanzania'),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 9,

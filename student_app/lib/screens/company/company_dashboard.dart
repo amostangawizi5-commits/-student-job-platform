@@ -39,36 +39,8 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
   String? _selectedJobId;
   String? _selectedJobTitle;
 
-  String _formatToday() {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-
-    const weekdays = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-
-    final now = DateTime.now();
-    final weekday = weekdays[now.weekday - 1];
-    final month = months[now.month - 1];
-    return '$weekday, ${now.day} $month ${now.year}';
+  String _formatToday(BuildContext context) {
+    return MaterialLocalizations.of(context).formatFullDate(DateTime.now());
   }
 
   @override
@@ -321,7 +293,7 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
-    final today = _formatToday();
+    final today = _formatToday(context);
 
     return PopScope(
       canPop: _tabHistory.length <= 1 && _currentIndex == 0,
@@ -541,22 +513,24 @@ int getApplicantsCount(dynamic count) {
   return 0;
 }
 
-String getDaysLeft(String? deadlineStr) {
-  if (deadlineStr == null) return 'No deadline';
+String getDaysLeft(String? deadlineStr, LanguageProvider language) {
+  if (deadlineStr == null) return language.tr('no_deadline');
   try {
     final deadline = DateTime.parse(deadlineStr);
     final difference = deadline.difference(DateTime.now());
     final daysLeft = difference.inDays;
-    if (difference.isNegative) return 'Expired';
-    if (daysLeft > 0) return '$daysLeft days left';
-    return 'Closes today';
+    if (difference.isNegative) return language.tr('expired');
+    if (daysLeft > 0) {
+      return language.tr('days_left', {'count': '$daysLeft'});
+    }
+    return language.tr('closes_today');
   } catch (e) {
-    return 'Invalid date';
+    return language.tr('invalid_date');
   }
 }
 
-String formatDeadlineDateTime(String? deadlineStr) {
-  if (deadlineStr == null) return 'No deadline';
+String formatDeadlineDateTime(String? deadlineStr, LanguageProvider language) {
+  if (deadlineStr == null) return language.tr('no_deadline');
   try {
     final deadline = DateTime.parse(deadlineStr);
     final day = deadline.day.toString().padLeft(2, '0');
@@ -565,7 +539,46 @@ String formatDeadlineDateTime(String? deadlineStr) {
     final minute = deadline.minute.toString().padLeft(2, '0');
     return '$day/$month/${deadline.year} $hour:$minute';
   } catch (e) {
-    return 'Invalid date';
+    return language.tr('invalid_date');
+  }
+}
+
+String formatCompanyStatus(String status, LanguageProvider language) {
+  return status == 'open'
+      ? language.tr('status_active')
+      : language.tr('status_closed');
+}
+
+String formatTargetAudience(String target, LanguageProvider language) {
+  switch (target) {
+    case 'current_students':
+      return language.tr('current_students');
+    case 'fresh_graduates':
+      return language.tr('fresh_graduates');
+    case '1-2_years':
+      return language.tr('experience_1_2_years_short');
+    case '2-3_years':
+      return language.tr('experience_2_3_years_short');
+    case '3+_years':
+      return language.tr('experience_3_plus_years_short');
+    default:
+      return target;
+  }
+}
+
+String formatApplicationStatus(String status, LanguageProvider language) {
+  switch (status) {
+    case 'shortlisted':
+      return language.tr('status_shortlisted');
+    case 'interview':
+      return language.tr('status_interview');
+    case 'accepted':
+      return language.tr('status_accepted');
+    case 'rejected':
+      return language.tr('status_rejected');
+    case 'pending':
+    default:
+      return language.tr('status_pending');
   }
 }
 
@@ -618,10 +631,14 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
   }
 
   void _showJobDetailsDialog(BuildContext context, dynamic job) {
+    final language = context.read<LanguageProvider>();
     final isActive = job['status'] == 'open';
     final applicantsCount = getApplicantsCount(job['applications_count']);
-    final daysLeft = getDaysLeft(job['application_deadline']);
-    final deadlineLabel = formatDeadlineDateTime(job['application_deadline']);
+    final daysLeft = getDaysLeft(job['application_deadline'], language);
+    final deadlineLabel = formatDeadlineDateTime(
+      job['application_deadline'],
+      language,
+    );
     final requiredApplicants = getApplicantsCount(job['required_applicants']);
 
     showDialog(
@@ -662,7 +679,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                           ),
                         ),
                         Text(
-                          job['company_name'] ?? 'Company',
+                          job['company_name'] ?? language.tr('company'),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -683,7 +700,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
-                      isActive ? 'Active' : 'Closed',
+                      formatCompanyStatus(job['status'] ?? 'closed', language),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -700,49 +717,49 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
               const SizedBox(height: 12),
               _buildDetailRow(
                 Icons.location_on,
-                'Location',
-                job['location'] ?? 'Not specified',
+                language.tr('location'),
+                job['location'] ?? language.tr('not_provided'),
               ),
               const SizedBox(height: 8),
               _buildDetailRow(
                 Icons.attach_money,
-                'Salary',
-                job['salary_range'] ?? 'Not specified',
+                language.tr('salary'),
+                job['salary_range'] ?? language.tr('not_provided'),
               ),
               const SizedBox(height: 8),
               _buildDetailRow(
                 Icons.work,
-                'Job Type',
-                job['type'] ?? 'Not specified',
+                language.tr('job_type'),
+                job['type'] ?? language.tr('not_provided'),
               ),
               const SizedBox(height: 8),
               _buildDetailRow(
                 Icons.people,
-                'Applicants',
-                '$applicantsCount applicants',
+                language.tr('applications'),
+                language.tr('applicants_count', {'count': '$applicantsCount'}),
               ),
               const SizedBox(height: 8),
               _buildDetailRow(
                 Icons.groups,
-                'Needed',
-                '$requiredApplicants applicants',
+                language.tr('needed_count', {'count': ''}).trim(),
+                language.tr('needed_count', {'count': '$requiredApplicants'}),
               ),
               const SizedBox(height: 8),
               _buildDetailRow(
                 Icons.access_time,
-                'Deadline',
+                language.tr('deadline'),
                 '$deadlineLabel ($daysLeft)',
               ),
               const SizedBox(height: 12),
               const Divider(),
               const SizedBox(height: 12),
-              const Text(
-                'Description',
+              Text(
+                language.tr('description'),
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
-                job['description'] ?? 'No description provided',
+                job['description'] ?? language.tr('no_description_provided'),
                 style: TextStyle(
                   fontSize: 13,
                   color: Colors.grey.shade700,
@@ -750,8 +767,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Target Candidates',
+              Text(
+                language.tr('target_candidates'),
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
@@ -771,7 +788,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _formatTargetLabel(target),
+                      formatTargetAudience('$target', language),
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade700,
@@ -792,7 +809,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text('Close'),
+                  child: Text(language.tr('close')),
                 ),
               ),
             ],
@@ -825,26 +842,11 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
     );
   }
 
-  String _formatTargetLabel(String target) {
-    switch (target) {
-      case 'current_students':
-        return 'Current Students';
-      case 'fresh_graduates':
-        return 'Fresh Graduates';
-      case '1-2_years':
-        return '1-2 Years Exp';
-      case '2-3_years':
-        return '2-3 Years Exp';
-      case '3+_years':
-        return '3+ Years Exp';
-      default:
-        return target;
-    }
-  }
-
   void _showStatsDialog(BuildContext context) {
+    final language = context.read<LanguageProvider>();
     final user = Provider.of<AuthProvider>(context, listen: false).user;
-    final companyName = user?['company_data']?['company_name'] ?? 'Company';
+    final companyName =
+        user?['company_data']?['company_name'] ?? language.tr('company');
 
     int totalApplicants = 0;
     int activeJobs = 0;
@@ -874,8 +876,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
               child: const Icon(Icons.analytics, color: Colors.purple),
             ),
             const SizedBox(width: 12),
-            const Text(
-              'Company Statistics',
+            Text(
+              language.tr('company_statistics'),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ],
@@ -883,27 +885,27 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildStatRow('Company Name', companyName),
+            _buildStatRow(language.tr('company_name'), companyName),
             const Divider(),
-            _buildStatRow('Total Jobs', '${_jobs.length}'),
+            _buildStatRow(language.tr('total_jobs'), '${_jobs.length}'),
             _buildStatRow(
-              'Active Jobs',
+              language.tr('active_jobs'),
               activeJobs.toString(),
               color: Colors.green,
             ),
             _buildStatRow(
-              'Closed Jobs',
+              language.tr('closed_jobs'),
               closedJobs.toString(),
               color: Colors.red,
             ),
             const Divider(),
             _buildStatRow(
-              'Total Applicants',
+              language.tr('total_applicants'),
               totalApplicants.toString(),
               color: Colors.blue,
             ),
             _buildStatRow(
-              'Average per Job',
+              language.tr('average_per_job'),
               _jobs.isEmpty
                   ? '0'
                   : (totalApplicants / _jobs.length).toStringAsFixed(1),
@@ -913,7 +915,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(language.tr('close')),
           ),
         ],
       ),
@@ -948,6 +950,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
     required int activeJobs,
     required int totalApplicants,
   }) {
+    final language = context.read<LanguageProvider>();
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -988,7 +991,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Welcome back,',
+                      language.tr('welcome_back'),
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.white.withValues(alpha: 0.9),
@@ -1031,7 +1034,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                           ),
                         ),
                         Text(
-                          'Active Jobs',
+                          language.tr('active_jobs'),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.white.withValues(alpha: 0.8),
@@ -1063,7 +1066,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                           ),
                         ),
                         Text(
-                          'Total Applicants',
+                          language.tr('total_applicants'),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.white.withValues(alpha: 0.8),
@@ -1083,8 +1086,10 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
     final user = Provider.of<AuthProvider>(context).user;
-    final companyName = user?['company_data']?['company_name'] ?? 'Company';
+    final companyName =
+        user?['company_data']?['company_name'] ?? language.tr('company');
 
     int totalApplicants = 0;
     int activeJobs = 0;
@@ -1120,8 +1125,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 16),
-                  const Text(
-                    'Quick Actions',
+                  Text(
+                    language.tr('quick_actions'),
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
@@ -1131,7 +1136,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                     children: [
                       _buildActionCard(
                         icon: Icons.add_circle_outline,
-                        title: 'Post Job',
+                        title: language.tr('post_job'),
                         color: Colors.blue,
                         onTap: () async {
                           final result = await Navigator.push(
@@ -1151,7 +1156,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       ),
                       _buildActionCard(
                         icon: Icons.people_outline,
-                        title: 'View Jobs',
+                        title: language.tr('view_jobs'),
                         color: Colors.green,
                         onTap: () {
                           final dashboard = context
@@ -1163,12 +1168,14 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       ),
                       _buildActionCard(
                         icon: Icons.search,
-                        title: 'Find Talent',
+                        title: language.tr('find_talent'),
                         color: Colors.orange,
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Find Talent feature coming soon!'),
+                            SnackBar(
+                              content: Text(
+                                language.tr('find_talent_coming_soon'),
+                              ),
                               backgroundColor: Colors.orange,
                               duration: Duration(seconds: 2),
                             ),
@@ -1177,7 +1184,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       ),
                       _buildActionCard(
                         icon: Icons.analytics,
-                        title: 'Statistics',
+                        title: language.tr('statistics'),
                         color: Colors.purple,
                         onTap: () {
                           _showStatsDialog(context);
@@ -1189,8 +1196,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Recent Job Postings',
+                      Text(
+                        language.tr('recent_job_postings'),
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -1204,7 +1211,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                               >();
                           dashboard?.navigateToTab(1);
                         },
-                        child: const Text('View All →'),
+                        child: Text('${language.tr('view_all')} ->'),
                       ),
                     ],
                   ),
@@ -1218,16 +1225,16 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Column(
+                          child: Column(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.work_off,
                                 size: 48,
                                 color: Colors.grey,
                               ),
-                              SizedBox(height: 12),
-                              Text('No jobs posted yet'),
-                              Text('Click + to create your first job'),
+                              const SizedBox(height: 12),
+                              Text(language.tr('no_jobs_posted_yet')),
+                              Text(language.tr('click_create_first_job')),
                             ],
                           ),
                         )
@@ -1299,6 +1306,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
   }
 
   Widget _buildJobCard(dynamic job) {
+    final language = context.read<LanguageProvider>();
+    final deadlineText = getDaysLeft(job['application_deadline'], language);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
@@ -1346,7 +1355,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      job['location'] ?? 'Location not specified',
+                      job['location'] ?? language.tr('location_not_specified'),
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,
@@ -1369,7 +1378,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
-                  job['status'] == 'open' ? 'Active' : 'Closed',
+                  formatCompanyStatus('${job['status'] ?? 'closed'}', language),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -1386,24 +1395,28 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
             children: [
               _buildInfoBadge(
                 icon: Icons.people,
-                label:
-                    '${getApplicantsCount(job['applications_count'])} applicants',
+                label: language.tr('applicants_count', {
+                  'count': '${getApplicantsCount(job['applications_count'])}',
+                }),
                 color: Colors.blue,
               ),
               const SizedBox(width: 10),
               _buildInfoBadge(
                 icon: Icons.groups,
-                label:
-                    '${getApplicantsCount(job['required_applicants'])} needed',
+                label: language.tr('needed_count', {
+                  'count': '${getApplicantsCount(job['required_applicants'])}',
+                }),
                 color: Colors.teal,
               ),
               const SizedBox(width: 10),
               _buildInfoBadge(
                 icon: Icons.access_time,
-                label: getDaysLeft(job['application_deadline']),
-                color: getDaysLeft(job['application_deadline']).contains('left')
-                    ? Colors.orange
-                    : Colors.red,
+                label: deadlineText,
+                color:
+                    deadlineText == language.tr('expired') ||
+                        deadlineText == language.tr('invalid_date')
+                    ? Colors.red
+                    : Colors.orange,
               ),
             ],
           ),
@@ -1425,8 +1438,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text(
-                  'Details',
+                child: Text(
+                  language.tr('details'),
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
@@ -1454,8 +1467,8 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text(
-                  'View',
+                child: Text(
+                  language.tr('view_jobs'),
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -1518,6 +1531,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
   }
 
   Future<void> _loadJobs({bool forceRefresh = false}) async {
+    final language = context.read<LanguageProvider>();
     setState(() {
       _isLoading = true;
       _error = null;
@@ -1534,7 +1548,9 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
         });
       } else {
         setState(() {
-          _error = response['message']?.toString() ?? 'Failed to load jobs';
+          _error =
+              response['message']?.toString() ??
+              language.tr('failed_to_load_jobs');
           _isLoading = false;
         });
       }
@@ -1543,23 +1559,6 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
         _error = e.toString();
         _isLoading = false;
       });
-    }
-  }
-
-  String _targetLabel(String target) {
-    switch (target) {
-      case 'current_students':
-        return 'Current Students';
-      case 'fresh_graduates':
-        return 'Fresh Graduates';
-      case '1-2_years':
-        return '1-2 Years Exp';
-      case '2-3_years':
-        return '2-3 Years Exp';
-      case '3+_years':
-        return '3+ Years Exp';
-      default:
-        return target;
     }
   }
 
@@ -1585,6 +1584,8 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
   }
 
   Widget _buildTopNavigationBar() {
+    final language = context.read<LanguageProvider>();
+
     Widget navItem({
       required String label,
       required IconData icon,
@@ -1639,7 +1640,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
       child: Row(
         children: [
           navItem(
-            label: 'My Jobs',
+            label: language.tr('my_jobs'),
             icon: Icons.work_rounded,
             selected: true,
             onTap: () {},
@@ -1647,7 +1648,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
           ),
           const SizedBox(width: 6),
           navItem(
-            label: 'Applications',
+            label: language.tr('applications'),
             icon: Icons.groups_rounded,
             selected: false,
             onTap: _goToApplicationsTab,
@@ -1660,6 +1661,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
 
   Widget _buildStatusChip(String status) {
     final isActive = status == 'open';
+    final language = context.read<LanguageProvider>();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
@@ -1667,7 +1669,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
-        isActive ? 'Active' : 'Closed',
+        formatCompanyStatus(status, language),
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w600,
@@ -1678,6 +1680,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
   }
 
   Widget _buildJobsList() {
+    final language = context.read<LanguageProvider>();
     if (_jobs.isEmpty) {
       return Center(
         child: Padding(
@@ -1687,7 +1690,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
             children: [
               Icon(Icons.work_outline, size: 64, color: Colors.grey.shade400),
               const SizedBox(height: 12),
-              const Text('No jobs posted yet'),
+              Text(language.tr('no_jobs_posted_yet')),
               const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: () async {
@@ -1702,7 +1705,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                   _loadJobs(forceRefresh: true);
                 },
                 icon: const Icon(Icons.add),
-                label: const Text('Post Job'),
+                label: Text(language.tr('post_job')),
               ),
             ],
           ),
@@ -1725,7 +1728,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                     child: OutlinedButton.icon(
                       onPressed: () => _openPostJob(),
                       icon: const Icon(Icons.add_circle_outline, size: 18),
-                      label: const Text('Post Job'),
+                      label: Text(language.tr('post_job')),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1733,7 +1736,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                     child: OutlinedButton.icon(
                       onPressed: () => _loadJobs(forceRefresh: true),
                       icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text('Refresh'),
+                      label: Text(language.tr('refresh_unread_count')),
                     ),
                   ),
                 ],
@@ -1742,7 +1745,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
           }
 
           final job = _jobs[index - 1];
-          final title = '${job['title'] ?? 'Untitled Job'}';
+          final title = '${job['title'] ?? language.tr('untitled_job')}';
           final jobId = '${job['job_id']}';
           final applicants = getApplicantsCount(job['applications_count']);
           final requiredApplicants = getApplicantsCount(
@@ -1777,7 +1780,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${job['location'] ?? 'Location not specified'}',
+                    '${job['location'] ?? language.tr('location_not_specified')}',
                     style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                   ),
                   const SizedBox(height: 10),
@@ -1797,7 +1800,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
-                          _targetLabel('$target'),
+                          formatTargetAudience('$target', language),
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.grey.shade700,
@@ -1808,23 +1811,32 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                     }).toList(),
                   ),
                   const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 10,
+                    spacing: 10,
                     children: [
-                      Text(
-                        '$applicants applicants • $requiredApplicants needed',
-                        style: TextStyle(
-                          color: Colors.blue.shade700,
-                          fontWeight: FontWeight.w600,
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.42,
+                        ),
+                        child: Text(
+                          '${language.tr('applicants_count', {'count': '$applicants'})} • ${language.tr('needed_count', {'count': '$requiredApplicants'})}',
+                          style: TextStyle(
+                            color: Colors.blue.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           OutlinedButton(
                             onPressed: () => _openPostJob(job: job),
-                            child: const Text('Edit'),
+                            child: Text(language.tr('edit_job')),
                           ),
-                          const SizedBox(width: 8),
                           ElevatedButton(
                             onPressed: () => widget.selectJob(jobId, title),
                             style: ElevatedButton.styleFrom(
@@ -1833,7 +1845,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                             ),
-                            child: const Text('Applicants'),
+                            child: Text(language.tr('applications')),
                           ),
                         ],
                       ),
@@ -1850,6 +1862,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -1871,7 +1884,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: () => _loadJobs(forceRefresh: true),
-                child: const Text('Retry'),
+                child: Text(language.tr('try_again')),
               ),
             ],
           ),
@@ -1911,9 +1924,10 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   List<dynamic> _applications = [];
 
   String _formatErrorMessage(Object error) {
+    final language = context.read<LanguageProvider>();
     final message = error.toString().replaceFirst('Exception: ', '');
     if (message.toLowerCase().contains('network')) {
-      return 'Network error';
+      return language.tr('network_error');
     }
     return message;
   }
@@ -1942,6 +1956,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   }
 
   Future<void> _loadApplications() async {
+    final language = context.read<LanguageProvider>();
     setState(() {
       _isLoading = true;
       _error = null;
@@ -1960,7 +1975,8 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       } else {
         setState(() {
           _error =
-              response['message']?.toString() ?? 'Failed to load applications';
+              response['message']?.toString() ??
+              language.tr('failed_to_load_applications');
           _isLoading = false;
         });
       }
@@ -2012,13 +2028,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   }
 
   Future<Map<String, String>?> _collectReportingDates() async {
+    final language = context.read<LanguageProvider>();
     final now = DateTime.now();
     final startDate = await showDatePicker(
       context: context,
       initialDate: now.add(const Duration(days: 1)),
       firstDate: now,
       lastDate: DateTime(now.year + 3),
-      helpText: 'Select reporting start date',
+      helpText: language.tr('select_reporting_start_date'),
     );
     if (startDate == null || !mounted) return null;
 
@@ -2027,7 +2044,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       initialDate: startDate.add(const Duration(days: 1)),
       firstDate: startDate,
       lastDate: DateTime(now.year + 3),
-      helpText: 'Select reporting end date',
+      helpText: language.tr('select_reporting_end_date'),
     );
     if (endDate == null) return null;
 
@@ -2070,6 +2087,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     String? reportingStartDate,
     String? reportingEndDate,
   }) async {
+    final language = context.read<LanguageProvider>();
     try {
       final payload = <String, dynamic>{'status': status};
       if (interviewDate != null) payload['interview_date'] = interviewDate;
@@ -2091,7 +2109,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Application updated to $status'),
+            content: Text(
+              language.tr('application_updated_to', {
+                'status': formatApplicationStatus(status, language),
+              }),
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -2100,7 +2122,8 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              response['message']?.toString() ?? 'Failed to update status',
+              response['message']?.toString() ??
+                  language.tr('failed_to_update_status'),
             ),
             backgroundColor: Colors.red,
           ),
@@ -2193,6 +2216,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   }
 
   void _showApplicationsSummary() {
+    final language = context.read<LanguageProvider>();
     final total = _applications.length;
     final shortlisted = _countByStatus('shortlisted');
     final interviewed = _countByStatus('interview');
@@ -2203,21 +2227,27 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Applications Summary'),
+        title: Text(language.tr('applications_summary')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildSummaryLine('Total', total.toString()),
-            _buildSummaryLine('Shortlisted', shortlisted.toString()),
-            _buildSummaryLine('Interviewed', interviewed.toString()),
-            _buildSummaryLine('Accepted', accepted.toString()),
-            _buildSummaryLine('Rejected', rejected.toString()),
+            _buildSummaryLine(language.tr('total'), total.toString()),
+            _buildSummaryLine(
+              language.tr('shortlisted'),
+              shortlisted.toString(),
+            ),
+            _buildSummaryLine(
+              language.tr('interviewed'),
+              interviewed.toString(),
+            ),
+            _buildSummaryLine(language.tr('accepted'), accepted.toString()),
+            _buildSummaryLine(language.tr('rejected'), rejected.toString()),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(language.tr('close')),
           ),
         ],
       ),
@@ -2243,6 +2273,8 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   }
 
   Widget _buildTopNavigationBar() {
+    final language = context.read<LanguageProvider>();
+
     Widget navItem({
       required String label,
       required IconData icon,
@@ -2296,7 +2328,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       child: Row(
         children: [
           navItem(
-            label: _showAllApplications ? 'All Applications' : 'This Job',
+            label: _showAllApplications
+                ? language.tr('all_applications')
+                : language.tr('this_job'),
             icon: Icons.grid_view_rounded,
             selected: true,
             onTap: () {
@@ -2308,7 +2342,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           ),
           const SizedBox(width: 6),
           navItem(
-            label: 'My Jobs',
+            label: language.tr('my_jobs'),
             icon: Icons.work_outline_rounded,
             selected: false,
             onTap: () => widget.onGoToJobs?.call(),
@@ -2365,12 +2399,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   }
 
   Widget _buildApplicationCard(dynamic app) {
-    final fullName = '${app['full_name'] ?? 'Unknown Applicant'}';
-    final email = '${app['email'] ?? 'No email'}';
+    final language = context.read<LanguageProvider>();
+    final fullName = '${app['full_name'] ?? language.tr('unknown_applicant')}';
+    final email = '${app['email'] ?? language.tr('no_email')}';
     final status = '${app['status'] ?? 'pending'}';
     final statusColor = _statusColor(status);
     final applicationId = '${app['application_id']}';
-    final jobTitle = '${app['job_title'] ?? widget.jobTitle ?? 'Selected Job'}';
+    final jobTitle =
+        '${app['job_title'] ?? widget.jobTitle ?? language.tr('selected_job')}';
     final canShortlist = status == 'pending';
     final canInterview = status == 'shortlisted';
     final canAccept = status == 'interview';
@@ -2426,7 +2462,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    status,
+                    formatApplicationStatus(status, language),
                     style: TextStyle(
                       color: statusColor,
                       fontSize: 11,
@@ -2438,12 +2474,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
             ),
             const SizedBox(height: 10),
             Text(
-              'University: ${app['university_name'] ?? 'N/A'}',
+              language.tr('university_value', {
+                'value': '${app['university_name'] ?? 'N/A'}',
+              }),
               style: TextStyle(color: Colors.grey.shade700),
             ),
             const SizedBox(height: 4),
             Text(
-              'Job: $jobTitle',
+              language.tr('job_value', {'value': jobTitle}),
               style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
             ),
             const SizedBox(height: 12),
@@ -2452,28 +2490,28 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
               runSpacing: 8,
               children: [
                 _buildActionButton(
-                  label: 'Shortlist',
+                  label: language.tr('shortlist'),
                   color: Colors.blue,
                   isActive: _hasReachedStatus(status, 'shortlisted'),
                   isEnabled: canShortlist,
                   onPressed: () => _updateStatus(applicationId, 'shortlisted'),
                 ),
                 _buildActionButton(
-                  label: 'Interview',
+                  label: language.tr('interview'),
                   color: Colors.purple,
                   isActive: _hasReachedStatus(status, 'interview'),
                   isEnabled: canInterview,
                   onPressed: () => _scheduleInterview(applicationId),
                 ),
                 _buildActionButton(
-                  label: 'Accept',
+                  label: language.tr('accept'),
                   color: Colors.green,
                   isActive: status == 'accepted',
                   isEnabled: canAccept,
                   onPressed: () => _acceptApplicant(applicationId),
                 ),
                 _buildActionButton(
-                  label: 'Reject',
+                  label: language.tr('reject'),
                   color: Colors.red,
                   isActive: status == 'rejected',
                   isEnabled: canReject,
@@ -2489,6 +2527,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -2506,7 +2545,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: _loadApplications,
-                child: const Text('Retry'),
+                child: Text(language.tr('try_again')),
               ),
             ],
           ),
@@ -2532,8 +2571,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                 Expanded(
                   child: Text(
                     _showAllApplications
-                        ? 'All Company Applications'
-                        : 'Applications for ${widget.jobTitle ?? 'Selected Job'}',
+                        ? language.tr('all_company_applications')
+                        : language.tr('applications_for_job', {
+                            'job':
+                                widget.jobTitle ?? language.tr('selected_job'),
+                          }),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -2559,7 +2601,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                     Icons.insert_chart_outlined_rounded,
                     size: 18,
                   ),
-                  label: const Text('Statistics'),
+                  label: Text(language.tr('statistics')),
                 ),
               ),
               const SizedBox(width: 10),
@@ -2567,7 +2609,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                 child: OutlinedButton.icon(
                   onPressed: _loadApplications,
                   icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Refresh'),
+                  label: Text(language.tr('refresh_unread_count')),
                 ),
               ),
             ],
@@ -2578,19 +2620,19 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
               final compact = constraints.maxWidth < 560;
               final cards = [
                 _buildSummaryCard(
-                  label: 'Total',
+                  label: language.tr('total'),
                   value: '${_applications.length}',
                   icon: Icons.groups_2_outlined,
                   color: const Color(0xFF2C3E50),
                 ),
                 _buildSummaryCard(
-                  label: 'Interviewed',
+                  label: language.tr('interviewed'),
                   value: '${_countByStatus('interview')}',
                   icon: Icons.event_available_outlined,
                   color: Colors.purple,
                 ),
                 _buildSummaryCard(
-                  label: 'Accepted',
+                  label: language.tr('accepted'),
                   value: '${_countByStatus('accepted')}',
                   icon: Icons.check_circle_outline,
                   color: Colors.green,
@@ -2636,14 +2678,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   const SizedBox(height: 10),
                   Text(
                     _showAllApplications
-                        ? 'No applications for your jobs yet'
-                        : 'No applications for this job yet',
+                        ? language.tr('no_applications_for_jobs_yet')
+                        : language.tr('no_applications_for_this_job_yet'),
                   ),
                   if (_showAllApplications) ...[
                     const SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: widget.onGoToJobs,
-                      child: const Text('Go to My Jobs'),
+                      child: Text(language.tr('go_to_my_jobs')),
                     ),
                   ],
                 ],
@@ -2674,10 +2716,11 @@ class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
   }
 
   void _submit() {
+    final language = context.read<LanguageProvider>();
     final venue = _controller.text.trim();
     if (venue.isEmpty) {
       setState(() {
-        _errorText = 'Venue is required';
+        _errorText = language.tr('venue_required');
       });
       return;
     }
@@ -2687,10 +2730,11 @@ class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       scrollable: true,
-      title: const Text('Interview Venue'),
+      title: Text(language.tr('interview_venue')),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
         child: TextField(
@@ -2701,8 +2745,8 @@ class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
           maxLines: 2,
           onSubmitted: (_) => _submit(),
           decoration: InputDecoration(
-            labelText: 'Venue / Hall',
-            hintText: 'Example: Main Hall, Room 4',
+            labelText: language.tr('venue_hall'),
+            hintText: language.tr('venue_hint'),
             errorText: _errorText,
           ),
         ),
@@ -2710,9 +2754,12 @@ class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(language.tr('cancel')),
         ),
-        ElevatedButton(onPressed: _submit, child: const Text('Continue')),
+        ElevatedButton(
+          onPressed: _submit,
+          child: Text(language.tr('continue')),
+        ),
       ],
     );
   }
@@ -2722,6 +2769,7 @@ class CompanyProfileScreen extends StatelessWidget {
   const CompanyProfileScreen({super.key});
 
   Widget _buildTopNavigationBar(BuildContext context) {
+    final language = context.read<LanguageProvider>();
     final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
 
     Widget navItem({
@@ -2777,7 +2825,7 @@ class CompanyProfileScreen extends StatelessWidget {
       child: Row(
         children: [
           navItem(
-            label: 'Home',
+            label: language.tr('home'),
             icon: Icons.dashboard_rounded,
             selected: false,
             onTap: () => dashboard?.navigateToTab(0),
@@ -2785,7 +2833,7 @@ class CompanyProfileScreen extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           navItem(
-            label: 'My Jobs',
+            label: language.tr('my_jobs'),
             icon: Icons.work_rounded,
             selected: false,
             onTap: () => dashboard?.navigateToTab(1),
@@ -2793,7 +2841,7 @@ class CompanyProfileScreen extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           navItem(
-            label: 'Applications',
+            label: language.tr('applications'),
             icon: Icons.groups_rounded,
             selected: false,
             onTap: () => dashboard?.navigateToTab(2),
@@ -2801,7 +2849,7 @@ class CompanyProfileScreen extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           navItem(
-            label: 'Profile',
+            label: language.tr('profile'),
             icon: Icons.business_rounded,
             selected: true,
             onTap: () {},
@@ -2813,10 +2861,12 @@ class CompanyProfileScreen extends StatelessWidget {
   }
 
   Widget _buildInfoTile({
+    required BuildContext context,
     required IconData icon,
     required String label,
     required String value,
   }) {
+    final language = context.read<LanguageProvider>();
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -2838,7 +2888,7 @@ class CompanyProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  value.isEmpty ? 'Not provided' : value,
+                  value.isEmpty ? language.tr('not_provided') : value,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ],
@@ -2851,9 +2901,10 @@ class CompanyProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<LanguageProvider>();
     final user = Provider.of<AuthProvider>(context).user;
     final company = user?['company_data'] ?? {};
-    final companyName = '${company['company_name'] ?? 'Company'}';
+    final companyName = '${company['company_name'] ?? language.tr('company')}';
     final rawLogoUrl = company['logo_url']?.toString();
     final logoUrl = rawLogoUrl == null || rawLogoUrl.isEmpty
         ? null
@@ -2915,7 +2966,7 @@ class CompanyProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${company['industry'] ?? 'Industry not set'}',
+                  '${company['industry'] ?? language.tr('industry_not_set')}',
                   style: TextStyle(color: Colors.grey.shade700),
                 ),
                 const SizedBox(height: 14),
@@ -2938,7 +2989,7 @@ class CompanyProfileScreen extends StatelessWidget {
                       backgroundColor: const Color(0xFF2C3E50),
                     ),
                     icon: const Icon(Icons.edit),
-                    label: const Text('Edit Profile'),
+                    label: Text(language.tr('edit_profile')),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -2949,8 +3000,10 @@ class CompanyProfileScreen extends StatelessWidget {
                       final changed = await showChangePinDialog(context);
                       if (!context.mounted || changed != true) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('PIN updated successfully'),
+                        SnackBar(
+                          content: Text(
+                            language.tr('pin_updated_successfully'),
+                          ),
                           backgroundColor: Colors.green,
                         ),
                       );
@@ -2960,7 +3013,7 @@ class CompanyProfileScreen extends StatelessWidget {
                       side: const BorderSide(color: Color(0xFF2C3E50)),
                     ),
                     icon: const Icon(Icons.pin_outlined),
-                    label: const Text('Change PIN'),
+                    label: Text(language.tr('change_pin')),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -2975,19 +3028,13 @@ class CompanyProfileScreen extends StatelessWidget {
                         email: email,
                       );
                       if (!context.mounted || changed != true) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('PIN reset successfully'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
                     },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.orange.shade800,
                       side: BorderSide(color: Colors.orange.shade400),
                     ),
                     icon: const Icon(Icons.lock_reset_rounded),
-                    label: const Text('Reset PIN'),
+                    label: Text(language.tr('reset_pin')),
                   ),
                 ),
               ],
@@ -2995,28 +3042,33 @@ class CompanyProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _buildInfoTile(
+            context: context,
             icon: Icons.location_on_outlined,
-            label: 'Location',
+            label: language.tr('location'),
             value: '${company['location'] ?? ''}',
           ),
           _buildInfoTile(
+            context: context,
             icon: Icons.language_outlined,
-            label: 'Website',
+            label: language.tr('website'),
             value: '${company['website_url'] ?? ''}',
           ),
           _buildInfoTile(
+            context: context,
             icon: Icons.groups_outlined,
-            label: 'Company Size',
+            label: language.tr('company_size'),
             value: '${company['company_size'] ?? ''}',
           ),
           _buildInfoTile(
+            context: context,
             icon: Icons.email_outlined,
-            label: 'Email',
+            label: language.tr('email'),
             value: '${user?['email'] ?? ''}',
           ),
           _buildInfoTile(
+            context: context,
             icon: Icons.phone_outlined,
-            label: 'Phone',
+            label: language.tr('phone'),
             value: '${user?['phone'] ?? ''}',
           ),
           Container(
@@ -3027,7 +3079,7 @@ class CompanyProfileScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              '${company['description'] ?? 'No company description added yet.'}',
+              '${company['description'] ?? language.tr('no_company_description_added_yet')}',
               style: TextStyle(color: Colors.grey.shade700, height: 1.4),
             ),
           ),

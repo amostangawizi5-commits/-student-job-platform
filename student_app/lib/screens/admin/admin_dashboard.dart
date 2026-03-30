@@ -36,36 +36,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       AdminApplicationFilter.all;
   final ApiService _apiService = ApiService();
 
-  String _formatToday() {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-
-    const weekdays = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-
-    final now = DateTime.now();
-    final weekday = weekdays[now.weekday - 1];
-    final month = months[now.month - 1];
-    return '$weekday, ${now.day} $month ${now.year}';
+  String _formatToday(BuildContext context) {
+    return MaterialLocalizations.of(context).formatFullDate(DateTime.now());
   }
 
   List<Widget> _buildScreens() {
@@ -77,13 +49,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
     ];
   }
 
-  List<String> _titles() {
-    return const ['Dashboard', 'Users', 'Applications', 'Report'];
+  List<String> _titles(LanguageProvider language) {
+    return [
+      language.tr('dashboard'),
+      language.tr('users'),
+      language.tr('applications'),
+      language.tr('report'),
+    ];
   }
 
   String get _adminName {
     final auth = context.read<AuthProvider>();
-    return '${auth.user?['full_name'] ?? auth.user?['email'] ?? 'Admin'}'
+    final language = context.read<LanguageProvider>();
+    return '${auth.user?['full_name'] ?? auth.user?['email'] ?? language.tr('admin')}'
         .trim();
   }
 
@@ -187,21 +165,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.account_circle_outlined),
-                  title: const Text('Admin profile'),
+                  title: Text(language.tr('admin_profile')),
                   subtitle: Text(_adminName),
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.pin_outlined),
-                  title: const Text('Change PIN'),
-                  subtitle: const Text('Update your 4-digit app PIN'),
+                  title: Text(language.tr('change_pin')),
+                  subtitle: Text(language.tr('update_4_digit_app_pin')),
                   onTap: () async {
                     Navigator.of(sheetContext).pop();
                     final changed = await showChangePinDialog(context);
                     if (!mounted || changed != true) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('PIN updated successfully'),
+                      SnackBar(
+                        content: Text(language.tr('pin_updated_successfully')),
                         backgroundColor: Colors.green,
                       ),
                     );
@@ -210,9 +188,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.lock_reset_rounded),
-                  title: const Text('Reset PIN'),
-                  subtitle: const Text(
-                    'Verify with password and create a new PIN',
+                  title: Text(language.tr('reset_pin')),
+                  subtitle: Text(
+                    language.tr('verify_with_password_create_new_pin'),
                   ),
                   onTap: () async {
                     final email =
@@ -228,12 +206,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       email: email,
                     );
                     if (!mounted || changed != true) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('PIN reset successfully'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
                   },
                 ),
                 ListTile(
@@ -250,7 +222,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.notifications_outlined),
                   title: Text(language.tr('notifications')),
-                  subtitle: const Text('Open admin notifications'),
+                  subtitle: Text(language.tr('open_admin_notifications')),
                   onTap: () {
                     Navigator.of(sheetContext).pop();
                     _openNotifications();
@@ -259,8 +231,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.refresh_rounded),
-                  title: const Text('Refresh counters'),
-                  subtitle: const Text('Sync the latest unread badge count'),
+                  title: Text(language.tr('refresh_counters')),
+                  subtitle: Text(language.tr('sync_latest_notification_badge')),
                   onTap: () {
                     Navigator.of(sheetContext).pop();
                     _loadUnreadNotifications(forceRefresh: true);
@@ -313,11 +285,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final auth = context.watch<AuthProvider>();
     final language = context.watch<LanguageProvider>();
     final adminName =
-        '${auth.user?['full_name'] ?? auth.user?['email'] ?? 'Admin'}'.trim();
+        '${auth.user?['full_name'] ?? auth.user?['email'] ?? language.tr('admin')}'
+            .trim();
     final adminEmail = '${auth.user?['email'] ?? 'admin@example.com'}';
-    final firstName = adminName.isEmpty ? 'Admin' : adminName.split(' ').first;
-    final titles = _titles();
-    final today = _formatToday();
+    final firstName = adminName.isEmpty
+        ? language.tr('admin')
+        : adminName.split(' ').first;
+    final titles = _titles(language);
+    final today = _formatToday(context);
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
@@ -420,16 +395,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           ),
           PopupMenuButton<_AdminMoreAction>(
-            tooltip: 'More',
+            tooltip: language.tr('more_actions'),
             onSelected: _handleMoreAction,
-            itemBuilder: (context) => const [
+            itemBuilder: (context) => [
               PopupMenuItem(
                 value: _AdminMoreAction.settings,
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.settings_outlined),
-                  title: Text('Settings'),
+                  leading: const Icon(Icons.settings_outlined),
+                  title: Text(language.tr('settings')),
                 ),
               ),
               PopupMenuItem(
@@ -437,18 +412,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.language_outlined),
-                  title: Text('Language'),
+                  leading: const Icon(Icons.language_outlined),
+                  title: Text(language.tr('language')),
                 ),
               ),
-              PopupMenuDivider(),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: _AdminMoreAction.logout,
                 child: ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.logout_rounded),
-                  title: Text('Logout'),
+                  leading: const Icon(Icons.logout_rounded),
+                  title: Text(language.tr('logout')),
                 ),
               ),
             ],
@@ -500,7 +475,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 child: Column(
                   children: [
                     Text(
-                      'Welcome back, $firstName',
+                      language.tr('welcome_back_name', {'name': firstName}),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 18,
@@ -596,26 +571,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
         onTap: _switchTab,
         selectedItemColor: _adminBrandOrange,
         unselectedItemColor: Colors.grey.shade600,
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard_rounded),
-            label: 'Dashboard',
+            icon: const Icon(Icons.dashboard_outlined),
+            activeIcon: const Icon(Icons.dashboard_rounded),
+            label: language.tr('dashboard'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.people_outline_rounded),
-            activeIcon: Icon(Icons.people_rounded),
-            label: 'Users',
+            icon: const Icon(Icons.people_outline_rounded),
+            activeIcon: const Icon(Icons.people_rounded),
+            label: language.tr('users'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.assignment_outlined),
-            activeIcon: Icon(Icons.assignment_rounded),
-            label: 'Applications',
+            icon: const Icon(Icons.assignment_outlined),
+            activeIcon: const Icon(Icons.assignment_rounded),
+            label: language.tr('applications'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long_outlined),
-            activeIcon: Icon(Icons.receipt_long_rounded),
-            label: 'Report',
+            icon: const Icon(Icons.receipt_long_outlined),
+            activeIcon: const Icon(Icons.receipt_long_rounded),
+            label: language.tr('report'),
           ),
         ],
       ),

@@ -1,20 +1,24 @@
 // lib/providers/auth_provider.dart
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
+import '../services/app_lock_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final ApiService _apiService = ApiService();
+  final AppLockService _appLockService = AppLockService();
 
   Map<String, dynamic>? _user;
   bool _isLoading = false;
   bool _isAuthenticated = false;
   bool _sessionRestored = false;
+  bool _requiresPinSetup = false;
   String? _errorMessage;
 
   Map<String, dynamic>? get user => _user;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
   bool get sessionRestored => _sessionRestored;
+  bool get requiresPinSetup => _requiresPinSetup;
   String? get errorMessage => _errorMessage;
 
   void _log(String message) {
@@ -65,6 +69,7 @@ class AuthProvider extends ChangeNotifier {
 
     if (token != null && token.isNotEmpty) {
       _sessionRestored = true;
+      _requiresPinSetup = false;
       await loadProfile();
       if (!_isAuthenticated) {
         _sessionRestored = false;
@@ -72,6 +77,7 @@ class AuthProvider extends ChangeNotifier {
     } else {
       _isAuthenticated = false;
       _sessionRestored = false;
+      _requiresPinSetup = false;
       _user = null;
       notifyListeners();
     }
@@ -89,9 +95,11 @@ class AuthProvider extends ChangeNotifier {
       if (response['success'] == true) {
         // Extract user data from response
         final userDataMap = response['data']['data']['user'];
+        await _appLockService.clearPin();
         _user = userDataMap;
         _isAuthenticated = true;
         _sessionRestored = true;
+        _requiresPinSetup = true;
         _isLoading = false;
         _errorMessage = null;
         notifyListeners();
@@ -129,6 +137,7 @@ class AuthProvider extends ChangeNotifier {
         _user = userDataMap;
         _isAuthenticated = true;
         _sessionRestored = true;
+        _requiresPinSetup = false;
         _isLoading = false;
         notifyListeners();
         return true;
@@ -162,6 +171,7 @@ class AuthProvider extends ChangeNotifier {
         }
         _user = userDataMap;
         _isAuthenticated = true;
+        _requiresPinSetup = false;
         notifyListeners();
       } else {
         await logout();
@@ -178,11 +188,13 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _isAuthenticated = false;
     _sessionRestored = false;
+    _requiresPinSetup = false;
     notifyListeners();
   }
 
   void markSessionUnlocked() {
     _sessionRestored = false;
+    _requiresPinSetup = false;
   }
 
   // Update profile

@@ -44,6 +44,12 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     _loadJobs();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadJobs({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
     try {
@@ -162,190 +168,201 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     );
   }
 
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        hintText: 'Search jobs, companies...',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() {});
+                  _loadJobs(forceRefresh: true);
+                },
+              )
+            : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        filled: true,
+        fillColor: Colors.grey.shade100,
+      ),
+      onChanged: (_) => setState(() {}),
+      onSubmitted: (_) => _loadJobs(),
+    );
+  }
+
+  Widget _buildTypeFilter() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: _jobTypes.map((type) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                label: Text(
+                  type == 'all'
+                      ? 'All'
+                      : type == 'internship'
+                      ? 'Internship'
+                      : type == 'full-time'
+                      ? 'Full Time'
+                      : type == 'part-time'
+                      ? 'Part Time'
+                      : 'Graduate Program',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                selected: _selectedType == type,
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedType = type;
+                  });
+                  _loadJobs();
+                },
+                backgroundColor: Colors.grey.shade100,
+                selectedColor: Colors.blue.shade100,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationFilter() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: _locations.map((location) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                label: Text(location, style: const TextStyle(fontSize: 13)),
+                selected: _selectedLocation == location,
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedLocation = location;
+                  });
+                  _loadJobs();
+                },
+                backgroundColor: Colors.grey.shade100,
+                selectedColor: Colors.blue.shade100,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultsCount() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            _selectedView == 'history'
+                ? '${_jobs.length} posted jobs in history'
+                : '${_jobs.length} opportunities found',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+          if (!_isLoading && _jobs.isEmpty)
+            TextButton(
+              onPressed: () => _loadJobs(forceRefresh: true),
+              child: const Text('Refresh'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.work_off, size: 64, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text(
+            _selectedView == 'history'
+                ? 'No job history found'
+                : 'No opportunities found',
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _selectedView == 'history'
+                ? 'Expired and closed jobs will appear here'
+                : 'Try adjusting your filters',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      body: Column(
-        children: [
-          // Search Bar
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search jobs, companies...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          _loadJobs(forceRefresh: true);
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Colors.grey.shade100,
-              ),
-              onSubmitted: (_) => _loadJobs(),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            pinned: true,
+            automaticallyImplyLeading: false,
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.white,
+            elevation: 0,
+            toolbarHeight: 88,
+            titleSpacing: 0,
+            title: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: _buildSearchField(),
             ),
           ),
-          // Type Filter
-          _buildViewToggle(),
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _jobTypes.map((type) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(
-                        type == 'all'
-                            ? 'All'
-                            : type == 'internship'
-                            ? 'Internship'
-                            : type == 'full-time'
-                            ? 'Full Time'
-                            : type == 'part-time'
-                            ? 'Part Time'
-                            : 'Graduate Program',
-                        style: const TextStyle(fontSize: 13),
+          SliverToBoxAdapter(child: _buildViewToggle()),
+          SliverToBoxAdapter(child: _buildTypeFilter()),
+          SliverToBoxAdapter(child: _buildLocationFilter()),
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          SliverToBoxAdapter(child: _buildResultsCount()),
+          if (_isLoading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_jobs.isEmpty)
+            SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState())
+          else
+            SliverList.builder(
+              itemCount: _jobs.length,
+              itemBuilder: (context, index) {
+                final job = _jobs[index];
+                return JobCard(
+                  job: job,
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            JobDetailsScreen(jobId: job.jobId),
                       ),
-                      selected: _selectedType == type,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedType = type;
-                        });
-                        _loadJobs();
-                      },
-                      backgroundColor: Colors.grey.shade100,
-                      selectedColor: Colors.blue.shade100,
-                    ),
-                  );
-                }).toList(),
-              ),
+                    );
+                    _loadJobs(forceRefresh: true);
+                  },
+                );
+              },
             ),
-          ),
-          // Location Filter
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _locations.map((location) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(
-                        location,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      selected: _selectedLocation == location,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedLocation = location;
-                        });
-                        _loadJobs();
-                      },
-                      backgroundColor: Colors.grey.shade100,
-                      selectedColor: Colors.blue.shade100,
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Results Count
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  _selectedView == 'history'
-                      ? '${_jobs.length} posted jobs in history'
-                      : '${_jobs.length} opportunities found',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                ),
-                if (!_isLoading && _jobs.isEmpty)
-                  TextButton(
-                    onPressed: () => _loadJobs(forceRefresh: true),
-                    child: const Text('Refresh'),
-                  ),
-              ],
-            ),
-          ),
-          // Job List
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _jobs.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.work_off,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _selectedView == 'history'
-                              ? 'No job history found'
-                              : 'No opportunities found',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _selectedView == 'history'
-                              ? 'Expired and closed jobs will appear here'
-                              : 'Try adjusting your filters',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: _jobs.length,
-                    itemBuilder: (context, index) {
-                      final job = _jobs[index];
-                      return JobCard(
-                        job: job,
-                        onTap: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  JobDetailsScreen(jobId: job.jobId),
-                            ),
-                          );
-                          _loadJobs(
-                            forceRefresh: true,
-                          ); // Refresh when coming back
-                        },
-                      );
-                    },
-                  ),
-          ),
         ],
       ),
     );

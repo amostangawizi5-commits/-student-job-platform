@@ -835,6 +835,52 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> uploadStudentProfileImage(
+    String filePath,
+  ) async {
+    try {
+      final token = await getToken();
+      final fileName = filePath.split('/').last;
+      final formData = FormData.fromMap({
+        'profile_image': await MultipartFile.fromFile(
+          filePath,
+          filename: fileName,
+        ),
+      });
+
+      final response = await _dio.post(
+        '$baseUrl/api/auth/profile-image',
+        data: formData,
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      _invalidateProfileCache();
+      return response.data;
+    } on DioException catch (e) {
+      _log('❌ Error uploading student profile image: $e');
+      final errorData = e.response?.data;
+      if (errorData is Map &&
+          (errorData['message'] != null || errorData['error'] != null)) {
+        throw Exception(errorData['message'] ?? errorData['error']);
+      }
+      throw Exception('Failed to upload profile image: ${e.message}');
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteStudentProfileImage() async {
+    try {
+      final response = await _request(
+        'DELETE',
+        '/api/auth/profile-image',
+        requiresAuth: true,
+      );
+      _invalidateProfileCache();
+      return response;
+    } catch (e) {
+      _log('❌ Error deleting student profile image: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
   // ==================== COMPANY METHODS ====================
   Future<Map<String, dynamic>> getCompanyProfile() async {
     try {
