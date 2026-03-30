@@ -1,9 +1,12 @@
 // src/config/database.js
 const { Pool } = require('pg');
 
-const useSsl =
+const databaseUrl = `${process.env.DATABASE_URL || ''}`;
+const sslRequestedViaEnv =
     `${process.env.DB_SSL || process.env.DATABASE_SSL || ''}`.toLowerCase() ===
     'true';
+const sslRequestedViaUrl = /(?:^|[?&])ssl(?:mode)?=(?:require|true)/i.test(databaseUrl);
+const useSsl = sslRequestedViaEnv || sslRequestedViaUrl;
 
 const poolConfig = process.env.DATABASE_URL
     ? {
@@ -24,7 +27,22 @@ const poolConfig = process.env.DATABASE_URL
 // Create PostgreSQL connection pool
 const pool = new Pool(poolConfig);
 
+const tableExists = async (tableName) => {
+    const result = await pool.query('SELECT to_regclass($1) AS table_name', [
+        `public.${tableName}`
+    ]);
+
+    return Boolean(result.rows[0]?.table_name);
+};
+
 const ensureApplicationWorkflowSchema = async () => {
+    if (!(await tableExists('applications'))) {
+        console.warn(
+            'Skipping application workflow schema update because table "applications" does not exist yet.'
+        );
+        return;
+    }
+
     await pool.query(`
         ALTER TABLE applications
         ADD COLUMN IF NOT EXISTS supportive_document_url TEXT,
@@ -39,6 +57,13 @@ const ensureApplicationWorkflowSchema = async () => {
 };
 
 const ensureCompanyProfileSchema = async () => {
+    if (!(await tableExists('companies'))) {
+        console.warn(
+            'Skipping company profile schema update because table "companies" does not exist yet.'
+        );
+        return;
+    }
+
     await pool.query(`
         ALTER TABLE companies
         ADD COLUMN IF NOT EXISTS website_url TEXT,
