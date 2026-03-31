@@ -2,7 +2,11 @@ const ApplicationModel = require('../models/application.model');
 const NotificationModel = require('../models/notification.model');
 const { query } = require('../config/database');
 const { sendApplicationStatusEmail } = require('../services/email.service');
-const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
+const {
+    uploadAsset,
+    deleteAssetByUrl,
+    readAssetBuffer
+} = require('../services/file-storage.service');
 const { buildAcceptanceLetterPdf } = require('../services/acceptance-letter.service');
 
 function formatInterviewDate(dateValue) {
@@ -83,6 +87,26 @@ async function getApplicationWithOwnership(applicationId) {
     );
 
     return result.rows[0] || null;
+}
+
+function canAccessApplication(user, application) {
+    if (!user || !application) {
+        return false;
+    }
+
+    if (user.role === 'admin') {
+        return true;
+    }
+
+    if (['student', 'graduate'].includes(`${user.role}`)) {
+        return `${application.student_id}` === `${user.user_id}`;
+    }
+
+    if (user.role === 'company') {
+        return `${application.company_id}` === `${user.user_id}`;
+    }
+
+    return false;
 }
 
 // Apply for a job
@@ -332,6 +356,62 @@ const getCompanyApplications = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch company applications',
+            error: error.message
+        });
+    }
+};
+
+const downloadResponseLetter = async (req, res) => {
+    try {
+        const { application_id } = req.params;
+        const application = await getApplicationWithOwnership(application_id);
+
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: 'Application not found'
+            });
+        }
+
+        if (!canAccessApplication(req.user, application)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to access this response letter'
+            });
+        }
+
+        if (!application.response_letter_url) {
+            return res.status(404).json({
+                success: false,
+                message: 'Response letter is not available for this application'
+            });
+        }
+
+        try {
+            const fileBuffer = await readAssetBuffer(application.response_letter_url);
+            const fileName =
+                `${application.response_letter_name || 'response_letter.pdf'}`
+                    .replace(/"/g, '');
+
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="${fileName}"`
+            );
+            return res.send(fileBuffer);
+        } catch (fileError) {
+            console.error('Response letter file read error:', fileError);
+            return res.status(404).json({
+                success: false,
+                message:
+                    'Response letter file could not be found. Please ask the company to generate it again.'
+            });
+        }
+    } catch (error) {
+        console.error('Download response letter error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to download response letter',
             error: error.message
         });
     }
@@ -633,5 +713,6 @@ module.exports = {
     getMyApplications,
     getJobApplications,
     getCompanyApplications,
+    downloadResponseLetter,
     updateApplicationStatus
 };

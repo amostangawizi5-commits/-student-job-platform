@@ -305,12 +305,15 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
   Future<void> _downloadFile(
     String? fileUrl, {
+    String? authenticatedUrl,
     required String fileName,
     required String invalidMessage,
     required String failureMessage,
     required String successLabel,
   }) async {
-    if (fileUrl == null || fileUrl.trim().isEmpty) {
+    final effectiveUrl = authenticatedUrl ?? fileUrl;
+
+    if (effectiveUrl == null || effectiveUrl.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
@@ -320,14 +323,14 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
     if (kIsWeb) {
       await _openFile(
-        fileUrl,
+        effectiveUrl,
         invalidMessage: invalidMessage,
         failureMessage: failureMessage,
       );
       return;
     }
 
-    final resolvedUrl = _resolveFileUrl(fileUrl);
+    final resolvedUrl = _resolveFileUrl(effectiveUrl);
 
     setState(() => _downloadingResponseLetters.add(resolvedUrl));
 
@@ -782,6 +785,10 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                                 ? null
                                 : () => _downloadFile(
                                     responseLetterUrl,
+                                    authenticatedUrl:
+                                        app['application_id'] == null
+                                        ? null
+                                        : '/api/applications/${app['application_id']}/response-letter',
                                     fileName: responseLetterName,
                                     invalidMessage:
                                         'Response letter link is invalid.',

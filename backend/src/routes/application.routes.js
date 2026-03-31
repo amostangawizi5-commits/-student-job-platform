@@ -26,6 +26,12 @@ router.post(
   applicationController.applyForJob
 );
 router.get('/my-applications', authMiddleware, authorize('student', 'graduate'), applicationController.getMyApplications);
+router.get(
+  '/:application_id/response-letter',
+  authMiddleware,
+  authorize('student', 'graduate', 'company', 'admin'),
+  applicationController.downloadResponseLetter
+);
 
 // Company routes
 router.get('/company', authMiddleware, authorize('company'), applicationController.getCompanyApplications);

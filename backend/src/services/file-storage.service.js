@@ -258,8 +258,14 @@ const deleteAssetByUrl = async ({ fileUrl, resourceType }) => {
     return false;
 };
 
+const readAssetBuffer = async (fileUrl) => {
+    const buffer = await loadBinaryFromUrl(fileUrl);
+    return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '');
+};
+
 module.exports = {
     isCloudinaryConfigured,
+    readAssetBuffer,
     uploadAsset,
     deleteAssetByUrl
 };
