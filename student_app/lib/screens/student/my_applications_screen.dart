@@ -497,10 +497,14 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
               _downloadingResponseLetters.contains(
                 _resolveFileUrl(responseLetterUrl),
               );
+          final profileResumeUrl = app['resume_url']?.toString();
+          final hasProfileResume =
+              profileResumeUrl != null && profileResumeUrl.isNotEmpty;
           final supportiveDocumentUrl = app['supportive_document_url']
               ?.toString();
           final supportiveDocumentName =
-              app['supportive_document_name']?.toString() ?? 'profile_cv';
+              app['supportive_document_name']?.toString() ??
+              'supportive_document';
           final hasSupportiveDocument =
               supportiveDocumentUrl != null && supportiveDocumentUrl.isNotEmpty;
           final displayReviewText = hasSupportiveDocument
@@ -583,6 +587,40 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  if (hasProfileResume) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFD9E2EC)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Profile CV attached automatically',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => _openFile(
+                                profileResumeUrl,
+                                invalidMessage: 'Profile CV link is invalid.',
+                                failureMessage: 'Unable to open profile CV.',
+                              ),
+                              icon: const Icon(Icons.open_in_new, size: 16),
+                              label: const Text('Open Profile CV'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
@@ -606,8 +644,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             const SizedBox(width: 6),
                             Text(
                               hasSupportiveDocument
-                                  ? 'Attached CV: $displayReviewText'
-                                  : 'Application File: $displayReviewText',
+                                  ? 'Supportive Document: $displayReviewText'
+                                  : 'Supportive Document: Not attached',
                               style: TextStyle(
                                 color: displayReviewColor,
                                 fontWeight: FontWeight.w700,
@@ -626,7 +664,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                         const SizedBox(height: 8),
                         if (hasSupportiveDocument) ...[
                           Text(
-                            'Attached CV file: $supportiveDocumentName',
+                            'Supportive document file: $supportiveDocumentName',
                             style: TextStyle(color: Colors.grey.shade700),
                           ),
                           const SizedBox(height: 8),
@@ -635,16 +673,18 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             child: TextButton.icon(
                               onPressed: () => _openFile(
                                 supportiveDocumentUrl,
-                                invalidMessage: 'CV link is invalid.',
-                                failureMessage: 'Unable to open attached CV.',
+                                invalidMessage:
+                                    'Supportive document link is invalid.',
+                                failureMessage:
+                                    'Unable to open supportive document.',
                               ),
                               icon: const Icon(Icons.open_in_new, size: 16),
-                              label: const Text('Open Attached CV'),
+                              label: const Text('Open Supportive PDF'),
                             ),
                           ),
                         ] else
                           Text(
-                            'This application was sent with your cover letter only because no CV was attached from your profile.',
+                            'No supportive document was attached to this application.',
                             style: TextStyle(color: Colors.grey.shade700),
                           ),
                       ],

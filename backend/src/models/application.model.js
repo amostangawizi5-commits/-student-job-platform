@@ -55,9 +55,10 @@ class ApplicationModel {
     // Get applications by student
     static async getByStudent(student_id) {
         const result = await query(
-            `SELECT a.*, j.title, j.location, j.type, c.company_name
+            `SELECT a.*, j.title, j.location, j.type, c.company_name, s.resume_url
              FROM applications a
              JOIN jobs j ON a.job_id = j.job_id
+             JOIN students s ON a.student_id = s.student_id
              JOIN companies c ON j.company_id = c.company_id
              WHERE a.student_id = $1
              ORDER BY a.applied_date DESC`,
@@ -124,7 +125,7 @@ class ApplicationModel {
     static async getByJob(job_id) {
         const result = await query(
             `SELECT a.*, u.full_name, u.email, s.program, s.university_id, u2.name as university_name,
-                    j.title as job_title
+                    j.title as job_title, s.resume_url
              FROM applications a
              JOIN jobs j ON a.job_id = j.job_id
              JOIN students s ON a.student_id = s.student_id
@@ -141,7 +142,7 @@ class ApplicationModel {
     static async getByCompany(company_id) {
         const result = await query(
             `SELECT a.*, u.full_name, u.email, s.program, s.university_id, u2.name as university_name,
-                    j.title as job_title
+                    j.title as job_title, s.resume_url
              FROM applications a
              JOIN jobs j ON a.job_id = j.job_id
              JOIN students s ON a.student_id = s.student_id

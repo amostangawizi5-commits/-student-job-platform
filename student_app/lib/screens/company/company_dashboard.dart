@@ -2693,6 +2693,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final applicationId = '${app['application_id']}';
     final jobTitle =
         '${app['job_title'] ?? widget.jobTitle ?? language.tr('selected_job')}';
+    final profileResumeUrl = app['resume_url']?.toString();
+    final hasProfileResume =
+        profileResumeUrl != null && profileResumeUrl.isNotEmpty;
     final supportiveDocumentUrl = app['supportive_document_url']?.toString();
     final supportiveDocumentName =
         app['supportive_document_name']?.toString() ??
@@ -2806,6 +2809,38 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
               style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
             ),
             const SizedBox(height: 12),
+            if (hasProfileResume) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFD9E2EC)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.description_outlined),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Profile CV attached automatically',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _openFileUrl(
+                        profileResumeUrl,
+                        invalidMessage: 'Profile CV link is invalid.',
+                        failureMessage: 'Unable to open profile CV.',
+                      ),
+                      child: const Text('Open CV'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -2839,8 +2874,8 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   const SizedBox(height: 8),
                   Text(
                     hasSupportiveDocument
-                        ? 'Attached CV: $supportiveDocumentName'
-                        : 'This application was submitted with the student cover letter only.',
+                        ? 'Supportive document: $supportiveDocumentName'
+                        : 'No supportive document was added to this application.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
                   ),
                   if (verificationNotes != null &&
@@ -2863,11 +2898,13 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                         OutlinedButton.icon(
                           onPressed: () => _openFileUrl(
                             supportiveDocumentUrl,
-                            invalidMessage: 'CV link is invalid.',
-                            failureMessage: 'Unable to open attached CV.',
+                            invalidMessage:
+                                'Supportive document link is invalid.',
+                            failureMessage:
+                                'Unable to open supportive document.',
                           ),
                           icon: const Icon(Icons.open_in_new, size: 16),
-                          label: const Text('Open CV'),
+                          label: const Text('Open Supportive PDF'),
                         ),
                       if (hasSupportiveDocument)
                         OutlinedButton.icon(

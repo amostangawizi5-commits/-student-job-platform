@@ -37,17 +37,6 @@ function cleanTextValue(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
-function fileNameFromUrl(fileUrl, fallback = 'profile-cv') {
-    try {
-        const parsed = new URL(fileUrl);
-        const fileName = parsed.pathname.split('/').filter(Boolean).pop();
-        return decodeURIComponent(fileName || fallback);
-    } catch (error) {
-        const fileName = `${fileUrl || ''}`.split('/').filter(Boolean).pop();
-        return decodeURIComponent(fileName || fallback);
-    }
-}
-
 async function ensureStudentProfileExists({ userId, role }) {
     if (!userId || !['student', 'graduate'].includes(`${role}`)) {
         return;
@@ -156,9 +145,6 @@ const applyForJob = async (req, res) => {
             });
         }
 
-        let supportiveDocumentUrl = null;
-        let supportiveDocumentName = null;
-
         if (supportiveDocument) {
             uploadedSupportiveDocument = await uploadAsset({
                 buffer: supportiveDocument.buffer,
@@ -170,29 +156,14 @@ const applyForJob = async (req, res) => {
                 cloudinaryResourceType: 'raw'
             });
 
-            supportiveDocumentUrl = uploadedSupportiveDocument.secureUrl;
-            supportiveDocumentName = supportiveDocument.originalname;
-        } else {
-            const studentProfileResult = await query(
-                `SELECT resume_url
-                 FROM students
-                 WHERE student_id = $1`,
-                [student_id]
-            );
-            const profileResumeUrl = studentProfileResult.rows[0]?.resume_url;
-
-            if (profileResumeUrl) {
-                supportiveDocumentUrl = profileResumeUrl;
-                supportiveDocumentName = fileNameFromUrl(profileResumeUrl);
-            }
         }
 
         const application = await ApplicationModel.create({
             student_id,
             job_id,
             cover_letter: cleanTextValue(cover_letter),
-            supportive_document_url: supportiveDocumentUrl,
-            supportive_document_name: supportiveDocumentName
+            supportive_document_url: uploadedSupportiveDocument?.secureUrl || null,
+            supportive_document_name: supportiveDocument?.originalname || null
         });
 
         // Notify company about new application request (non-blocking)
@@ -262,7 +233,7 @@ const reviewSupportiveDocument = async (req, res) => {
         if (!app.supportive_document_url) {
             return res.status(400).json({
                 success: false,
-                message: 'This application was submitted without an attached CV to review'
+                message: 'This application was submitted without a supportive document to review'
             });
         }
 
