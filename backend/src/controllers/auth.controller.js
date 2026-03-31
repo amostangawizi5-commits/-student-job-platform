@@ -503,7 +503,15 @@ const register = async (req, res) => {
 // Login User
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const email = `${req.body?.email || ''}`.trim().toLowerCase();
+        const password = `${req.body?.password || ''}`;
+
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email and password are required'
+            });
+        }
         
         // Find user by email
         const user = await UserModel.findByEmail(email);

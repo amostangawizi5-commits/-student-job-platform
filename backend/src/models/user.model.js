@@ -23,6 +23,7 @@ class UserModel {
             location,
             description
         } = userData;
+        const normalizedEmail = `${email || ''}`.trim().toLowerCase();
 
         try {
             // Hash password
@@ -34,7 +35,7 @@ class UserModel {
                 `INSERT INTO users (email, password_hash, role, full_name, phone)
                  VALUES ($1, $2, $3, $4, $5)
                  RETURNING user_id, email, role, full_name, created_at`,
-                [email, password_hash, role, full_name, phone]
+                [normalizedEmail, password_hash, role, full_name, phone]
             );
 
             const userId = userResult.rows[0].user_id;
@@ -60,7 +61,7 @@ class UserModel {
             
             return {
                 user_id: userId,
-                email,
+                email: normalizedEmail,
                 role,
                 full_name,
                 created_at: userResult.rows[0].created_at
@@ -74,7 +75,7 @@ class UserModel {
     // Find user by email
     static async findByEmail(email) {
         const result = await query(
-            'SELECT * FROM users WHERE email = $1',
+            'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
             [email]
         );
         return result.rows[0];
@@ -246,7 +247,7 @@ class UserModel {
     // Check if email exists
     static async emailExists(email) {
         const result = await query(
-            'SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)',
+            'SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1))',
             [email]
         );
         return result.rows[0].exists;

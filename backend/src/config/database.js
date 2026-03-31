@@ -11,7 +11,6 @@ const useSsl = sslRequestedViaEnv || sslRequestedViaUrl;
 const poolConfig = process.env.DATABASE_URL
     ? {
           connectionString: process.env.DATABASE_URL,
-          options: '-c search_path=public',
           ssl: useSsl ? { rejectUnauthorized: false } : false,
       }
     : {
@@ -20,7 +19,6 @@ const poolConfig = process.env.DATABASE_URL
           host: process.env.DB_HOST,
           port: process.env.DB_PORT,
           database: process.env.DB_NAME,
-          options: '-c search_path=public',
           ssl: useSsl ? { rejectUnauthorized: false } : false,
       };
 

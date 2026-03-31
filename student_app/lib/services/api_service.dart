@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   // Default mobile backend points to the hosted production API.
@@ -53,8 +54,12 @@ class ApiService {
 
     _log('🌐 ApiService baseUrl: $baseUrl');
 
-    _dio.options.connectTimeout = const Duration(seconds: 10);
-    _dio.options.receiveTimeout = const Duration(seconds: 20);
+    _dio.options.connectTimeout = kIsWeb
+        ? const Duration(seconds: 25)
+        : const Duration(seconds: 20);
+    _dio.options.receiveTimeout = kIsWeb
+        ? const Duration(seconds: 30)
+        : const Duration(seconds: 45);
     _dio.options.headers = {'Content-Type': 'application/json'};
 
     // Add logging interceptor for debugging
@@ -133,6 +138,18 @@ class ApiService {
       search ?? '',
       view ?? '',
     ].join('|');
+  }
+
+  static bool _shouldRetryOnWakeup({
+    required bool isWeb,
+    required String method,
+    required String path,
+  }) {
+    if (isWeb && method == 'GET') {
+      return true;
+    }
+
+    return !isWeb && method == 'POST' && path == '/api/auth/login';
   }
 
   static String _normalizeLoginErrorMessage(Object? error) {
@@ -219,11 +236,45 @@ class ApiService {
   }
 
   Future<String?> getToken() async {
-    return await _storage.read(key: _tokenStorageKey);
+    try {
+      final token = await _storage.read(key: _tokenStorageKey);
+      if (token != null && token.isNotEmpty) {
+        return token;
+      }
+    } catch (error) {
+      _log('⚠️ Secure token read failed: $error');
+    }
+
+    if (kIsWeb) {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_tokenStorageKey);
+    }
+
+    return null;
   }
 
   Future<void> setToken(String token) async {
-    await _storage.write(key: _tokenStorageKey, value: token);
+    String? storageError;
+
+    try {
+      await _storage.write(key: _tokenStorageKey, value: token);
+      return;
+    } catch (error) {
+      storageError = '$error';
+      _log('⚠️ Secure token write failed: $error');
+    }
+
+    if (kIsWeb) {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_tokenStorageKey, token);
+      return;
+    }
+
+    throw Exception(
+      storageError == null
+          ? 'Unable to save login session.'
+          : 'Unable to save login session. $storageError',
+    );
   }
 
   String? _extractAuthToken(Map<String, dynamic> response) {
@@ -246,35 +297,94 @@ class ApiService {
     bool requiresAuth = false,
     Map<String, dynamic>? queryParams,
   }) async {
-    try {
+    final normalizedMethod = method.toUpperCase();
+    final requestUrl = '$baseUrl$path';
+    final shouldRetryOnWakeup = _shouldRetryOnWakeup(
+      isWeb: kIsWeb,
+      method: normalizedMethod,
+      path: path,
+    );
+
+    Future<Response<dynamic>> sendRequest() async {
       final options = Options(
-        method: method,
+        method: normalizedMethod,
         headers: requiresAuth
             ? {'Authorization': 'Bearer ${await getToken()}'}
             : {},
       );
 
-      final response = await _dio.request(
-        '$baseUrl$path',
+      return _dio.request(
+        requestUrl,
         data: data,
         options: options,
         queryParameters: queryParams,
       );
+    }
+
+    try {
+      final response = await sendRequest();
       return response.data;
     } on DioException catch (e) {
       _log('❌ DioException ${e.type}: ${e.message}');
 
       if (e.type == DioExceptionType.connectionTimeout) {
+        if (shouldRetryOnWakeup) {
+          await Future.delayed(const Duration(seconds: 4));
+
+          try {
+            final retryResponse = await sendRequest();
+            return retryResponse.data;
+          } on DioException catch (retryError) {
+            _log(
+              '❌ Timeout retry failed ${retryError.type}: ${retryError.message}',
+            );
+          }
+        }
+
         throw Exception(
-          'Connection timeout. Please check your internet connection.',
+          kIsWeb
+              ? 'Connection timeout. The server may be waking up on Render. Please wait a few seconds and try again.'
+              : 'Connection timeout from $baseUrl. The server may still be waking up on Render. Please wait a moment and try again.',
         );
       } else if (e.type == DioExceptionType.receiveTimeout) {
-        throw Exception('Server not responding. Please try again.');
+        if (shouldRetryOnWakeup) {
+          await Future.delayed(const Duration(seconds: 4));
+
+          try {
+            final retryResponse = await sendRequest();
+            return retryResponse.data;
+          } on DioException catch (retryError) {
+            _log(
+              '❌ Receive-timeout retry failed ${retryError.type}: ${retryError.message}',
+            );
+          }
+        }
+
+        throw Exception(
+          kIsWeb
+              ? 'Server is taking too long to respond. If this is the first visit, Render may still be starting up. Please try again shortly.'
+              : 'Server at $baseUrl is taking too long to respond. It may still be waking up on Render. Please try again shortly.',
+        );
       } else if (e.type == DioExceptionType.connectionError) {
+        if (shouldRetryOnWakeup) {
+          await Future.delayed(const Duration(seconds: 3));
+
+          try {
+            final retryResponse = await sendRequest();
+            return retryResponse.data;
+          } on DioException catch (retryError) {
+            _log('❌ Retry failed ${retryError.type}: ${retryError.message}');
+          }
+        }
+
         final overrideHint = kIsWeb
             ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
             : 'If you are testing on a phone, rebuild with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000';
-        throw Exception('Cannot connect to server at $baseUrl. $overrideHint');
+        throw Exception(
+          kIsWeb
+              ? 'Cannot connect to server at $baseUrl. Render may still be waking up. Please wait a few seconds and refresh. $overrideHint'
+              : 'Cannot connect to server at $baseUrl. $overrideHint',
+        );
       }
 
       if (e.response != null) {
@@ -517,7 +627,15 @@ class ApiService {
   }
 
   Future<void> logout() async {
-    await _storage.delete(key: _tokenStorageKey);
+    try {
+      await _storage.delete(key: _tokenStorageKey);
+    } catch (error) {
+      _log('⚠️ Secure token delete failed: $error');
+    }
+    if (kIsWeb) {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.remove(_tokenStorageKey);
+    }
     _unreadNotificationsCache = null;
     _unreadNotificationsCacheTime = null;
   }
