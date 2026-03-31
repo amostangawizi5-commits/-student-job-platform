@@ -28,6 +28,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   String _selectedFilter = 'all';
   final Set<String> _downloadingResponseLetters = <String>{};
 
+  void _log(String message) {
+    if (kDebugMode) {
+      debugPrint(message);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -209,6 +215,64 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 
+  Options _downloadOptions(String resolvedUrl, String? token) {
+    final headers = <String, dynamic>{};
+    if (token != null &&
+        token.isNotEmpty &&
+        resolvedUrl.startsWith(_apiService.baseUrl)) {
+      headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
+    }
+
+    return Options(
+      headers: headers.isEmpty ? null : headers,
+      receiveTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 60),
+      followRedirects: true,
+    );
+  }
+
+  Future<String> _downloadToAvailableDirectory(
+    String resolvedUrl, {
+    required String fileName,
+  }) async {
+    final token = await _apiService.getToken();
+    final options = _downloadOptions(resolvedUrl, token);
+    final directories = <Directory>[];
+
+    final preferredDirectory = await _getDownloadDirectory();
+    directories.add(preferredDirectory);
+
+    final appDirectory = await getApplicationDocumentsDirectory();
+    if (!directories.any((directory) => directory.path == appDirectory.path)) {
+      directories.add(appDirectory);
+    }
+
+    Object? lastError;
+
+    for (final directory in directories) {
+      final savePath = '${directory.path}/$fileName';
+
+      try {
+        if (!await directory.exists()) {
+          await directory.create(recursive: true);
+        }
+
+        await Dio().download(
+          resolvedUrl,
+          savePath,
+          options: options,
+          deleteOnError: true,
+        );
+        return savePath;
+      } catch (error) {
+        lastError = error;
+        _log('Download failed for $savePath: $error');
+      }
+    }
+
+    throw lastError ?? Exception('Unable to save file');
+  }
+
   Future<void> _openFile(
     String? fileUrl, {
     required String invalidMessage,
@@ -268,14 +332,11 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     setState(() => _downloadingResponseLetters.add(resolvedUrl));
 
     try {
-      final downloadDir = await _getDownloadDirectory();
-      if (!await downloadDir.exists()) {
-        await downloadDir.create(recursive: true);
-      }
-
       final safeFileName = _sanitizeFileName(fileName);
-      final savePath = '${downloadDir.path}/$safeFileName';
-      await Dio().download(resolvedUrl, savePath);
+      final savePath = await _downloadToAvailableDirectory(
+        resolvedUrl,
+        fileName: safeFileName,
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -285,10 +346,14 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         ),
       );
     } catch (e) {
+      final message = ApiService.normalizeErrorMessage(
+        e,
+        fallback: failureMessage,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$failureMessage: $e'),
+          content: Text('$failureMessage: $message'),
           backgroundColor: Colors.red,
         ),
       );
@@ -434,6 +499,16 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
               );
           final supportiveDocumentUrl = app['supportive_document_url']
               ?.toString();
+          final supportiveDocumentName =
+              app['supportive_document_name']?.toString() ?? 'profile_cv';
+          final hasSupportiveDocument =
+              supportiveDocumentUrl != null && supportiveDocumentUrl.isNotEmpty;
+          final displayReviewText = hasSupportiveDocument
+              ? reviewText
+              : 'Cover letter only';
+          final displayReviewColor = hasSupportiveDocument
+              ? reviewColor
+              : Colors.blueGrey;
 
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
@@ -512,10 +587,10 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: reviewColor.withValues(alpha: 0.08),
+                      color: displayReviewColor.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: reviewColor.withValues(alpha: 0.25),
+                        color: displayReviewColor.withValues(alpha: 0.25),
                       ),
                     ),
                     child: Column(
@@ -526,13 +601,15 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             Icon(
                               Icons.verified_outlined,
                               size: 16,
-                              color: reviewColor,
+                              color: displayReviewColor,
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              'Supportive Document: $reviewText',
+                              hasSupportiveDocument
+                                  ? 'Attached CV: $displayReviewText'
+                                  : 'Application File: $displayReviewText',
                               style: TextStyle(
-                                color: reviewColor,
+                                color: displayReviewColor,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -547,20 +624,29 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           ),
                         ],
                         const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: () => _openFile(
-                              supportiveDocumentUrl,
-                              invalidMessage:
-                                  'Supportive document link is invalid.',
-                              failureMessage:
-                                  'Unable to open supportive document.',
-                            ),
-                            icon: const Icon(Icons.open_in_new, size: 16),
-                            label: const Text('Open Supportive PDF'),
+                        if (hasSupportiveDocument) ...[
+                          Text(
+                            'Attached CV file: $supportiveDocumentName',
+                            style: TextStyle(color: Colors.grey.shade700),
                           ),
-                        ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => _openFile(
+                                supportiveDocumentUrl,
+                                invalidMessage: 'CV link is invalid.',
+                                failureMessage: 'Unable to open attached CV.',
+                              ),
+                              icon: const Icon(Icons.open_in_new, size: 16),
+                              label: const Text('Open Attached CV'),
+                            ),
+                          ),
+                        ] else
+                          Text(
+                            'This application was sent with your cover letter only because no CV was attached from your profile.',
+                            style: TextStyle(color: Colors.grey.shade700),
+                          ),
                       ],
                     ),
                   ),

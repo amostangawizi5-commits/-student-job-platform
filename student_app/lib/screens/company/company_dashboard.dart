@@ -2702,22 +2702,33 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         app['response_letter_name']?.toString() ?? 'response_letter.pdf';
     final verificationNotes = app['supportive_document_verification_notes']
         ?.toString();
+    final hasSupportiveDocument =
+        supportiveDocumentUrl != null && supportiveDocumentUrl.isNotEmpty;
     final documentReviewed = app['supportive_document_verified'] != null;
     final isDocumentAuthentic = app['supportive_document_verified'] == true;
-    final canShortlist = status == 'pending' && isDocumentAuthentic;
-    final canInterview = status == 'shortlisted' && isDocumentAuthentic;
-    final canAccept = status == 'interview' && isDocumentAuthentic;
+    final canShortlist =
+        status == 'pending' && (!hasSupportiveDocument || isDocumentAuthentic);
+    final canInterview =
+        status == 'shortlisted' &&
+        (!hasSupportiveDocument || isDocumentAuthentic);
+    final canAccept =
+        status == 'interview' &&
+        (!hasSupportiveDocument || isDocumentAuthentic);
     final canReject =
         (status == 'pending' ||
             status == 'shortlisted' ||
             status == 'interview') &&
-        documentReviewed;
-    final reviewLabel = !documentReviewed
+        (!hasSupportiveDocument || documentReviewed);
+    final reviewLabel = !hasSupportiveDocument
+        ? 'Cover letter only'
+        : !documentReviewed
         ? 'Pending document review'
         : isDocumentAuthentic
         ? 'Document verified'
         : 'Document not authentic';
-    final reviewColor = !documentReviewed
+    final reviewColor = !hasSupportiveDocument
+        ? Colors.blueGrey
+        : !documentReviewed
         ? const Color(0xFFB38A45)
         : isDocumentAuthentic
         ? const Color(0xFF2E7D32)
@@ -2827,7 +2838,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Supportive PDF: $supportiveDocumentName',
+                    hasSupportiveDocument
+                        ? 'Attached CV: $supportiveDocumentName'
+                        : 'This application was submitted with the student cover letter only.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
                   ),
                   if (verificationNotes != null &&
@@ -2846,32 +2859,37 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: () => _openFileUrl(
-                          supportiveDocumentUrl,
-                          invalidMessage:
-                              'Supportive document link is invalid.',
-                          failureMessage: 'Unable to open supportive document.',
+                      if (hasSupportiveDocument)
+                        OutlinedButton.icon(
+                          onPressed: () => _openFileUrl(
+                            supportiveDocumentUrl,
+                            invalidMessage: 'CV link is invalid.',
+                            failureMessage: 'Unable to open attached CV.',
+                          ),
+                          icon: const Icon(Icons.open_in_new, size: 16),
+                          label: const Text('Open CV'),
                         ),
-                        icon: const Icon(Icons.open_in_new, size: 16),
-                        label: const Text('Open PDF'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _reviewSupportiveDocument(
-                          applicationId,
-                          isAuthentic: true,
+                      if (hasSupportiveDocument)
+                        OutlinedButton.icon(
+                          onPressed: () => _reviewSupportiveDocument(
+                            applicationId,
+                            isAuthentic: true,
+                          ),
+                          icon: const Icon(
+                            Icons.check_circle_outline,
+                            size: 16,
+                          ),
+                          label: const Text('Authentic'),
                         ),
-                        icon: const Icon(Icons.check_circle_outline, size: 16),
-                        label: const Text('Authentic'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _reviewSupportiveDocument(
-                          applicationId,
-                          isAuthentic: false,
+                      if (hasSupportiveDocument)
+                        OutlinedButton.icon(
+                          onPressed: () => _reviewSupportiveDocument(
+                            applicationId,
+                            isAuthentic: false,
+                          ),
+                          icon: const Icon(Icons.gpp_bad_outlined, size: 16),
+                          label: const Text('Not Authentic'),
                         ),
-                        icon: const Icon(Icons.gpp_bad_outlined, size: 16),
-                        label: const Text('Not Authentic'),
-                      ),
                     ],
                   ),
                 ],

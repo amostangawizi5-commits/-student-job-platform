@@ -1,6 +1,4 @@
 // lib/screens/student/job_details_screen.dart
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../models/job.dart';
@@ -90,9 +88,6 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
       final response = await _apiService.applyForJob(
         jobId: _job!.jobId,
         coverLetter: applicationDraft.coverLetter,
-        supportiveDocumentPath: applicationDraft.filePath,
-        supportiveDocumentBytes: applicationDraft.fileBytes,
-        supportiveDocumentName: applicationDraft.fileName,
       );
       debugPrint('Apply response: $response');
 
@@ -136,10 +131,6 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
 
   Future<_ApplicationDraft?> _showApplicationDialog() async {
     final coverLetterController = TextEditingController();
-    String? selectedFilePath;
-    Uint8List? selectedFileBytes;
-    String? selectedFileName;
-    int? selectedFileSize;
     return await showModalBottomSheet<_ApplicationDraft>(
       context: context,
       isScrollControlled: true,
@@ -147,169 +138,84 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          Future<void> pickPdf() async {
-            final result = await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: const ['pdf'],
-              withData: kIsWeb,
-            );
+      builder: (context) {
+        final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
 
-            if (!context.mounted || result == null) return;
-
-            final file = result.files.single;
-            final filePath = file.path;
-            final fileBytes = file.bytes;
-            final fileName = file.name.trim();
-
-            if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-              _showMessage(
-                'Unable to read the selected PDF.',
-                backgroundColor: Colors.red,
-              );
-              return;
-            }
-
-            if (!_isPdfFileName(fileName)) {
-              _showMessage(
-                'Please choose a PDF document only.',
-                backgroundColor: Colors.red,
-              );
-              return;
-            }
-
-            if (file.size > 5 * 1024 * 1024) {
-              _showMessage(
-                'Supportive document must be 5MB or less.',
-                backgroundColor: Colors.red,
-              );
-              return;
-            }
-
-            setModalState(() {
-              selectedFilePath = filePath;
-              selectedFileBytes = fileBytes;
-              selectedFileName = fileName;
-              selectedFileSize = file.size;
-            });
-          }
-
-          final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-
-          return Padding(
-            padding: EdgeInsets.fromLTRB(20, 20, 20, keyboardInset + 20),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Submit Application',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, keyboardInset + 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Submit Application',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Write your cover letter for ${_job!.title}. If your profile already has a CV, it will be attached automatically. If not, the company will receive your cover letter only.',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: coverLetterController,
+                  minLines: 4,
+                  maxLines: 6,
+                  decoration: InputDecoration(
+                    labelText: 'Cover Letter',
+                    hintText: 'Write a short message to the company',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Upload one supportive document in PDF format for ${_job!.title}.',
-                    style: TextStyle(color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFD9E2EC)),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: coverLetterController,
-                    minLines: 4,
-                    maxLines: 6,
-                    decoration: InputDecoration(
-                      labelText: 'Cover Letter',
-                      hintText: 'Write a short message to the company',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        color: Colors.blue.shade700,
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFD9E2EC)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Supportive Document',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          selectedFileName == null
-                              ? 'PDF only, max 5MB'
-                              : '$selectedFileName${selectedFileSize != null ? ' (${_formatFileSize(selectedFileSize!)})' : ''}',
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Profile CV attachment is automatic. You do not need to upload another PDF here.',
                           style: TextStyle(color: Colors.grey.shade700),
                         ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: pickPdf,
-                          icon: const Icon(Icons.picture_as_pdf_outlined),
-                          label: Text(
-                            selectedFileName == null
-                                ? 'Choose PDF'
-                                : 'Change PDF',
-                          ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(
+                        context,
+                        _ApplicationDraft(
+                          coverLetter: coverLetterController.text.trim(),
                         ),
-                      ],
-                    ),
+                      );
+                    },
+                    child: const Text('Submit Application'),
                   ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        if (selectedFileName == null ||
-                            (selectedFilePath == null &&
-                                selectedFileBytes == null)) {
-                          _showMessage(
-                            'Please upload a supportive document PDF.',
-                            backgroundColor: Colors.red,
-                          );
-                          return;
-                        }
-
-                        if (!_isPdfFileName(selectedFileName!)) {
-                          _showMessage(
-                            'Supportive document must be a PDF file.',
-                            backgroundColor: Colors.red,
-                          );
-                          return;
-                        }
-
-                        Navigator.pop(
-                          context,
-                          _ApplicationDraft(
-                            coverLetter: coverLetterController.text.trim(),
-                            filePath: selectedFilePath,
-                            fileBytes: selectedFileBytes,
-                            fileName: selectedFileName!,
-                          ),
-                        );
-                      },
-                      child: const Text('Submit Application'),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
-  }
-
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   String _getTypeLabel(String type) {
@@ -333,10 +239,6 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final hour = deadline.hour.toString().padLeft(2, '0');
     final minute = deadline.minute.toString().padLeft(2, '0');
     return '$day/$month/${deadline.year} $hour:$minute';
-  }
-
-  bool _isPdfFileName(String fileName) {
-    return fileName.trim().toLowerCase().endsWith('.pdf');
   }
 
   void _showMessage(String message, {Color? backgroundColor}) {
@@ -750,14 +652,6 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
 
 class _ApplicationDraft {
   final String coverLetter;
-  final String? filePath;
-  final Uint8List? fileBytes;
-  final String fileName;
 
-  const _ApplicationDraft({
-    required this.coverLetter,
-    required this.filePath,
-    required this.fileBytes,
-    required this.fileName,
-  });
+  const _ApplicationDraft({required this.coverLetter});
 }

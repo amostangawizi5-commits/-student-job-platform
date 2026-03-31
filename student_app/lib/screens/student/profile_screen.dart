@@ -526,18 +526,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final fullUrl = _resolveResumeUrl(resumePath);
+      final token = await _apiService.getToken();
       final rawFileName = _fileNameFromUrl(resumePath).isNotEmpty
           ? _fileNameFromUrl(resumePath)
           : 'resume_${DateTime.now().millisecondsSinceEpoch}.pdf';
       final safeFileName = rawFileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-
-      final downloadDir = await _getDownloadDirectory();
-      if (!await downloadDir.exists()) {
-        await downloadDir.create(recursive: true);
+      final directories = <Directory>[];
+      final preferredDirectory = await _getDownloadDirectory();
+      directories.add(preferredDirectory);
+      final appDirectory = await getApplicationDocumentsDirectory();
+      if (!directories.any(
+        (directory) => directory.path == appDirectory.path,
+      )) {
+        directories.add(appDirectory);
       }
 
-      final savePath = '${downloadDir.path}/$safeFileName';
-      await Dio().download(fullUrl, savePath);
+      final headers = <String, dynamic>{};
+      if (token != null &&
+          token.isNotEmpty &&
+          fullUrl.startsWith(_apiService.baseUrl)) {
+        headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
+      }
+
+      String? savePath;
+      Object? lastError;
+
+      for (final directory in directories) {
+        final candidatePath = '${directory.path}/$safeFileName';
+
+        try {
+          if (!await directory.exists()) {
+            await directory.create(recursive: true);
+          }
+
+          await Dio().download(
+            fullUrl,
+            candidatePath,
+            options: Options(
+              headers: headers.isEmpty ? null : headers,
+              receiveTimeout: const Duration(seconds: 60),
+              sendTimeout: const Duration(seconds: 60),
+              followRedirects: true,
+            ),
+            deleteOnError: true,
+          );
+          savePath = candidatePath;
+          break;
+        } catch (error) {
+          lastError = error;
+          _log('Resume download failed for $candidatePath: $error');
+        }
+      }
+
+      if (savePath == null) {
+        throw lastError ?? Exception('Unable to save CV');
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -547,10 +590,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     } catch (e) {
+      final message = ApiService.normalizeErrorMessage(
+        e,
+        fallback: 'Failed to download CV',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to download CV: $e'),
+          content: Text('Failed to download CV: $message'),
           backgroundColor: Colors.red,
         ),
       );

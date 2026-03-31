@@ -37,6 +37,17 @@ function cleanTextValue(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function fileNameFromUrl(fileUrl, fallback = 'profile-cv') {
+    try {
+        const parsed = new URL(fileUrl);
+        const fileName = parsed.pathname.split('/').filter(Boolean).pop();
+        return decodeURIComponent(fileName || fallback);
+    } catch (error) {
+        const fileName = `${fileUrl || ''}`.split('/').filter(Boolean).pop();
+        return decodeURIComponent(fileName || fallback);
+    }
+}
+
 async function ensureStudentProfileExists({ userId, role }) {
     if (!userId || !['student', 'graduate'].includes(`${role}`)) {
         return;
@@ -136,13 +147,6 @@ const applyForJob = async (req, res) => {
             });
         }
 
-        if (!supportiveDocument) {
-            return res.status(400).json({
-                success: false,
-                message: 'Supportive document PDF is required when applying'
-            });
-        }
-
         // Check if already applied
         const alreadyApplied = await ApplicationModel.hasApplied(student_id, job_id);
         if (alreadyApplied) {
@@ -152,22 +156,43 @@ const applyForJob = async (req, res) => {
             });
         }
 
-        uploadedSupportiveDocument = await uploadAsset({
-            buffer: supportiveDocument.buffer,
-            mimeType: supportiveDocument.mimetype,
-            originalName: supportiveDocument.originalname,
-            localSubdir: 'application-support-documents',
-            fileNamePrefix: 'supportive-document',
-            cloudinaryFolder: 'student-job-platform/application-support-documents',
-            cloudinaryResourceType: 'raw'
-        });
+        let supportiveDocumentUrl = null;
+        let supportiveDocumentName = null;
+
+        if (supportiveDocument) {
+            uploadedSupportiveDocument = await uploadAsset({
+                buffer: supportiveDocument.buffer,
+                mimeType: supportiveDocument.mimetype,
+                originalName: supportiveDocument.originalname,
+                localSubdir: 'application-support-documents',
+                fileNamePrefix: 'supportive-document',
+                cloudinaryFolder: 'student-job-platform/application-support-documents',
+                cloudinaryResourceType: 'raw'
+            });
+
+            supportiveDocumentUrl = uploadedSupportiveDocument.secureUrl;
+            supportiveDocumentName = supportiveDocument.originalname;
+        } else {
+            const studentProfileResult = await query(
+                `SELECT resume_url
+                 FROM students
+                 WHERE student_id = $1`,
+                [student_id]
+            );
+            const profileResumeUrl = studentProfileResult.rows[0]?.resume_url;
+
+            if (profileResumeUrl) {
+                supportiveDocumentUrl = profileResumeUrl;
+                supportiveDocumentName = fileNameFromUrl(profileResumeUrl);
+            }
+        }
 
         const application = await ApplicationModel.create({
             student_id,
             job_id,
             cover_letter: cleanTextValue(cover_letter),
-            supportive_document_url: uploadedSupportiveDocument.secureUrl,
-            supportive_document_name: supportiveDocument.originalname
+            supportive_document_url: supportiveDocumentUrl,
+            supportive_document_name: supportiveDocumentName
         });
 
         // Notify company about new application request (non-blocking)
@@ -219,13 +244,6 @@ const reviewSupportiveDocument = async (req, res) => {
         const { application_id } = req.params;
         const { supportive_document_verified, verification_notes } = req.body;
 
-        if (typeof supportive_document_verified !== 'boolean') {
-            return res.status(400).json({
-                success: false,
-                message: 'Please choose whether the supportive document is authentic or not'
-            });
-        }
-
         const app = await getApplicationWithOwnership(application_id);
         if (!app) {
             return res.status(404).json({
@@ -238,6 +256,20 @@ const reviewSupportiveDocument = async (req, res) => {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to review this application'
+            });
+        }
+
+        if (!app.supportive_document_url) {
+            return res.status(400).json({
+                success: false,
+                message: 'This application was submitted without an attached CV to review'
+            });
+        }
+
+        if (typeof supportive_document_verified !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'Please choose whether the supportive document is authentic or not'
             });
         }
 
@@ -419,14 +451,18 @@ const updateApplicationStatus = async (req, res) => {
             });
         }
 
-        if (app.supportive_document_verified === null) {
+        if (app.supportive_document_url && app.supportive_document_verified === null) {
             return res.status(400).json({
                 success: false,
                 message: 'Review the supportive document before sending an application response'
             });
         }
 
-        if (app.supportive_document_verified === false && status !== 'rejected') {
+        if (
+            app.supportive_document_url &&
+            app.supportive_document_verified === false &&
+            status !== 'rejected'
+        ) {
             return res.status(400).json({
                 success: false,
                 message: 'A document marked as not authentic can only be rejected'

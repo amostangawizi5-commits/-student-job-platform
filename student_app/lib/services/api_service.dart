@@ -756,19 +756,31 @@ class ApiService {
     String coverLetter = '',
     String? supportiveDocumentPath,
     Uint8List? supportiveDocumentBytes,
-    required String supportiveDocumentName,
+    String? supportiveDocumentName,
   }) async {
     try {
       final token = await getToken();
-      final formData = FormData.fromMap({
+      final data = <String, dynamic>{
         'job_id': jobId,
         'cover_letter': coverLetter,
-        'supportive_document': await _createMultipartFile(
+      };
+
+      final hasSupportiveDocument =
+          (supportiveDocumentPath != null &&
+              supportiveDocumentPath.isNotEmpty) ||
+          supportiveDocumentBytes != null;
+
+      if (hasSupportiveDocument &&
+          supportiveDocumentName != null &&
+          supportiveDocumentName.trim().isNotEmpty) {
+        data['supportive_document'] = await _createMultipartFile(
           filePath: supportiveDocumentPath,
           fileBytes: supportiveDocumentBytes,
           fileName: supportiveDocumentName,
-        ),
-      });
+        );
+      }
+
+      final formData = FormData.fromMap(data);
 
       final response = await _dio.post(
         '$baseUrl/api/applications',
