@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -205,9 +207,24 @@ class ApiService {
     Object? error, {
     String fallback = 'Something went wrong. Please try again.',
   }) {
+    if (error is DioException) {
+      final responseData = error.response?.data;
+      final structuredMessage = _extractErrorMessage(responseData);
+      if (structuredMessage != null && structuredMessage.isNotEmpty) {
+        return structuredMessage;
+      }
+
+      final rawMessage = error.message?.trim() ?? '';
+      if (rawMessage.isNotEmpty &&
+          !rawMessage.toLowerCase().contains('status code of')) {
+        return rawMessage;
+      }
+    }
+
     final message = (error?.toString() ?? '')
         .replaceFirst('Exception: ', '')
         .replaceFirst('DioException: ', '')
+        .replaceFirst(RegExp(r'^DioException \[[^\]]+\]:\s*'), '')
         .trim();
 
     if (message.isEmpty || message.toLowerCase() == 'null') {
@@ -215,6 +232,41 @@ class ApiService {
     }
 
     return message;
+  }
+
+  static String? _extractErrorMessage(dynamic data) {
+    if (data is Map) {
+      final message = data['message'] ?? data['error'];
+      final normalized = '$message'.trim();
+      if (normalized.isNotEmpty && normalized.toLowerCase() != 'null') {
+        return normalized;
+      }
+      return null;
+    }
+
+    if (data is List<int>) {
+      try {
+        final decoded = utf8.decode(data).trim();
+        if (decoded.isEmpty) return null;
+        final parsed = jsonDecode(decoded);
+        return _extractErrorMessage(parsed) ?? decoded;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    if (data is String) {
+      final trimmed = data.trim();
+      if (trimmed.isEmpty) return null;
+      try {
+        final parsed = jsonDecode(trimmed);
+        return _extractErrorMessage(parsed) ?? trimmed;
+      } catch (_) {
+        return trimmed;
+      }
+    }
+
+    return null;
   }
 
   static String responseMessage(
@@ -245,9 +297,14 @@ class ApiService {
       _log('⚠️ Secure token read failed: $error');
     }
 
-    if (kIsWeb) {
+    try {
       final preferences = await SharedPreferences.getInstance();
-      return preferences.getString(_tokenStorageKey);
+      final token = preferences.getString(_tokenStorageKey);
+      if (token != null && token.isNotEmpty) {
+        return token;
+      }
+    } catch (error) {
+      _log('⚠️ SharedPreferences token read failed: $error');
     }
 
     return null;
@@ -258,19 +315,86 @@ class ApiService {
 
     try {
       await _storage.write(key: _tokenStorageKey, value: token);
-      return;
     } catch (error) {
       storageError = '$error';
       _log('⚠️ Secure token write failed: $error');
     }
 
-    if (kIsWeb) {
+    try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(_tokenStorageKey, token);
       return;
+    } catch (error) {
+      _log('⚠️ SharedPreferences token write failed: $error');
     }
 
     throw Exception('Unable to save login session. $storageError');
+  }
+
+  String _resolveFileUrl(String pathOrUrl) {
+    final trimmed = pathOrUrl.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '$baseUrl$normalized';
+  }
+
+  Future<Uint8List> downloadFileBytes(
+    String pathOrUrl, {
+    bool requiresAuth = false,
+  }) async {
+    final resolvedUrl = _resolveFileUrl(pathOrUrl);
+    return _downloadFileBytesInternal(resolvedUrl, requiresAuth: requiresAuth);
+  }
+
+  Future<Uint8List> _downloadFileBytesInternal(
+    String resolvedUrl, {
+    required bool requiresAuth,
+  }) async {
+    final token = requiresAuth ? await getToken() : null;
+    final headers = <String, dynamic>{};
+    if (requiresAuth && token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
+    final response = await Dio().get<List<int>>(
+      resolvedUrl,
+      options: Options(
+        headers: headers.isEmpty ? null : headers,
+        responseType: ResponseType.bytes,
+        followRedirects: false,
+        receiveTimeout: const Duration(seconds: 60),
+        sendTimeout: const Duration(seconds: 60),
+        validateStatus: (_) => true,
+      ),
+    );
+
+    final statusCode = response.statusCode ?? 0;
+
+    if (statusCode >= 300 && statusCode < 400) {
+      final location = response.headers.value('location');
+      if (location == null || location.trim().isEmpty) {
+        throw Exception('Download link is invalid.');
+      }
+
+      final redirectedUrl = Uri.parse(resolvedUrl).resolve(location).toString();
+      return _downloadFileBytesInternal(redirectedUrl, requiresAuth: false);
+    }
+
+    if (statusCode >= 200 && statusCode < 300) {
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Downloaded file is empty.');
+      }
+      return Uint8List.fromList(bytes);
+    }
+
+    throw Exception(
+      _extractErrorMessage(response.data) ??
+          'Request failed with status code $statusCode.',
+    );
   }
 
   String? _extractAuthToken(Map<String, dynamic> response) {
@@ -628,9 +752,11 @@ class ApiService {
     } catch (error) {
       _log('⚠️ Secure token delete failed: $error');
     }
-    if (kIsWeb) {
+    try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.remove(_tokenStorageKey);
+    } catch (error) {
+      _log('⚠️ SharedPreferences token delete failed: $error');
     }
     _unreadNotificationsCache = null;
     _unreadNotificationsCacheTime = null;

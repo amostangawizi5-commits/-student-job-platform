@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_service.dart';
+import '../../services/local_file_service.dart';
 
 class MyApplicationsScreen extends StatefulWidget {
   final String initialFilter;
@@ -195,10 +196,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
   Future<Directory> _getDownloadDirectory() async {
     if (Platform.isAndroid) {
-      final androidDownload = Directory('/storage/emulated/0/Download');
-      if (await androidDownload.exists()) {
-        return androidDownload;
-      }
+      return getApplicationDocumentsDirectory();
     }
 
     final downloads = await getDownloadsDirectory();
@@ -215,28 +213,11 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 
-  Options _downloadOptions(String resolvedUrl, String? token) {
-    final headers = <String, dynamic>{};
-    if (token != null &&
-        token.isNotEmpty &&
-        resolvedUrl.startsWith(_apiService.baseUrl)) {
-      headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
-    }
-
-    return Options(
-      headers: headers.isEmpty ? null : headers,
-      receiveTimeout: const Duration(seconds: 60),
-      sendTimeout: const Duration(seconds: 60),
-      followRedirects: true,
-    );
-  }
-
   Future<String> _downloadToAvailableDirectory(
-    String resolvedUrl, {
+    String pathOrUrl, {
     required String fileName,
+    bool requiresAuth = false,
   }) async {
-    final token = await _apiService.getToken();
-    final options = _downloadOptions(resolvedUrl, token);
     final directories = <Directory>[];
 
     final preferredDirectory = await _getDownloadDirectory();
@@ -257,12 +238,11 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           await directory.create(recursive: true);
         }
 
-        await Dio().download(
-          resolvedUrl,
-          savePath,
-          options: options,
-          deleteOnError: true,
+        final bytes = await _apiService.downloadFileBytes(
+          pathOrUrl,
+          requiresAuth: requiresAuth,
         );
+        await File(savePath).writeAsBytes(bytes, flush: true);
         return savePath;
       } catch (error) {
         lastError = error;
@@ -273,11 +253,76 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     throw lastError ?? Exception('Unable to save file');
   }
 
+  Future<bool> _openLocalFile(String filePath) async {
+    return LocalFileService.openFile(filePath);
+  }
+
+  Future<void> _openAuthenticatedPdf(
+    String pathOrUrl, {
+    required String fileName,
+    required String failureMessage,
+  }) async {
+    if (kIsWeb) {
+      final bytes = await _apiService.downloadFileBytes(
+        pathOrUrl,
+        requiresAuth: true,
+      );
+      final pdfUri = Uri.dataFromBytes(bytes, mimeType: 'application/pdf');
+      final launched = await launchUrl(pdfUri);
+      if (!launched) {
+        throw Exception(failureMessage);
+      }
+      return;
+    }
+
+    final savePath = await _downloadToAvailableDirectory(
+      pathOrUrl,
+      fileName: _sanitizeFileName(fileName),
+      requiresAuth: true,
+    );
+    final opened = await _openLocalFile(savePath);
+    if (!opened) {
+      throw Exception('Unable to open downloaded file.');
+    }
+  }
+
   Future<void> _openFile(
     String? fileUrl, {
+    String? authenticatedUrl,
+    String? fileName,
     required String invalidMessage,
     required String failureMessage,
   }) async {
+    final effectiveUrl = authenticatedUrl ?? fileUrl;
+
+    if (authenticatedUrl != null) {
+      if (effectiveUrl == null || effectiveUrl.trim().isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
+        );
+        return;
+      }
+
+      try {
+        await _openAuthenticatedPdf(
+          effectiveUrl,
+          fileName: fileName ?? 'document.pdf',
+          failureMessage: failureMessage,
+        );
+      } catch (error) {
+        final message = ApiService.normalizeErrorMessage(
+          error,
+          fallback: failureMessage,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
     if (fileUrl == null || fileUrl.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -310,6 +355,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     required String invalidMessage,
     required String failureMessage,
     required String successLabel,
+    bool saveToDownloadsOnAndroid = false,
   }) async {
     final effectiveUrl = authenticatedUrl ?? fileUrl;
 
@@ -322,30 +368,72 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     }
 
     if (kIsWeb) {
-      await _openFile(
-        fileUrl ?? effectiveUrl,
-        invalidMessage: invalidMessage,
-        failureMessage: failureMessage,
-      );
+      if (authenticatedUrl != null) {
+        try {
+          await _openAuthenticatedPdf(
+            authenticatedUrl,
+            fileName: fileName,
+            failureMessage: failureMessage,
+          );
+        } catch (error) {
+          final message = ApiService.normalizeErrorMessage(
+            error,
+            fallback: failureMessage,
+          );
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), backgroundColor: Colors.red),
+          );
+        }
+      } else {
+        await _openFile(
+          fileUrl ?? effectiveUrl,
+          invalidMessage: invalidMessage,
+          failureMessage: failureMessage,
+        );
+      }
       return;
     }
 
     final resolvedUrl = _resolveFileUrl(effectiveUrl);
+    final requiresAuth = authenticatedUrl != null;
 
     setState(() => _downloadingResponseLetters.add(resolvedUrl));
 
     try {
       final safeFileName = _sanitizeFileName(fileName);
       final savePath = await _downloadToAvailableDirectory(
-        resolvedUrl,
+        authenticatedUrl ?? resolvedUrl,
         fileName: safeFileName,
+        requiresAuth: requiresAuth,
       );
+      final finalPath = Platform.isAndroid && saveToDownloadsOnAndroid
+          ? await LocalFileService.copyFileToDownloads(
+              savePath,
+              fileName: safeFileName,
+            )
+          : savePath;
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$successLabel: $savePath'),
+          content: Text('$successLabel: $finalPath'),
           backgroundColor: Colors.green,
+        ),
+      );
+    } on DioException catch (e) {
+      final responseData = e.response?.data;
+      final message = ApiService.normalizeErrorMessage(
+        responseData is Map<String, dynamic>
+            ? (responseData['message'] ?? responseData['error'] ?? e.message)
+            : e,
+        fallback: failureMessage,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$failureMessage: $message'),
+          backgroundColor: Colors.red,
         ),
       );
     } catch (e) {
@@ -676,6 +764,10 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             child: TextButton.icon(
                               onPressed: () => _openFile(
                                 supportiveDocumentUrl,
+                                authenticatedUrl: app['application_id'] == null
+                                    ? null
+                                    : '/api/applications/${app['application_id']}/supportive-document',
+                                fileName: supportiveDocumentName,
                                 invalidMessage:
                                     'Supportive document link is invalid.',
                                 failureMessage:
@@ -796,6 +888,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                                         'Failed to download response letter',
                                     successLabel:
                                         'Response letter downloaded to',
+                                    saveToDownloadsOnAndroid: true,
                                   ),
                             child: Text(
                               isDownloadingResponseLetter

@@ -109,6 +109,20 @@ function canAccessApplication(user, application) {
     return false;
 }
 
+async function streamPdfAsset(res, { fileUrl, fileName, disposition = 'attachment' }) {
+    const fileBuffer = await readAssetBuffer(fileUrl);
+    const safeFileName = `${fileName || 'document.pdf'}`.replace(/"/g, '');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', `${fileBuffer.length}`);
+    res.setHeader(
+        'Content-Disposition',
+        `${disposition}; filename="${safeFileName}"`
+    );
+
+    return res.send(fileBuffer);
+}
+
 // Apply for a job
 const applyForJob = async (req, res) => {
     let uploadedSupportiveDocument = null;
@@ -387,30 +401,12 @@ const downloadResponseLetter = async (req, res) => {
             });
         }
 
-        if (
-            application.response_letter_url.startsWith('http://') ||
-            application.response_letter_url.startsWith('https://') ||
-            application.response_letter_url.startsWith('/uploads/')
-        ) {
-            console.log('Redirecting response letter download:', {
-                application_id,
-                target: application.response_letter_url
-            });
-            return res.redirect(302, application.response_letter_url);
-        }
-
         try {
-            const fileBuffer = await readAssetBuffer(application.response_letter_url);
-            const fileName =
-                `${application.response_letter_name || 'response_letter.pdf'}`
-                    .replace(/"/g, '');
-
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader(
-                'Content-Disposition',
-                `attachment; filename="${fileName}"`
-            );
-            return res.send(fileBuffer);
+            return await streamPdfAsset(res, {
+                fileUrl: application.response_letter_url,
+                fileName: application.response_letter_name || 'response_letter.pdf',
+                disposition: 'attachment'
+            });
         } catch (fileError) {
             console.error('Response letter file read error:', fileError);
             return res.status(404).json({
@@ -424,6 +420,57 @@ const downloadResponseLetter = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to download response letter',
+            error: error.message
+        });
+    }
+};
+
+const downloadSupportiveDocument = async (req, res) => {
+    try {
+        const { application_id } = req.params;
+        const application = await getApplicationWithOwnership(application_id);
+
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: 'Application not found'
+            });
+        }
+
+        if (!canAccessApplication(req.user, application)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to access this supportive document'
+            });
+        }
+
+        if (!application.supportive_document_url) {
+            return res.status(404).json({
+                success: false,
+                message: 'Supportive document is not available for this application'
+            });
+        }
+
+        try {
+            return await streamPdfAsset(res, {
+                fileUrl: application.supportive_document_url,
+                fileName:
+                    application.supportive_document_name || 'supportive_document.pdf',
+                disposition: 'inline'
+            });
+        } catch (fileError) {
+            console.error('Supportive document file read error:', fileError);
+            return res.status(404).json({
+                success: false,
+                message:
+                    'Supportive document file could not be found. Please ask the student to upload it again.'
+            });
+        }
+    } catch (error) {
+        console.error('Download supportive document error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to download supportive document',
             error: error.message
         });
     }
@@ -739,6 +786,7 @@ module.exports = {
     getMyApplications,
     getJobApplications,
     getCompanyApplications,
+    downloadSupportiveDocument,
     downloadResponseLetter,
     updateApplicationStatus
 };

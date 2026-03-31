@@ -1,9 +1,11 @@
 package com.example.student_app
 
 import android.content.ContentValues
+import android.content.Intent
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -19,31 +21,72 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "student_app/downloads"
         ).setMethodCallHandler { call, result ->
-            if (call.method != "copyFileToDownloads") {
-                result.notImplemented()
-                return@setMethodCallHandler
-            }
+            when (call.method) {
+                "copyFileToDownloads" -> {
+                    val sourcePath = call.argument<String>("sourcePath")
+                    val fileName = call.argument<String>("fileName")
+                    val mimeType = call.argument<String>("mimeType")
 
-            val sourcePath = call.argument<String>("sourcePath")
-            val fileName = call.argument<String>("fileName")
-            val mimeType = call.argument<String>("mimeType")
+                    if (
+                        sourcePath.isNullOrBlank() ||
+                        fileName.isNullOrBlank() ||
+                        mimeType.isNullOrBlank()
+                    ) {
+                        result.error("INVALID_ARGS", "Missing export file data.", null)
+                        return@setMethodCallHandler
+                    }
 
-            if (
-                sourcePath.isNullOrBlank() ||
-                fileName.isNullOrBlank() ||
-                mimeType.isNullOrBlank()
-            ) {
-                result.error("INVALID_ARGS", "Missing export file data.", null)
-                return@setMethodCallHandler
-            }
+                    try {
+                        val savedPath = copyFileToDownloads(sourcePath, fileName, mimeType)
+                        result.success(savedPath)
+                    } catch (error: Exception) {
+                        result.error("SAVE_FAILED", error.message, null)
+                    }
+                }
+                "openFile" -> {
+                    val filePath = call.argument<String>("filePath")
+                    val mimeType = call.argument<String>("mimeType") ?: "application/pdf"
 
-            try {
-                val savedPath = copyFileToDownloads(sourcePath, fileName, mimeType)
-                result.success(savedPath)
-            } catch (error: Exception) {
-                result.error("SAVE_FAILED", error.message, null)
+                    if (filePath.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "Missing file path.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        result.success(openFile(filePath, mimeType))
+                    } catch (error: Exception) {
+                        result.error("OPEN_FAILED", error.message, null)
+                    }
+                }
+                else -> result.notImplemented()
             }
         }
+    }
+
+    private fun openFile(filePath: String, mimeType: String): Boolean {
+        val file = File(filePath)
+        if (!file.exists()) {
+            throw IOException("Downloaded file not found.")
+        }
+
+        val uri = FileProvider.getUriForFile(
+            applicationContext,
+            "${applicationContext.packageName}.fileprovider",
+            file
+        )
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        val chooser = Intent.createChooser(intent, "Open document").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        startActivity(chooser)
+        return true
     }
 
     @Throws(IOException::class)

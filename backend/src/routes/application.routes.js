@@ -27,6 +27,12 @@ router.post(
 );
 router.get('/my-applications', authMiddleware, authorize('student', 'graduate'), applicationController.getMyApplications);
 router.get(
+  '/:application_id/supportive-document',
+  authMiddleware,
+  authorize('student', 'graduate', 'company', 'admin'),
+  applicationController.downloadSupportiveDocument
+);
+router.get(
   '/:application_id/response-letter',
   authMiddleware,
   authorize('student', 'graduate', 'company', 'admin'),

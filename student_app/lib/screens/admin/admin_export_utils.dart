@@ -135,11 +135,11 @@ class AdminExportUtils {
           },
         );
 
-        if (savedPath != null && savedPath.isNotEmpty) {
-          return savedPath;
+        if (savedPath == null || savedPath.trim().isEmpty) {
+          throw const FileSystemException('Could not save file to Downloads.');
         }
-      } on PlatformException {
-        // Fall back to filesystem storage below.
+
+        return savedPath;
       } finally {
         if (await tempFile.exists()) {
           await tempFile.delete();

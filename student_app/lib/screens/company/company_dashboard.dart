@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/local_file_service.dart';
 import '../../widgets/change_pin_dialog.dart';
 import '../../widgets/reset_pin_dialog.dart';
 import '../../widgets/language_picker_dialog.dart';
@@ -34,18 +34,6 @@ class CompanyDashboard extends StatefulWidget {
 
   @override
   State<CompanyDashboard> createState() => _CompanyDashboardState();
-}
-
-class _PickedPdfFile {
-  final String? filePath;
-  final Uint8List? fileBytes;
-  final String fileName;
-
-  const _PickedPdfFile({
-    required this.filePath,
-    required this.fileBytes,
-    required this.fileName,
-  });
 }
 
 typedef _AcceptanceInputBuilder =
@@ -1998,12 +1986,24 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     }
   }
 
+  Future<void> _openAuthenticatedPdfInBrowser(
+    String pathOrUrl, {
+    required String failureMessage,
+  }) async {
+    final bytes = await _apiService.downloadFileBytes(
+      pathOrUrl,
+      requiresAuth: true,
+    );
+    final pdfUri = Uri.dataFromBytes(bytes, mimeType: 'application/pdf');
+    final opened = await launchUrl(pdfUri);
+    if (!opened) {
+      throw Exception(failureMessage);
+    }
+  }
+
   Future<Directory> _getDownloadDirectory() async {
     if (Platform.isAndroid) {
-      final androidDownload = Directory('/storage/emulated/0/Download');
-      if (await androidDownload.exists()) {
-        return androidDownload;
-      }
+      return getApplicationDocumentsDirectory();
     }
 
     final downloads = await getDownloadsDirectory();
@@ -2020,28 +2020,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 
-  Options _downloadOptions(String resolvedUrl, String? token) {
-    final headers = <String, dynamic>{};
-    if (token != null &&
-        token.isNotEmpty &&
-        resolvedUrl.startsWith(_apiService.baseUrl)) {
-      headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
-    }
-
-    return Options(
-      headers: headers.isEmpty ? null : headers,
-      receiveTimeout: const Duration(seconds: 60),
-      sendTimeout: const Duration(seconds: 60),
-      followRedirects: true,
-    );
-  }
-
   Future<String> _downloadToAvailableDirectory(
-    String resolvedUrl, {
+    String pathOrUrl, {
     required String fileName,
+    bool requiresAuth = false,
   }) async {
-    final token = await _apiService.getToken();
-    final options = _downloadOptions(resolvedUrl, token);
     final directories = <Directory>[];
 
     final preferredDirectory = await _getDownloadDirectory();
@@ -2062,12 +2045,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           await directory.create(recursive: true);
         }
 
-        await Dio().download(
-          resolvedUrl,
-          savePath,
-          options: options,
-          deleteOnError: true,
+        final bytes = await _apiService.downloadFileBytes(
+          pathOrUrl,
+          requiresAuth: requiresAuth,
         );
+        await File(savePath).writeAsBytes(bytes, flush: true);
         return savePath;
       } catch (error) {
         lastError = error;
@@ -2080,48 +2062,76 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     throw lastError ?? Exception('Unable to save file');
   }
 
+  Future<bool> _openLocalFile(String filePath) async {
+    return LocalFileService.openFile(filePath);
+  }
+
   Future<void> _downloadResponseLetter({
     required String applicationId,
-    required String? fileUrl,
     required String fileName,
   }) async {
-    if (fileUrl == null || fileUrl.trim().isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Response letter link is invalid.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    final endpointPath = '/api/applications/$applicationId/response-letter';
 
     if (kIsWeb) {
-      await _openFileUrl(
-        fileUrl,
-        invalidMessage: 'Response letter link is invalid.',
-        failureMessage: 'Unable to open response letter.',
-      );
+      try {
+        await _openAuthenticatedPdfInBrowser(
+          endpointPath,
+          failureMessage: 'Unable to open response letter.',
+        );
+      } catch (error) {
+        final message = ApiService.normalizeErrorMessage(
+          error,
+          fallback: 'Failed to download response letter',
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to download response letter: $message'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
-
-    final authenticatedUrl = _resolveFileUrl(
-      '/api/applications/$applicationId/response-letter',
-    );
 
     setState(() => _downloadingResponseLetters.add(applicationId));
 
     try {
+      final safeFileName = _sanitizeFileName(fileName);
       final savePath = await _downloadToAvailableDirectory(
-        authenticatedUrl,
-        fileName: _sanitizeFileName(fileName),
+        endpointPath,
+        fileName: safeFileName,
+        requiresAuth: true,
       );
+      final finalPath = Platform.isAndroid
+          ? await LocalFileService.copyFileToDownloads(
+              savePath,
+              fileName: safeFileName,
+            )
+          : savePath;
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Response letter downloaded to: $savePath'),
+          content: Text('Response letter downloaded to: $finalPath'),
           backgroundColor: Colors.green,
+        ),
+      );
+    } on DioException catch (error) {
+      final responseData = error.response?.data;
+      final message = ApiService.normalizeErrorMessage(
+        responseData is Map<String, dynamic>
+            ? (responseData['message'] ??
+                  responseData['error'] ??
+                  error.message)
+            : error,
+        fallback: 'Failed to download response letter',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to download response letter: $message'),
+          backgroundColor: Colors.red,
         ),
       );
     } catch (error) {
@@ -2143,41 +2153,66 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     }
   }
 
-  Future<_PickedPdfFile?> _pickPdfFile({required String emptyMessage}) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['pdf'],
-      withData: kIsWeb,
-    );
+  Future<void> _openSupportiveDocument({
+    required String applicationId,
+    required String fileName,
+  }) async {
+    final endpointPath = '/api/applications/$applicationId/supportive-document';
 
-    if (!mounted || result == null) return null;
-
-    final file = result.files.single;
-    final filePath = file.path;
-    final fileBytes = file.bytes;
-
-    if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(emptyMessage), backgroundColor: Colors.red),
-      );
-      return null;
+    if (kIsWeb) {
+      try {
+        await _openAuthenticatedPdfInBrowser(
+          endpointPath,
+          failureMessage: 'Unable to open supportive document.',
+        );
+      } catch (error) {
+        final message = ApiService.normalizeErrorMessage(
+          error,
+          fallback: 'Failed to open supportive document',
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to open supportive document: $message'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    try {
+      final savePath = await _downloadToAvailableDirectory(
+        endpointPath,
+        fileName: _sanitizeFileName(fileName),
+        requiresAuth: true,
+      );
+
+      final opened = await _openLocalFile(savePath);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('PDF must be 5MB or less.'),
+        SnackBar(
+          content: Text(
+            opened
+                ? 'Supportive document opened from: $savePath'
+                : 'Supportive document downloaded to: $savePath',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      final message = ApiService.normalizeErrorMessage(
+        error,
+        fallback: 'Failed to open supportive document',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to open supportive document: $message'),
           backgroundColor: Colors.red,
         ),
       );
-      return null;
     }
-
-    return _PickedPdfFile(
-      filePath: filePath,
-      fileBytes: fileBytes,
-      fileName: file.name,
-    );
   }
 
   @override
@@ -2400,11 +2435,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   }
 
   Future<void> _rejectApplicant(String applicationId) async {
-    final responseLetter = await _pickPdfFile(
-      emptyMessage: 'Unable to read the selected response letter PDF.',
-    );
-    if (responseLetter == null || !mounted) return;
-
     final feedbackController = TextEditingController();
     try {
       final feedback = await showDialog<String>(
@@ -2433,12 +2463,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       );
 
       if (!mounted || feedback == null) return;
-      await _updateStatus(
-        applicationId,
-        'rejected',
-        feedback: feedback.trim(),
-        responseLetter: responseLetter,
-      );
+      await _updateStatus(applicationId, 'rejected', feedback: feedback.trim());
     } finally {
       feedbackController.dispose();
     }
@@ -2523,7 +2548,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     String? reportingStartDate,
     String? reportingEndDate,
     Map<String, dynamic>? acceptanceLetterData,
-    _PickedPdfFile? responseLetter,
   }) async {
     final language = context.read<LanguageProvider>();
     try {
@@ -2536,9 +2560,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         reportingStartDate: reportingStartDate,
         reportingEndDate: reportingEndDate,
         acceptanceLetterData: acceptanceLetterData,
-        responseLetterPath: responseLetter?.filePath,
-        responseLetterBytes: responseLetter?.fileBytes,
-        responseLetterName: responseLetter?.fileName,
       );
 
       if (response['success'] == true) {
@@ -2868,7 +2889,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         status == 'shortlisted' &&
         (!hasSupportiveDocument || isDocumentAuthentic);
     final canAccept =
-        status == 'interview' &&
+        (status == 'shortlisted' || status == 'interview') &&
         (!hasSupportiveDocument || isDocumentAuthentic);
     final canReject =
         (status == 'pending' ||
@@ -3049,15 +3070,16 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                     children: [
                       if (hasSupportiveDocument)
                         OutlinedButton.icon(
-                          onPressed: () => _openFileUrl(
-                            supportiveDocumentUrl,
-                            invalidMessage:
-                                'Supportive document link is invalid.',
-                            failureMessage:
-                                'Unable to open supportive document.',
+                          onPressed: () => _openSupportiveDocument(
+                            applicationId: applicationId,
+                            fileName: supportiveDocumentName,
                           ),
                           icon: const Icon(Icons.open_in_new, size: 16),
-                          label: const Text('Open Supportive PDF'),
+                          label: Text(
+                            kIsWeb
+                                ? 'Open Supportive PDF'
+                                : 'Download Supportive PDF',
+                          ),
                         ),
                       if (hasSupportiveDocument)
                         OutlinedButton.icon(
@@ -3110,7 +3132,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                           ? null
                           : () => _downloadResponseLetter(
                               applicationId: applicationId,
-                              fileUrl: responseLetterUrl,
                               fileName: responseLetterName,
                             ),
                       child: Text(
