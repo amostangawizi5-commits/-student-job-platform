@@ -1,6 +1,10 @@
+import 'dart:io';
+
+import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
@@ -1943,6 +1947,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   bool _isLoading = false;
   String? _error;
   List<dynamic> _applications = [];
+  final Set<String> _downloadingResponseLetters = <String>{};
 
   String _formatErrorMessage(Object error) {
     final language = context.read<LanguageProvider>();
@@ -1990,6 +1995,151 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(failureMessage), backgroundColor: Colors.red),
       );
+    }
+  }
+
+  Future<Directory> _getDownloadDirectory() async {
+    if (Platform.isAndroid) {
+      final androidDownload = Directory('/storage/emulated/0/Download');
+      if (await androidDownload.exists()) {
+        return androidDownload;
+      }
+    }
+
+    final downloads = await getDownloadsDirectory();
+    if (downloads != null) return downloads;
+
+    return getApplicationDocumentsDirectory();
+  }
+
+  String _sanitizeFileName(String fileName) {
+    final trimmed = fileName.trim();
+    final fallback =
+        'response_letter_${DateTime.now().millisecondsSinceEpoch}.pdf';
+    final normalized = trimmed.isEmpty ? fallback : trimmed;
+    return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+  }
+
+  Options _downloadOptions(String resolvedUrl, String? token) {
+    final headers = <String, dynamic>{};
+    if (token != null &&
+        token.isNotEmpty &&
+        resolvedUrl.startsWith(_apiService.baseUrl)) {
+      headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
+    }
+
+    return Options(
+      headers: headers.isEmpty ? null : headers,
+      receiveTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 60),
+      followRedirects: true,
+    );
+  }
+
+  Future<String> _downloadToAvailableDirectory(
+    String resolvedUrl, {
+    required String fileName,
+  }) async {
+    final token = await _apiService.getToken();
+    final options = _downloadOptions(resolvedUrl, token);
+    final directories = <Directory>[];
+
+    final preferredDirectory = await _getDownloadDirectory();
+    directories.add(preferredDirectory);
+
+    final appDirectory = await getApplicationDocumentsDirectory();
+    if (!directories.any((directory) => directory.path == appDirectory.path)) {
+      directories.add(appDirectory);
+    }
+
+    Object? lastError;
+
+    for (final directory in directories) {
+      final savePath = '${directory.path}/$fileName';
+
+      try {
+        if (!await directory.exists()) {
+          await directory.create(recursive: true);
+        }
+
+        await Dio().download(
+          resolvedUrl,
+          savePath,
+          options: options,
+          deleteOnError: true,
+        );
+        return savePath;
+      } catch (error) {
+        lastError = error;
+        if (kDebugMode) {
+          debugPrint('Response letter download failed for $savePath: $error');
+        }
+      }
+    }
+
+    throw lastError ?? Exception('Unable to save file');
+  }
+
+  Future<void> _downloadResponseLetter({
+    required String applicationId,
+    required String? fileUrl,
+    required String fileName,
+  }) async {
+    if (fileUrl == null || fileUrl.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Response letter link is invalid.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (kIsWeb) {
+      await _openFileUrl(
+        fileUrl,
+        invalidMessage: 'Response letter link is invalid.',
+        failureMessage: 'Unable to open response letter.',
+      );
+      return;
+    }
+
+    final authenticatedUrl = _resolveFileUrl(
+      '/api/applications/$applicationId/response-letter',
+    );
+
+    setState(() => _downloadingResponseLetters.add(applicationId));
+
+    try {
+      final savePath = await _downloadToAvailableDirectory(
+        authenticatedUrl,
+        fileName: _sanitizeFileName(fileName),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Response letter downloaded to: $savePath'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      final message = ApiService.normalizeErrorMessage(
+        error,
+        fallback: 'Failed to download response letter',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to download response letter: $message'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingResponseLetters.remove(applicationId));
+      }
     }
   }
 
@@ -2205,7 +2355,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       context: context,
       builder: (_) => _AcceptanceLetterDialog(
         initialOrganizationName: application['company_name']?.toString() ?? '',
-        initialCollegeName: 'College of Informatics and Virtual Education',
+        collegeNamePlaceholder: 'College of Informatics and Virtual Education',
         initialLetterDate: _formatDateOnly(DateTime.now()),
         studentName: studentName,
         jobTitle: jobTitle,
@@ -2703,6 +2853,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final responseLetterUrl = app['response_letter_url']?.toString();
     final responseLetterName =
         app['response_letter_name']?.toString() ?? 'response_letter.pdf';
+    final isDownloadingResponseLetter = _downloadingResponseLetters.contains(
+      applicationId,
+    );
     final verificationNotes = app['supportive_document_verification_notes']
         ?.toString();
     final hasSupportiveDocument =
@@ -2953,12 +3106,18 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                       ),
                     ),
                     TextButton(
-                      onPressed: () => _openFileUrl(
-                        responseLetterUrl,
-                        invalidMessage: 'Response letter link is invalid.',
-                        failureMessage: 'Unable to open response letter.',
+                      onPressed: isDownloadingResponseLetter
+                          ? null
+                          : () => _downloadResponseLetter(
+                              applicationId: applicationId,
+                              fileUrl: responseLetterUrl,
+                              fileName: responseLetterName,
+                            ),
+                      child: Text(
+                        isDownloadingResponseLetter
+                            ? 'Downloading...'
+                            : 'Download',
                       ),
-                      child: const Text('Open'),
                     ),
                   ],
                 ),
@@ -3180,7 +3339,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
 
 class _AcceptanceLetterDialog extends StatefulWidget {
   final String initialOrganizationName;
-  final String initialCollegeName;
+  final String collegeNamePlaceholder;
   final String initialLetterDate;
   final String studentName;
   final String jobTitle;
@@ -3190,7 +3349,7 @@ class _AcceptanceLetterDialog extends StatefulWidget {
 
   const _AcceptanceLetterDialog({
     required this.initialOrganizationName,
-    required this.initialCollegeName,
+    required this.collegeNamePlaceholder,
     required this.initialLetterDate,
     required this.studentName,
     required this.jobTitle,
@@ -3242,9 +3401,7 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
       text: widget.initialOrganizationName,
     );
     _registrationNumberController = TextEditingController();
-    _collegeNameController = TextEditingController(
-      text: widget.initialCollegeName,
-    );
+    _collegeNameController = TextEditingController();
     _sectionDepartmentController = TextEditingController();
     _officerNameController = TextEditingController();
     _officerDesignationController = TextEditingController();
@@ -3406,6 +3563,7 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                         buildInput(
                           controller: _collegeNameController,
                           label: 'College Name',
+                          hint: widget.collegeNamePlaceholder,
                         ),
                         buildInput(
                           controller: _sectionDepartmentController,

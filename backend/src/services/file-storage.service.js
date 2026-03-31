@@ -258,8 +258,28 @@ const deleteAssetByUrl = async ({ fileUrl, resourceType }) => {
     return false;
 };
 
+const readBinaryFromUrl = async (fileUrl) => {
+    if (!fileUrl) {
+        throw new Error('File URL is required');
+    }
+
+    if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch asset: ${response.status}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        return Buffer.from(arrayBuffer);
+    }
+
+    const normalizedPath = `${fileUrl}`.replace(/^\/+/, '');
+    const absolutePath = path.join(__dirname, '../../', normalizedPath);
+    return fs.readFileSync(absolutePath);
+};
+
 const readAssetBuffer = async (fileUrl) => {
-    const buffer = await loadBinaryFromUrl(fileUrl);
+    const buffer = await readBinaryFromUrl(fileUrl);
     return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '');
 };
 

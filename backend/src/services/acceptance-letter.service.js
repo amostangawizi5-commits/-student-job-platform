@@ -10,6 +10,7 @@ const GOVERNMENT_LOGO_ABSOLUTE_PATH = path.join(
     __dirname,
     '../../../student_app/assets/images/gov_logo.png'
 );
+const ACCEPTANCE_LETTER_LOG_PREFIX = '[acceptance-letter]';
 
 function sanitizePdfText(value) {
     return `${value || ''}`
@@ -234,6 +235,11 @@ async function loadJpegAsset(fileUrl, name) {
         const { width, height } = parseJpegDimensions(buffer);
         return { name, buffer, width, height };
     } catch (error) {
+        console.error(`${ACCEPTANCE_LETTER_LOG_PREFIX} Failed to load image asset`, {
+            assetName: name,
+            fileUrl,
+            error: error.message
+        });
         return null;
     }
 }
@@ -341,12 +347,28 @@ async function buildAcceptanceLetterPdf({
     stampImageUrl,
     signatureImageUrl
 }) {
+    console.log(`${ACCEPTANCE_LETTER_LOG_PREFIX} Building PDF`, {
+        hasCompanyLogo: Boolean(companyLogoUrl),
+        hasStampImage: Boolean(stampImageUrl),
+        hasSignatureImage: Boolean(signatureImageUrl),
+        organizationName,
+        studentName,
+        registrationNumber
+    });
+
     const [governmentLogoImage, companyLogoImage, stampImage, signatureImage] = await Promise.all([
         loadJpegAsset(GOVERNMENT_LOGO_ABSOLUTE_PATH, 'GOVERNMENT_LOGO'),
         loadJpegAsset(companyLogoUrl, 'COMPANY_LOGO'),
         loadJpegAsset(stampImageUrl, 'STAMP_IMAGE'),
         loadJpegAsset(signatureImageUrl, 'SIGNATURE_IMAGE')
     ]);
+
+    console.log(`${ACCEPTANCE_LETTER_LOG_PREFIX} Asset load result`, {
+        governmentLogoLoaded: Boolean(governmentLogoImage),
+        companyLogoLoaded: Boolean(companyLogoImage),
+        stampLoaded: Boolean(stampImage),
+        signatureLoaded: Boolean(signatureImage)
+    });
 
     const formattedStartDate = formatLetterDate(startDate);
     const formattedEndDate = formatLetterDate(endDate);

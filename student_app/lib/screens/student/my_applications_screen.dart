@@ -323,7 +323,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
     if (kIsWeb) {
       await _openFile(
-        effectiveUrl,
+        fileUrl ?? effectiveUrl,
         invalidMessage: invalidMessage,
         failureMessage: failureMessage,
       );

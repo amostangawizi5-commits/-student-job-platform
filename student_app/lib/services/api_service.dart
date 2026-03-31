@@ -270,11 +270,7 @@ class ApiService {
       return;
     }
 
-    throw Exception(
-      storageError == null
-          ? 'Unable to save login session.'
-          : 'Unable to save login session. $storageError',
-    );
+    throw Exception('Unable to save login session. $storageError');
   }
 
   String? _extractAuthToken(Map<String, dynamic> response) {

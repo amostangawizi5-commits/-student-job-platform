@@ -387,6 +387,18 @@ const downloadResponseLetter = async (req, res) => {
             });
         }
 
+        if (
+            application.response_letter_url.startsWith('http://') ||
+            application.response_letter_url.startsWith('https://') ||
+            application.response_letter_url.startsWith('/uploads/')
+        ) {
+            console.log('Redirecting response letter download:', {
+                application_id,
+                target: application.response_letter_url
+            });
+            return res.redirect(302, application.response_letter_url);
+        }
+
         try {
             const fileBuffer = await readAssetBuffer(application.response_letter_url);
             const fileName =
@@ -551,32 +563,46 @@ const updateApplicationStatus = async (req, res) => {
                 });
             }
 
-            const acceptanceLetterBuffer = await buildAcceptanceLetterPdf({
-                organizationName,
-                studentName: app.student_name,
-                registrationNumber,
-                collegeName,
-                universityName: app.university_name || 'University of Dodoma',
-                sectionDepartment,
-                officerName,
-                officerDesignation,
-                officerPhone,
-                officerEmail,
-                officerRegion,
-                officerDistrict,
-                officerArea,
-                startDate: reporting_start_date,
-                endDate: reporting_end_date,
-                letterDate,
-                companyLogoUrl: app.logo_url,
-                footerCompanyName: organizationName || app.company_name,
-                footerLocation: app.company_location,
-                footerPhone: app.company_phone,
-                footerEmail: app.company_email,
-                footerWebsite: app.company_website_url,
-                stampImageUrl: app.stamp_url,
-                signatureImageUrl: app.signature_url
-            });
+            let acceptanceLetterBuffer;
+            try {
+                acceptanceLetterBuffer = await buildAcceptanceLetterPdf({
+                    organizationName,
+                    studentName: app.student_name,
+                    registrationNumber,
+                    collegeName,
+                    universityName: app.university_name || 'University of Dodoma',
+                    sectionDepartment,
+                    officerName,
+                    officerDesignation,
+                    officerPhone,
+                    officerEmail,
+                    officerRegion,
+                    officerDistrict,
+                    officerArea,
+                    startDate: reporting_start_date,
+                    endDate: reporting_end_date,
+                    letterDate,
+                    companyLogoUrl: app.logo_url,
+                    footerCompanyName: organizationName || app.company_name,
+                    footerLocation: app.company_location,
+                    footerPhone: app.company_phone,
+                    footerEmail: app.company_email,
+                    footerWebsite: app.company_website_url,
+                    stampImageUrl: app.stamp_url,
+                    signatureImageUrl: app.signature_url
+                });
+            } catch (pdfError) {
+                console.error('Acceptance letter build error:', {
+                    application_id,
+                    company_id: app.company_id,
+                    student_id: app.student_id,
+                    companyLogoUrl: app.logo_url,
+                    stampImageUrl: app.stamp_url,
+                    signatureImageUrl: app.signature_url,
+                    error: pdfError.message
+                });
+                throw pdfError;
+            }
 
             uploadedResponseLetter = await uploadAsset({
                 buffer: acceptanceLetterBuffer,
