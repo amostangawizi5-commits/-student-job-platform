@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/app_lock_service.dart';
 
@@ -33,11 +35,10 @@ class ResetPinDialog extends StatefulWidget {
 class _ResetPinDialogState extends State<ResetPinDialog> {
   static const String _pinResetError =
       'Unable to reset PIN right now. Please try again.';
-  static const String _pinResetSuccess =
-      'PIN reset successfully. Closing...';
+  static const String _pinResetSuccess = 'PIN reset successfully. Closing...';
 
   final ApiService _apiService = ApiService();
-  final AppLockService _appLockService = AppLockService();
+  late final AppLockService _appLockService;
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _newPinController = TextEditingController();
   final TextEditingController _confirmPinController = TextEditingController();
@@ -56,6 +57,7 @@ class _ResetPinDialogState extends State<ResetPinDialog> {
   @override
   void initState() {
     super.initState();
+    _appLockService = AppLockService.forUser(context.read<AuthProvider>().user);
     _newPinFocusNode.addListener(_handleNewPinFocusChange);
     _confirmPinFocusNode.addListener(_handleConfirmPinFocusChange);
   }
@@ -222,10 +224,7 @@ class _ResetPinDialogState extends State<ResetPinDialog> {
                   const Text(
                     _pinResetSuccess,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ],
               )
@@ -293,7 +292,8 @@ class _ResetPinDialogState extends State<ResetPinDialog> {
                           if (_newPinController.text.isNotEmpty)
                             IconButton(
                               tooltip: 'Clear PIN',
-                              onPressed: () => _clearPinInput(_newPinController),
+                              onPressed: () =>
+                                  _clearPinInput(_newPinController),
                               icon: const Icon(Icons.close_rounded),
                             ),
                           IconButton(

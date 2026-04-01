@@ -123,6 +123,16 @@ async function streamPdfAsset(res, { fileUrl, fileName, disposition = 'attachmen
     return res.send(fileBuffer);
 }
 
+function redirectToStoredAsset(res, fileUrl) {
+    const target = `${fileUrl || ''}`.trim();
+    if (!target) {
+        return false;
+    }
+
+    res.redirect(target);
+    return true;
+}
+
 // Apply for a job
 const applyForJob = async (req, res) => {
     let uploadedSupportiveDocument = null;
@@ -409,6 +419,9 @@ const downloadResponseLetter = async (req, res) => {
             });
         } catch (fileError) {
             console.error('Response letter file read error:', fileError);
+            if (redirectToStoredAsset(res, application.response_letter_url)) {
+                return;
+            }
             return res.status(404).json({
                 success: false,
                 message:

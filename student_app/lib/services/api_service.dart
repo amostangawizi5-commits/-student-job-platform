@@ -269,6 +269,18 @@ class ApiService {
     return null;
   }
 
+  static bool _looksLikePdfBytes(List<int> bytes) {
+    if (bytes.length < 5) {
+      return false;
+    }
+
+    return bytes[0] == 0x25 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x44 &&
+        bytes[3] == 0x46 &&
+        bytes[4] == 0x2D;
+  }
+
   static String responseMessage(
     Map<String, dynamic>? response, {
     String fallback = 'Request failed. Please try again.',
@@ -388,6 +400,16 @@ class ApiService {
       if (bytes == null || bytes.isEmpty) {
         throw Exception('Downloaded file is empty.');
       }
+
+      final contentType =
+          response.headers.value('content-type')?.toLowerCase().trim() ?? '';
+      if (!contentType.contains('application/pdf') && !_looksLikePdfBytes(bytes)) {
+        throw Exception(
+          _extractErrorMessage(bytes) ??
+              'Downloaded file is not a valid PDF document.',
+        );
+      }
+
       return Uint8List.fromList(bytes);
     }
 

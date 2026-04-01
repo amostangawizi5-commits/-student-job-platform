@@ -36,7 +36,31 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     'Dodoma',
     'Arusha',
     'Mwanza',
-    'Remote',
+  ];
+  final List<String> _moreLocations = [
+    'Geita',
+    'Iringa',
+    'Kagera',
+    'Katavi',
+    'Kigoma',
+    'Kilimanjaro',
+    'Lindi',
+    'Manyara',
+    'Mara',
+    'Mbeya',
+    'Morogoro',
+    'Mtwara',
+    'Njombe',
+    'Pwani',
+    'Rukwa',
+    'Ruvuma',
+    'Shinyanga',
+    'Simiyu',
+    'Singida',
+    'Songwe',
+    'Tabora',
+    'Tanga',
+    'Zanzibar',
   ];
 
   @override
@@ -284,26 +308,79 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: _locations.map((location) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(location, style: const TextStyle(fontSize: 13)),
-                selected: _selectedLocation == location,
-                onSelected: (selected) {
-                  setState(() {
-                    _selectedLocation = location;
-                  });
-                  _loadJobs();
-                },
-                backgroundColor: Colors.grey.shade100,
-                selectedColor: Colors.blue.shade100,
+          children: [
+            ..._locations.map((location) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  label: Text(location, style: const TextStyle(fontSize: 13)),
+                  selected: _selectedLocation == location,
+                  onSelected: (selected) {
+                    setState(() {
+                      _selectedLocation = location;
+                    });
+                    _loadJobs();
+                  },
+                  backgroundColor: Colors.grey.shade100,
+                  selectedColor: Colors.blue.shade100,
+                ),
+              );
+            }),
+            ActionChip(
+              label: Text(
+                _moreLocations.contains(_selectedLocation)
+                    ? _selectedLocation
+                    : 'Other Regions',
+                style: const TextStyle(fontSize: 13),
               ),
-            );
-          }).toList(),
+              backgroundColor: _moreLocations.contains(_selectedLocation)
+                  ? Colors.blue.shade100
+                  : Colors.grey.shade100,
+              onPressed: _openMoreRegionsSheet,
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  Future<void> _openMoreRegionsSheet() async {
+    final selectedRegion = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(
+                title: Text(
+                  'Other Regions',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ..._moreLocations.map((region) {
+                final isSelected = _selectedLocation == region;
+                return ListTile(
+                  title: Text(region),
+                  trailing: isSelected
+                      ? const Icon(Icons.check, color: Colors.blue)
+                      : null,
+                  onTap: () => Navigator.pop(context, region),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedRegion == null) return;
+
+    setState(() {
+      _selectedLocation = selectedRegion;
+    });
+    _loadJobs();
   }
 
   Widget _buildResultsCount() {

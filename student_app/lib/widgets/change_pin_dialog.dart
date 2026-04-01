@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/auth_provider.dart';
 import '../services/app_lock_service.dart';
 
 Future<bool?> showChangePinDialog(
@@ -29,7 +31,7 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
   static const String _pinUpdateError =
       'Unable to update PIN right now. Please try again.';
 
-  final AppLockService _appLockService = AppLockService();
+  late final AppLockService _appLockService;
   final TextEditingController _currentPinController = TextEditingController();
   final TextEditingController _newPinController = TextEditingController();
   final TextEditingController _confirmPinController = TextEditingController();
@@ -51,6 +53,7 @@ class _ChangePinDialogState extends State<ChangePinDialog> {
   @override
   void initState() {
     super.initState();
+    _appLockService = AppLockService.forUser(context.read<AuthProvider>().user);
     _currentPinFocusNode.addListener(_handleCurrentPinFocusChange);
     _newPinFocusNode.addListener(_handleNewPinFocusChange);
     _confirmPinFocusNode.addListener(_handleConfirmPinFocusChange);

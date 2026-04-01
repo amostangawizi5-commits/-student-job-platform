@@ -18,6 +18,29 @@ class _FakeAppLockService extends AppLockService {
 }
 
 void main() {
+  test('PIN storage key is scoped per account', () {
+    expect(
+      buildAppLockPinStorageKey(
+        buildAppLockAccountScope({
+          'role': 'company',
+          'user_id': '42',
+          'email': 'company@example.com',
+        }),
+      ),
+      'app_lock_pin_v2_company:42',
+    );
+    expect(
+      buildAppLockPinStorageKey(
+        buildAppLockAccountScope({
+          'role': 'admin',
+          'user_id': '7',
+          'email': 'admin@example.com',
+        }),
+      ),
+      'app_lock_pin_v2_admin:7',
+    );
+  });
+
   test('activity tracking stays blocked while resume unlock is pending', () {
     expect(
       canTrackSessionActivity(
@@ -37,6 +60,38 @@ void main() {
         shouldRequirePinOnResume: false,
       ),
       isTrue,
+    );
+  });
+
+  test('company only requires PIN after 3 minutes of inactivity', () {
+    expect(shouldRequireImmediatePinOnBackground(isCompany: true), isFalse);
+    expect(
+      shouldRequireCompanyPinAfterInactivity(
+        isCompany: true,
+        inactiveFor: const Duration(minutes: 2, seconds: 59),
+        inactivityTimeout: const Duration(minutes: 3),
+      ),
+      isFalse,
+    );
+    expect(
+      shouldRequireCompanyPinAfterInactivity(
+        isCompany: true,
+        inactiveFor: const Duration(minutes: 3),
+        inactivityTimeout: const Duration(minutes: 3),
+      ),
+      isTrue,
+    );
+  });
+
+  test('non-company accounts still lock immediately on background', () {
+    expect(shouldRequireImmediatePinOnBackground(isCompany: false), isTrue);
+    expect(
+      shouldRequireCompanyPinAfterInactivity(
+        isCompany: false,
+        inactiveFor: const Duration(minutes: 10),
+        inactivityTimeout: const Duration(minutes: 3),
+      ),
+      isFalse,
     );
   });
 

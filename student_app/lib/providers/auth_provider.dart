@@ -5,7 +5,6 @@ import '../services/app_lock_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final ApiService _apiService = ApiService();
-  final AppLockService _appLockService = AppLockService();
 
   Map<String, dynamic>? _user;
   bool _isLoading = false;
@@ -95,7 +94,7 @@ class AuthProvider extends ChangeNotifier {
       if (response['success'] == true) {
         // Extract user data from response
         final userDataMap = response['data']['data']['user'];
-        await _appLockService.clearPin();
+        await AppLockService.forUser(userDataMap).clearPin();
         _user = userDataMap;
         _isAuthenticated = true;
         _sessionRestored = true;

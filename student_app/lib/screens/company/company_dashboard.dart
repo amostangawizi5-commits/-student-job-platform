@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/browser_pdf_opener.dart';
 import '../../services/local_file_service.dart';
 import '../../widgets/change_pin_dialog.dart';
 import '../../widgets/reset_pin_dialog.dart';
@@ -1988,14 +1989,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
 
   Future<void> _openAuthenticatedPdfInBrowser(
     String pathOrUrl, {
+    required String fileName,
     required String failureMessage,
   }) async {
     final bytes = await _apiService.downloadFileBytes(
       pathOrUrl,
       requiresAuth: true,
     );
-    final pdfUri = Uri.dataFromBytes(bytes, mimeType: 'application/pdf');
-    final opened = await launchUrl(pdfUri);
+    final opened = await openPdfBytesInBrowser(bytes, fileName: fileName);
     if (!opened) {
       throw Exception(failureMessage);
     }
@@ -2076,6 +2077,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       try {
         await _openAuthenticatedPdfInBrowser(
           endpointPath,
+          fileName: _sanitizeFileName(fileName),
           failureMessage: 'Unable to open response letter.',
         );
       } catch (error) {
@@ -2163,6 +2165,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       try {
         await _openAuthenticatedPdfInBrowser(
           endpointPath,
+          fileName: _sanitizeFileName(fileName),
           failureMessage: 'Unable to open supportive document.',
         );
       } catch (error) {

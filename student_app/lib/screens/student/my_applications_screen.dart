@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_service.dart';
+import '../../services/browser_pdf_opener.dart';
 import '../../services/local_file_service.dart';
 
 class MyApplicationsScreen extends StatefulWidget {
@@ -111,8 +112,9 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       final response = await _apiService.getMyApplications();
       debugPrint('Applications: ${response['data']?.length ?? 0}');
       if (response['success']) {
+        final applications = (response['data'] as List<dynamic>? ?? const []);
         setState(() {
-          _applications = response['data'] ?? [];
+          _applications = applications;
           _isLoading = false;
         });
       } else {
@@ -267,8 +269,10 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         pathOrUrl,
         requiresAuth: true,
       );
-      final pdfUri = Uri.dataFromBytes(bytes, mimeType: 'application/pdf');
-      final launched = await launchUrl(pdfUri);
+      final launched = await openPdfBytesInBrowser(
+        bytes,
+        fileName: _sanitizeFileName(fileName),
+      );
       if (!launched) {
         throw Exception(failureMessage);
       }

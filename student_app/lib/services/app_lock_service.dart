@@ -1,8 +1,43 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+String? buildAppLockAccountScope(Map<String, dynamic>? user) {
+  if (user == null) return null;
+
+  final rawUserId = '${user['user_id'] ?? user['id'] ?? ''}'.trim();
+  final rawEmail = '${user['email'] ?? ''}'.trim().toLowerCase();
+  final rawRole = '${user['role'] ?? ''}'.trim().toLowerCase();
+
+  final identifier = rawUserId.isNotEmpty ? rawUserId : rawEmail;
+  if (identifier.isEmpty) {
+    return null;
+  }
+
+  return rawRole.isEmpty ? identifier : '$rawRole:$identifier';
+}
+
+String buildAppLockPinStorageKey(String? accountScope) {
+  const legacyPinKey = 'app_lock_pin';
+  const scopedPinKeyPrefix = 'app_lock_pin_v2';
+
+  final normalizedScope = accountScope?.trim().toLowerCase();
+  if (normalizedScope == null || normalizedScope.isEmpty) {
+    return legacyPinKey;
+  }
+
+  return '${scopedPinKeyPrefix}_$normalizedScope';
+}
+
 class AppLockService {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
-  static const String _pinKey = 'app_lock_pin';
+  final String? _accountScope;
+
+  AppLockService({String? accountScope}) : _accountScope = accountScope;
+
+  factory AppLockService.forUser(Map<String, dynamic>? user) {
+    return AppLockService(accountScope: buildAppLockAccountScope(user));
+  }
+
+  String get _pinKey => buildAppLockPinStorageKey(_accountScope);
 
   Future<bool> hasPin() async {
     final pin = await _storage.read(key: _pinKey);

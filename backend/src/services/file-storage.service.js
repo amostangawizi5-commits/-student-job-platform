@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { v2: cloudinary } = require('cloudinary');
 const fs = require('fs');
 const path = require('path');
 
@@ -11,6 +12,19 @@ const isCloudinaryConfigured = () => {
             process.env.CLOUDINARY_API_KEY &&
             process.env.CLOUDINARY_API_SECRET
     );
+};
+
+const configureCloudinarySdk = () => {
+    if (!isCloudinaryConfigured()) {
+        return;
+    }
+
+    cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+        secure: true
+    });
 };
 
 const ensureDirectory = (dirPath) => {
@@ -196,6 +210,74 @@ const extractCloudinaryPublicId = (fileUrl, resourceType) => {
     }
 };
 
+const extractCloudinaryDownloadParts = (fileUrl) => {
+    try {
+        const parsed = new URL(fileUrl);
+        if (parsed.hostname !== CLOUDINARY_DELIVERY_HOST) {
+            return null;
+        }
+
+        const segments = parsed.pathname.split('/').filter(Boolean);
+        if (segments.length < 4) {
+            return null;
+        }
+
+        const [, resourceType, deliveryType] = segments;
+        const uploadIndex = segments.findIndex((segment) => segment === deliveryType);
+        if (uploadIndex === -1) {
+            return null;
+        }
+
+        let publicIdSegments = segments.slice(uploadIndex + 1);
+        if (publicIdSegments[0] && /^v\d+$/.test(publicIdSegments[0])) {
+            publicIdSegments = publicIdSegments.slice(1);
+        }
+
+        const fullPublicId = publicIdSegments.join('/');
+        if (!fullPublicId) {
+            return null;
+        }
+
+        const ext = path.extname(fullPublicId).replace('.', '').toLowerCase();
+        const publicId = ext
+            ? fullPublicId.slice(0, -(ext.length + 1))
+            : fullPublicId;
+
+        if (!publicId || !ext) {
+            return null;
+        }
+
+        return {
+            publicId,
+            format: ext,
+            resourceType,
+            deliveryType
+        };
+    } catch (error) {
+        return null;
+    }
+};
+
+const buildCloudinarySignedDownloadUrl = (fileUrl) => {
+    if (!isCloudinaryConfigured()) {
+        return null;
+    }
+
+    const parts = extractCloudinaryDownloadParts(fileUrl);
+    if (!parts) {
+        return null;
+    }
+
+    configureCloudinarySdk();
+
+    return cloudinary.utils.private_download_url(parts.publicId, parts.format, {
+        resource_type: parts.resourceType,
+        type: parts.deliveryType,
+        expires_at: Math.floor(Date.now() / 1000) + 300,
+        attachment: false
+    });
+};
+
 const destroyOnCloudinary = async ({ publicId, resourceType }) => {
     if (!publicId || !isCloudinaryConfigured()) {
         return false;
@@ -266,6 +348,15 @@ const readBinaryFromUrl = async (fileUrl) => {
     if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
         const response = await fetch(fileUrl);
         if (!response.ok) {
+            const signedUrl = buildCloudinarySignedDownloadUrl(fileUrl);
+            if (signedUrl) {
+                const signedResponse = await fetch(signedUrl);
+                if (signedResponse.ok) {
+                    const signedArrayBuffer = await signedResponse.arrayBuffer();
+                    return Buffer.from(signedArrayBuffer);
+                }
+            }
+
             throw new Error(`Failed to fetch asset: ${response.status}`);
         }
 

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/job.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/language_picker_dialog.dart';
 import 'browse_jobs_screen.dart';
+import 'job_details_screen.dart';
 import 'my_applications_screen.dart';
 import 'profile_screen.dart';
 import 'notifications_screen.dart';
@@ -634,8 +636,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _pendingCount = 0;
   int _reviewCount = 0;
   int _profileViewsCount = 0;
-  double _skillMatchScore = 0.0;
-  String _skillMatchMessage = 'Add your skills to see your market match';
+  List<Job> _recentJobs = const [];
   bool _isLoadingStats = true;
 
   @override
@@ -658,13 +659,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final user = Provider.of<AuthProvider>(context, listen: false).user;
       final responses = await Future.wait([
         _apiService.getMyApplications(),
-        _apiService.getStudentSkills(),
         _apiService.getJobs(limit: '100'),
       ]);
 
       final appsResponse = responses[0];
-      final studentSkillsResponse = responses[1];
-      final jobsResponse = responses[2];
+      final jobsResponse = responses[1];
 
       int applications = 0;
       int interviews = 0;
@@ -694,22 +693,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final profileViews = rawViews is int
           ? rawViews
           : int.tryParse('$rawViews') ?? 0;
-
-      final studentSkills = _extractStudentSkillNames(studentSkillsResponse);
-      final jobSkillSets = _extractJobSkillSets(jobsResponse);
-      final jobsWithSkills = jobSkillSets.length;
-      final matchedJobs = jobSkillSets
-          .where((requiredSkills) => requiredSkills.any(studentSkills.contains))
-          .length;
-
-      final skillMatchScore = jobsWithSkills > 0
-          ? matchedJobs / jobsWithSkills
-          : 0.0;
-      final skillMatchMessage = _buildSkillMatchMessage(
-        studentSkillsCount: studentSkills.length,
-        jobsWithSkills: jobsWithSkills,
-        matchedJobs: matchedJobs,
-      );
+      final recentJobs = _extractRecentJobs(jobsResponse);
 
       if (mounted) {
         setState(() {
@@ -718,8 +702,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _pendingCount = pending;
           _reviewCount = review;
           _profileViewsCount = profileViews;
-          _skillMatchScore = skillMatchScore.clamp(0.0, 1.0);
-          _skillMatchMessage = skillMatchMessage;
+          _recentJobs = recentJobs;
           _isLoadingStats = false;
         });
       }
@@ -730,83 +713,38 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Set<String> _extractStudentSkillNames(Map<String, dynamic> response) {
+  List<Job> _extractRecentJobs(Map<String, dynamic> response) {
     final data = response['data'];
     if (response['success'] != true || data is! List) {
-      return <String>{};
+      return const [];
     }
 
-    return data
-        .map((item) {
-          if (item is Map<String, dynamic>) {
-            final name = item['name'];
-            if (name is String) return name.trim().toLowerCase();
-          }
-          return '';
-        })
-        .where((name) => name.isNotEmpty)
-        .toSet();
-  }
+    final jobs =
+        data
+            .whereType<Map<String, dynamic>>()
+            .map(Job.fromJson)
+            .where((job) => job.status == 'open')
+            .toList()
+          ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
 
-  List<Set<String>> _extractJobSkillSets(Map<String, dynamic> response) {
-    final data = response['data'];
-    if (response['success'] != true || data is! List) {
-      return <Set<String>>[];
-    }
+    final seenCompanies = <String>{};
+    final recentJobs = <Job>[];
 
-    final List<Set<String>> jobSkillSets = [];
+    for (final job in jobs) {
+      final companyKey = job.companyId.isNotEmpty
+          ? job.companyId
+          : job.companyName.toLowerCase();
+      if (!seenCompanies.add(companyKey)) {
+        continue;
+      }
 
-    for (final job in data) {
-      if (job is! Map<String, dynamic>) continue;
-      final requiredSkills = _extractRequiredSkillNames(job['required_skills']);
-      if (requiredSkills.isNotEmpty) {
-        jobSkillSets.add(requiredSkills);
+      recentJobs.add(job);
+      if (recentJobs.length == 4) {
+        break;
       }
     }
 
-    return jobSkillSets;
-  }
-
-  Set<String> _extractRequiredSkillNames(dynamic rawValue) {
-    if (rawValue == null) return <String>{};
-
-    if (rawValue is List) {
-      return rawValue
-          .map((item) {
-            if (item is Map<String, dynamic>) {
-              final name = item['name'];
-              if (name is String) return name.trim().toLowerCase();
-            }
-            if (item is String) return item.trim().toLowerCase();
-            return '';
-          })
-          .where((name) => name.isNotEmpty)
-          .toSet();
-    }
-
-    if (rawValue is String) {
-      return rawValue
-          .split(',')
-          .map((skill) => skill.trim().toLowerCase())
-          .where((skill) => skill.isNotEmpty)
-          .toSet();
-    }
-
-    return <String>{};
-  }
-
-  String _buildSkillMatchMessage({
-    required int studentSkillsCount,
-    required int jobsWithSkills,
-    required int matchedJobs,
-  }) {
-    if (studentSkillsCount == 0) {
-      return 'Add your skills in profile to get personalized matching';
-    }
-    if (jobsWithSkills == 0) {
-      return 'No open jobs with required skills found right now';
-    }
-    return 'Your skills match $matchedJobs of $jobsWithSkills open jobs';
+    return recentJobs;
   }
 
   void _goToTab(int index) {
@@ -890,110 +828,55 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Skill Match Card
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(color: Colors.grey.shade200, blurRadius: 10),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.purple.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.analytics,
-                        color: Colors.purple.shade700,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Skill Match Score',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _isLoadingStats
-                          ? '...'
-                          : '${(_skillMatchScore * 100).round()}%',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.purple,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                LinearProgressIndicator(
-                  value: _isLoadingStats ? 0.0 : _skillMatchScore,
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: const AlwaysStoppedAnimation(Colors.purple),
-                  borderRadius: BorderRadius.circular(10),
-                  minHeight: 8,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _isLoadingStats
-                      ? 'Calculating skill match...'
-                      : _skillMatchMessage,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Recommended Jobs Section
           const Text(
-            'Recommended for you',
+            'Recent Posted Jobs',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
 
-          // Job Cards
-          _buildJobCard(
-            context,
-            'Software Developer Intern',
-            'NMB Bank',
-            'Dar es Salaam',
-            'Full-time',
-            'Today',
-            Icons.work,
-          ),
-          const SizedBox(height: 12),
-          _buildJobCard(
-            context,
-            'Data Analyst',
-            'Vodacom Tanzania',
-            'Dar es Salaam',
-            'Part-time',
-            'Yesterday',
-            Icons.analytics,
-          ),
-          const SizedBox(height: 12),
-          _buildJobCard(
-            context,
-            'IT Support Specialist',
-            'CRDB Bank',
-            'Dar es Salaam',
-            'Contract',
-            '2 days ago',
-            Icons.support_agent,
-          ),
+          if (_isLoadingStats)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(color: Colors.grey.shade200, blurRadius: 8),
+                ],
+              ),
+              child: const Text(
+                'Loading recent jobs...',
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+          else if (_recentJobs.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(color: Colors.grey.shade200, blurRadius: 8),
+                ],
+              ),
+              child: const Text(
+                'No recent jobs available right now.',
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+          else
+            ..._recentJobs.asMap().entries.map((entry) {
+              final index = entry.key;
+              final job = entry.value;
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == _recentJobs.length - 1 ? 0 : 12,
+                ),
+                child: _buildRecentJobCard(job),
+              );
+            }),
           const SizedBox(height: 24),
 
           // Quick Actions
@@ -1097,108 +980,175 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildJobCard(
-    BuildContext context,
-    String title,
-    String company,
-    String location,
-    String type,
-    String time,
-    IconData icon,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+  String _formatRecentPostingTime(DateTime createdAt) {
+    final now = DateTime.now();
+    final difference = now.difference(createdAt);
+
+    if (difference.inMinutes < 1) return 'Just now';
+    if (difference.inHours < 1) return '${difference.inMinutes} min ago';
+    if (difference.inDays < 1) return '${difference.inHours} hr ago';
+    if (difference.inDays == 1) return 'Yesterday';
+    if (difference.inDays < 7) return '${difference.inDays} days ago';
+    return '${createdAt.day}/${createdAt.month}/${createdAt.year}';
+  }
+
+  String _formatJobTypeLabel(String type) {
+    switch (type.toLowerCase()) {
+      case 'full-time':
+        return 'Full-time';
+      case 'part-time':
+        return 'Part-time';
+      case 'graduate_program':
+        return 'Graduate Program';
+      case 'internship':
+        return 'Internship';
+      default:
+        return type.isEmpty ? 'Job' : type;
+    }
+  }
+
+  IconData _recentJobIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'full-time':
+        return Icons.work;
+      case 'part-time':
+        return Icons.schedule;
+      case 'graduate_program':
+        return Icons.rocket_launch_outlined;
+      case 'internship':
+        return Icons.school_outlined;
+      default:
+        return Icons.business_center_outlined;
+    }
+  }
+
+  Widget _buildRecentJobCard(Job job) {
+    final typeLabel = _formatJobTypeLabel(job.type);
+    final timeLabel = _formatRecentPostingTime(job.createdAt);
+    final icon = _recentJobIcon(job.type);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.08),
-            spreadRadius: 1,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => JobDetailsScreen(jobId: job.jobId),
             ),
-            child: Icon(icon, color: const Color(0xFF1976D2), size: 28),
+          );
+          _loadStats();
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withValues(alpha: 0.08),
+                spreadRadius: 1,
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1976D2),
-                  ),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  company,
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 4),
-                Row(
+                child: Icon(icon, color: const Color(0xFF1976D2), size: 28),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.location_on, size: 12, color: Colors.grey[500]),
-                    const SizedBox(width: 4),
                     Text(
-                      location,
-                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 4,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        shape: BoxShape.circle,
+                      job.title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1976D2),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Icon(Icons.access_time, size: 12, color: Colors.grey[500]),
-                    const SizedBox(width: 4),
+                    const SizedBox(height: 4),
                     Text(
-                      time,
-                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      job.companyName,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.location_on,
+                          size: 12,
+                          color: Colors.grey[500],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          job.location,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 4,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[400],
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.access_time,
+                          size: 12,
+                          color: Colors.grey[500],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          timeLabel,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: type == 'Full-time'
-                  ? Colors.green.shade50
-                  : Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              type,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                color: type == 'Full-time'
-                    ? Colors.green.shade700
-                    : Colors.blue.shade700,
               ),
-            ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: typeLabel == 'Full-time'
+                      ? Colors.green.shade50
+                      : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  typeLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: typeLabel == 'Full-time'
+                        ? Colors.green.shade700
+                        : Colors.blue.shade700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

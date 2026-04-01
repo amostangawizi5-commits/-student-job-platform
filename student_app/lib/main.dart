@@ -16,6 +16,18 @@ void main() {
   runApp(const MyApp());
 }
 
+bool shouldRequireImmediatePinOnBackground({required bool isCompany}) {
+  return !isCompany;
+}
+
+bool shouldRequireCompanyPinAfterInactivity({
+  required bool isCompany,
+  required Duration inactiveFor,
+  required Duration inactivityTimeout,
+}) {
+  return isCompany && inactiveFor >= inactivityTimeout;
+}
+
 bool canTrackSessionActivity({
   required bool isAuthenticated,
   required bool isPinVisible,
@@ -110,7 +122,6 @@ class _SessionGuardState extends State<_SessionGuard>
     with WidgetsBindingObserver {
   static const Duration _inactivityTimeout = Duration(minutes: 3);
 
-  final AppLockService _appLockService = AppLockService();
   final GlobalKey<NavigatorState> _pinGateNavigatorKey =
       GlobalKey<NavigatorState>();
   bool _isPinVisible = false;
@@ -146,7 +157,10 @@ class _SessionGuardState extends State<_SessionGuard>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       final authProvider = context.read<AuthProvider>();
-      if (authProvider.isAuthenticated) {
+      if (authProvider.isAuthenticated &&
+          shouldRequireImmediatePinOnBackground(
+            isCompany: authProvider.isCompany,
+          )) {
         _shouldRequirePinOnResume = true;
       }
       _cancelInactivityTimer();
@@ -170,14 +184,25 @@ class _SessionGuardState extends State<_SessionGuard>
 
     _isEvaluatingPin = true;
     try {
-      final hasPin = await _appLockService.hasPin();
+      final hasPin = await AppLockService.forUser(authProvider.user).hasPin();
       if (!mounted) {
         return;
       }
 
       final shouldShowSetup = !hasPin && authProvider.requiresPinSetup;
+      final inactiveFor = _lastActivityAt == null
+          ? Duration.zero
+          : DateTime.now().difference(_lastActivityAt!);
+      final shouldShowCompanyUnlock = shouldRequireCompanyPinAfterInactivity(
+        isCompany: authProvider.isCompany,
+        inactiveFor: inactiveFor,
+        inactivityTimeout: _inactivityTimeout,
+      );
       final shouldShowUnlock =
-          hasPin && (authProvider.sessionRestored || _shouldRequirePinOnResume);
+          hasPin &&
+          (authProvider.sessionRestored ||
+              _shouldRequirePinOnResume ||
+              shouldShowCompanyUnlock);
 
       if (shouldShowSetup || shouldShowUnlock) {
         setState(() {
@@ -186,7 +211,7 @@ class _SessionGuardState extends State<_SessionGuard>
         });
         _cancelInactivityTimer();
       } else if (!_isPinVisible && hasPin) {
-        _markUserActivity();
+        _restartInactivityTimerIfNeeded();
       }
     } catch (_) {
       // Leave the current gate state unchanged if secure storage is unavailable.
@@ -348,7 +373,9 @@ class _AppPinGateState extends State<AppPinGate> {
   @override
   void initState() {
     super.initState();
-    _appLockService = widget.appLockService ?? AppLockService();
+    _appLockService =
+        widget.appLockService ??
+        AppLockService.forUser(context.read<AuthProvider>().user);
     _resetPinFields();
     _pinFocusNode.addListener(_handlePinFocusChange);
     _confirmPinFocusNode.addListener(_handleConfirmPinFocusChange);
