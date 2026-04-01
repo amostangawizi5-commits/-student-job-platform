@@ -1,5 +1,7 @@
 package com.example.student_app
 
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Intent
 import android.os.Build
@@ -77,16 +79,22 @@ class MainActivity : FlutterActivity() {
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType)
+            clipData = ClipData.newRawUri(file.name, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
         val chooser = Intent.createChooser(intent, "Open document").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        startActivity(chooser)
-        return true
+        return try {
+            startActivity(chooser)
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        }
     }
 
     @Throws(IOException::class)

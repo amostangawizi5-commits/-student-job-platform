@@ -195,6 +195,15 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             });
           }
 
+          void clearSelectedPdf() {
+            setModalState(() {
+              selectedFilePath = null;
+              selectedFileBytes = null;
+              selectedFileName = null;
+              selectedFileSize = null;
+            });
+          }
+
           final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
 
           return Padding(
@@ -263,6 +272,15 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                           : 'Change Supportive PDF',
                     ),
                   ),
+                  if (selectedFileName != null) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: clearSelectedPdf,
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Remove Supportive PDF'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.red),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
