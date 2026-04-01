@@ -5,7 +5,8 @@ const { sendApplicationStatusEmail } = require('../services/email.service');
 const {
     uploadAsset,
     deleteAssetByUrl,
-    readAssetBuffer
+    readAssetBuffer,
+    resolveAssetDownloadUrl
 } = require('../services/file-storage.service');
 const { buildAcceptanceLetterPdf } = require('../services/acceptance-letter.service');
 
@@ -124,7 +125,7 @@ async function streamPdfAsset(res, { fileUrl, fileName, disposition = 'attachmen
 }
 
 function redirectToStoredAsset(res, fileUrl) {
-    const target = `${fileUrl || ''}`.trim();
+    const target = `${resolveAssetDownloadUrl(fileUrl) || ''}`.trim();
     if (!target) {
         return false;
     }
@@ -473,6 +474,9 @@ const downloadSupportiveDocument = async (req, res) => {
             });
         } catch (fileError) {
             console.error('Supportive document file read error:', fileError);
+            if (redirectToStoredAsset(res, application.supportive_document_url)) {
+                return;
+            }
             return res.status(404).json({
                 success: false,
                 message:

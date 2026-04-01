@@ -258,24 +258,67 @@ const extractCloudinaryDownloadParts = (fileUrl) => {
     }
 };
 
-const buildCloudinarySignedDownloadUrl = (fileUrl) => {
+const buildCloudinarySignedDownloadCandidates = (fileUrl) => {
     if (!isCloudinaryConfigured()) {
-        return null;
+        return [];
     }
 
     const parts = extractCloudinaryDownloadParts(fileUrl);
     if (!parts) {
-        return null;
+        return [];
     }
 
     configureCloudinarySdk();
 
-    return cloudinary.utils.private_download_url(parts.publicId, parts.format, {
-        resource_type: parts.resourceType,
-        type: parts.deliveryType,
-        expires_at: Math.floor(Date.now() / 1000) + 300,
-        attachment: false
-    });
+    const candidates = [
+        {
+            publicId: parts.publicId,
+            format: parts.format,
+            resourceType: parts.resourceType,
+            deliveryType: parts.deliveryType || 'upload'
+        }
+    ];
+
+    const fullPublicId = `${parts.publicId}.${parts.format}`;
+    if (parts.resourceType === 'raw' && fullPublicId !== parts.publicId) {
+        candidates.push({
+            publicId: fullPublicId,
+            format: parts.format,
+            resourceType: parts.resourceType,
+            deliveryType: parts.deliveryType || 'upload'
+        });
+    }
+
+    const seen = new Set();
+    return candidates
+        .map((candidate) =>
+            cloudinary.utils.private_download_url(candidate.publicId, candidate.format, {
+                resource_type: candidate.resourceType,
+                type: candidate.deliveryType,
+                expires_at: Math.floor(Date.now() / 1000) + 300,
+                attachment: false
+            })
+        )
+        .filter((url) => {
+            if (!url || seen.has(url)) {
+                return false;
+            }
+            seen.add(url);
+            return true;
+        });
+};
+
+const buildCloudinarySignedDownloadUrl = (fileUrl) => {
+    const [firstUrl] = buildCloudinarySignedDownloadCandidates(fileUrl);
+    return firstUrl || null;
+};
+
+const resolveAssetDownloadUrl = (fileUrl) => {
+    if (!fileUrl) {
+        return null;
+    }
+
+    return buildCloudinarySignedDownloadUrl(fileUrl) || fileUrl;
 };
 
 const destroyOnCloudinary = async ({ publicId, resourceType }) => {
@@ -348,8 +391,8 @@ const readBinaryFromUrl = async (fileUrl) => {
     if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
         const response = await fetch(fileUrl);
         if (!response.ok) {
-            const signedUrl = buildCloudinarySignedDownloadUrl(fileUrl);
-            if (signedUrl) {
+            const signedUrls = buildCloudinarySignedDownloadCandidates(fileUrl);
+            for (const signedUrl of signedUrls) {
                 const signedResponse = await fetch(signedUrl);
                 if (signedResponse.ok) {
                     const signedArrayBuffer = await signedResponse.arrayBuffer();
@@ -377,6 +420,7 @@ const readAssetBuffer = async (fileUrl) => {
 module.exports = {
     isCloudinaryConfigured,
     readAssetBuffer,
+    resolveAssetDownloadUrl,
     uploadAsset,
     deleteAssetByUrl
 };
