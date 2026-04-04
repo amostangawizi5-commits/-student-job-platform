@@ -1,16 +1,12 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+
+import '../../services/export_file_saver.dart';
 
 enum AdminExportFormat { pdf, excel, csv }
 
 class AdminExportUtils {
-  static const MethodChannel _downloadsChannel = MethodChannel(
-    'student_app/downloads',
-  );
-
   static Future<void> showExportDialog(
     BuildContext context, {
     required String title,
@@ -120,75 +116,7 @@ class AdminExportUtils {
     required Uint8List bytes,
     required String mimeType,
   }) async {
-    if (Platform.isAndroid) {
-      final tempDirectory = await getTemporaryDirectory();
-      final tempFile = File('${tempDirectory.path}/$fileName');
-      await tempFile.writeAsBytes(bytes, flush: true);
-
-      try {
-        final savedPath = await _downloadsChannel.invokeMethod<String>(
-          'copyFileToDownloads',
-          {
-            'sourcePath': tempFile.path,
-            'fileName': fileName,
-            'mimeType': mimeType,
-          },
-        );
-
-        if (savedPath == null || savedPath.trim().isEmpty) {
-          throw const FileSystemException('Could not save file to Downloads.');
-        }
-
-        return savedPath;
-      } finally {
-        if (await tempFile.exists()) {
-          await tempFile.delete();
-        }
-      }
-    }
-
-    final directory = await _ensureExportDirectory();
-    final file = File('${directory.path}/$fileName');
-    await file.writeAsBytes(bytes, flush: true);
-    return file.path;
-  }
-
-  static Future<Directory> _ensureExportDirectory() async {
-    final exportDirectory = await _preferredFilesystemDirectory();
-    if (!await exportDirectory.exists()) {
-      await exportDirectory.create(recursive: true);
-    }
-    return exportDirectory;
-  }
-
-  static Future<Directory> _preferredFilesystemDirectory() async {
-    if (Platform.isAndroid) {
-      final commonDownloadDirs = [
-        Directory('/storage/emulated/0/Download'),
-        Directory('/sdcard/Download'),
-      ];
-
-      for (final directory in commonDownloadDirs) {
-        if (await directory.exists()) {
-          return directory;
-        }
-      }
-
-      final externalDirectories = await getExternalStorageDirectories(
-        type: StorageDirectory.downloads,
-      );
-      if (externalDirectories != null && externalDirectories.isNotEmpty) {
-        return externalDirectories.first;
-      }
-    }
-
-    final downloadsDirectory = await getDownloadsDirectory();
-    if (downloadsDirectory != null) {
-      return Directory('${downloadsDirectory.path}/admin_exports');
-    }
-
-    final baseDirectory = await getApplicationDocumentsDirectory();
-    return Directory('${baseDirectory.path}/admin_exports');
+    return saveExportFile(fileName: fileName, bytes: bytes, mimeType: mimeType);
   }
 
   static String _buildCsv(List<String> headers, List<List<String>> rows) {

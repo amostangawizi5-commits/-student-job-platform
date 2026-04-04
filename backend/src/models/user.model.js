@@ -2,6 +2,28 @@
 const { query } = require('../config/database');
 const bcrypt = require('bcryptjs');
 
+const normalizeOptionalString = (value) => {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+};
+
+const normalizeOptionalInteger = (value) => {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (value === null || value === '') {
+        return null;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? value : parsed;
+};
+
 class UserModel {
     // Create new user
     static async create(userData) {
@@ -122,8 +144,18 @@ class UserModel {
     // Update user profile
     static async update(userId, updateData) {
         const payload = updateData || {};
+        const userResult = await query(
+            'SELECT role FROM users WHERE user_id = $1 LIMIT 1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            throw new Error('User not found');
+        }
+
+        const userRole = userResult.rows[0].role;
         const studentData = payload.student_data && typeof payload.student_data === 'object'
-            ? payload.student_data
+            ? { ...payload.student_data }
             : null;
         const companyData = payload.company_data && typeof payload.company_data === 'object'
             ? payload.company_data
@@ -143,9 +175,17 @@ class UserModel {
         for (const [key, value] of Object.entries(payload)) {
             if (key === 'student_data') continue;
             if (!allowedUserFields.has(key)) continue;
-            if (value !== undefined) {
+            let normalizedValue = value;
+
+            if (key === 'email') {
+                normalizedValue = normalizeOptionalString(value)?.toLowerCase();
+            } else {
+                normalizedValue = normalizeOptionalString(value);
+            }
+
+            if (normalizedValue !== undefined) {
                 userFields.push(`${key} = $${userIndex}`);
-                userValues.push(value);
+                userValues.push(normalizedValue);
                 userIndex++;
             }
         }
@@ -160,6 +200,56 @@ class UserModel {
         }
 
         if (studentData) {
+            if (userRole === 'student' || userRole === 'graduate') {
+                await query(
+                    `INSERT INTO students (student_id, student_type)
+                     VALUES ($1, $2)
+                     ON CONFLICT (student_id) DO NOTHING`,
+                    [userId, userRole === 'graduate' ? 'graduate' : 'current']
+                );
+            }
+
+            if (studentData.university_id !== undefined) {
+                studentData.university_id = normalizeOptionalString(studentData.university_id);
+            }
+            if (studentData.program !== undefined) {
+                studentData.program = normalizeOptionalString(studentData.program);
+            }
+            if (studentData.student_type !== undefined) {
+                studentData.student_type = normalizeOptionalString(studentData.student_type);
+            }
+            if (studentData.experience_level !== undefined) {
+                studentData.experience_level = normalizeOptionalString(studentData.experience_level);
+            }
+            if (studentData.bio !== undefined) {
+                studentData.bio = normalizeOptionalString(studentData.bio);
+            }
+            if (studentData.resume_url !== undefined) {
+                studentData.resume_url = normalizeOptionalString(studentData.resume_url);
+            }
+            if (studentData.github_url !== undefined) {
+                studentData.github_url = normalizeOptionalString(studentData.github_url);
+            }
+            if (studentData.linkedin_url !== undefined) {
+                studentData.linkedin_url = normalizeOptionalString(studentData.linkedin_url);
+            }
+            if (studentData.expected_graduation_year !== undefined) {
+                studentData.expected_graduation_year = normalizeOptionalInteger(
+                    studentData.expected_graduation_year
+                );
+            }
+            if (studentData.graduation_year !== undefined) {
+                studentData.graduation_year = normalizeOptionalInteger(
+                    studentData.graduation_year
+                );
+            }
+
+            if (userRole === 'student') {
+                studentData.student_type = 'current';
+            } else if (userRole === 'graduate') {
+                studentData.student_type = 'graduate';
+            }
+
             const allowedStudentFields = new Set([
                 'university_id',
                 'program',

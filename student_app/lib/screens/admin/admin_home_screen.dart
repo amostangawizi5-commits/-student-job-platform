@@ -1,32 +1,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../../services/api_service.dart';
-import '../../widgets/statistic_card.dart';
-import 'admin_application_filter.dart';
-import 'admin_export_utils.dart';
-import 'admin_user_filter.dart';
 
 const Color _adminBrandNavy = Color(0xFF0E3A5D);
 const Color _adminBrandOrange = Color(0xFFEF6C00);
-const Color _adminBrandOrangeSoft = Color(0xFFFFEDD5);
-const Color _adminBrandNavySoft = Color(0xFFEAF2F8);
-const Color _adminBrandSuccess = Color(0xFF1D8F5A);
-const Color _adminBrandDanger = Color(0xFFD84315);
+const Color _adminBrandSand = Color(0xFFFFE0B2);
+const Color _adminBrandSky = Color(0xFF3B82F6);
+const Color _adminBrandInk = Color(0xFF1E293B);
 
 class AdminHomeScreen extends StatefulWidget {
-  final String adminName;
-  final void Function(
-    int index, {
-    AdminUserFilter? userFilter,
-    AdminApplicationFilter? applicationFilter,
-  })?
-  onNavigateToTab;
+  final String? adminName;
+  final ValueChanged<int>? onNavigateToTab;
 
-  const AdminHomeScreen({
-    super.key,
-    required this.adminName,
-    this.onNavigateToTab,
-  });
+  const AdminHomeScreen({super.key, this.adminName, this.onNavigateToTab});
 
   @override
   State<AdminHomeScreen> createState() => _AdminHomeScreenState();
@@ -34,17 +21,17 @@ class AdminHomeScreen extends StatefulWidget {
 
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
   final ApiService _apiService = ApiService();
-  final TextEditingController _searchController = TextEditingController();
 
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
-  String _selectedDashboardFilter = 'all';
-  String _searchQuery = '';
-  Map<String, dynamic>? _stats;
-  List<dynamic> _users = [];
-  List<dynamic> _applications = [];
-  List<dynamic> _reports = [];
+  Map<String, dynamic> _stats = const {};
+  List<Map<String, dynamic>> _recentActivities = const [];
+  List<Map<String, dynamic>> _topCompanies = const [];
+  List<Map<String, dynamic>> _users = const [];
+  List<Map<String, dynamic>> _jobs = const [];
+  List<Map<String, dynamic>> _applications = const [];
+  List<Map<String, dynamic>> _pendingApplications = const [];
 
   void _log(String message) {
     if (kDebugMode) {
@@ -55,16 +42,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
+    _fetchDashboardData();
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadDashboardData() async {
+  Future<void> _fetchDashboardData() async {
     setState(() {
       _isLoading = true;
       _hasError = false;
@@ -72,97 +53,167 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     });
 
     try {
-      _log('Fetching admin dashboard data');
-      final responses = await Future.wait<Map<String, dynamic>>([
+      final responses = await Future.wait([
         _apiService.getAdminStats(),
+        _apiService.getAdminLogs(),
+        _apiService.getAdminJobs(),
         _apiService.getUsers(),
         _apiService.getApplications(),
-        _apiService.getAdminLogs(),
       ]);
 
-      if (!mounted) return;
-
       final statsResponse = responses[0];
-      final usersResponse = responses[1];
-      final applicationsResponse = responses[2];
-      final reportsResponse = responses[3];
+      final logsResponse = responses[1];
+      final jobsResponse = responses[2];
+      final usersResponse = responses[3];
+      final pendingApplicationsResponse = responses[4];
 
-      final stats =
-          statsResponse['success'] == true && statsResponse['data'] is Map
-          ? Map<String, dynamic>.from(statsResponse['data'])
-          : <String, dynamic>{};
-      final users =
-          usersResponse['success'] == true && usersResponse['data'] is List
-          ? List<dynamic>.from(usersResponse['data'])
-          : <dynamic>[];
-      final applications =
-          applicationsResponse['success'] == true &&
-              applicationsResponse['data'] is List
-          ? List<dynamic>.from(applicationsResponse['data'])
-          : <dynamic>[];
-      final reports =
-          reportsResponse['success'] == true && reportsResponse['data'] is List
-          ? List<dynamic>.from(reportsResponse['data'])
-          : <dynamic>[];
-
-      final hasAnyData =
-          stats.isNotEmpty ||
-          users.isNotEmpty ||
-          applications.isNotEmpty ||
-          reports.isNotEmpty;
+      if (statsResponse['success'] != true) {
+        throw Exception(statsResponse['message'] ?? 'Failed to load stats');
+      }
 
       setState(() {
-        _stats = stats;
-        _users = users;
-        _applications = applications;
-        _reports = reports;
+        _stats = statsResponse['data'] is Map<String, dynamic>
+            ? statsResponse['data']
+            : _fallbackStats();
+        _users = _mapRecords(usersResponse['data']);
+        _jobs = _mapRecords(jobsResponse['data']);
+        _applications = _mapRecords(pendingApplicationsResponse['data']);
+        _pendingApplications = _applications
+            .where(
+              (application) =>
+                  _normalizedStatus(application['status']) == 'pending',
+            )
+            .toList(growable: false);
+        _recentActivities = logsResponse['data'] is List
+            ? _mapRecentActivities(logsResponse['data'])
+            : _fallbackRecentActivities();
+        _topCompanies = _jobs.isNotEmpty
+            ? _mapTopCompanies(_jobs)
+            : _fallbackTopCompanies();
         _isLoading = false;
-        _hasError = !hasAnyData;
-        _errorMessage =
-            statsResponse['message']?.toString() ?? 'Failed to load dashboard';
       });
-    } catch (e) {
-      if (!mounted) return;
+    } catch (error) {
+      _log('Admin dashboard error: $error');
       setState(() {
+        _stats = _fallbackStats();
+        _recentActivities = _fallbackRecentActivities();
+        _topCompanies = _fallbackTopCompanies();
+        _users = const [];
+        _jobs = const [];
+        _applications = const [];
+        _pendingApplications = const [];
         _isLoading = false;
         _hasError = true;
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        _errorMessage = '$error';
       });
     }
   }
 
-  Future<void> _exportDashboardReport() async {
-    final stats = _stats ?? <String, dynamic>{};
-    await AdminExportUtils.showExportDialog(
-      context,
-      title: 'dashboard report',
-      filePrefix: 'dashboard_report',
-      headers: const ['Metric', 'Value'],
-      rows: [
-        ['Total users', '${_totalUsers(stats)}'],
-        ['Pending applications', '${_pendingApplications(stats)}'],
-        ['Approved applications', '${_approvedApplications(stats)}'],
-        ['Rejected applications', '${_rejectedApplications(stats)}'],
-        ['Total applications', '${_totalApplications(stats)}'],
-        ['Total companies', '${_asInt(stats['total_companies'])}'],
-        ['Total jobs', '${_asInt(stats['total_jobs'])}'],
-        ['New applications today', '$_newApplicationsToday'],
-      ],
-    );
+  List<Map<String, dynamic>> _mapRecords(dynamic data) {
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) {
+          final mapped = <String, dynamic>{};
+          for (final entry in item.entries) {
+            mapped['${entry.key}'] = entry.value;
+          }
+          return mapped;
+        })
+        .toList(growable: false);
   }
 
-  void _openUsers([AdminUserFilter filter = AdminUserFilter.all]) {
-    widget.onNavigateToTab?.call(1, userFilter: filter);
+  Map<String, dynamic> _fallbackStats() {
+    return const {
+      'total_users': 0,
+      'total_students': 0,
+      'total_companies': 0,
+      'total_jobs': 0,
+      'total_applications': 0,
+      'pending_applications': 0,
+      'approved_applications': 0,
+      'rejected_applications': 0,
+      'weekly_registrations': [12, 18, 15, 22, 19, 24, 20],
+    };
   }
 
-  void _openApplications([
-    AdminApplicationFilter filter = AdminApplicationFilter.all,
-  ]) {
-    widget.onNavigateToTab?.call(2, applicationFilter: filter);
+  List<Map<String, dynamic>> _fallbackRecentActivities() {
+    return const [
+      {
+        'action': 'System ready',
+        'user': 'Admin',
+        'time': 'Just now',
+        'type': 'admin',
+      },
+    ];
   }
 
-  void _openReports() {
-    widget.onNavigateToTab?.call(3);
+  List<Map<String, dynamic>> _fallbackTopCompanies() {
+    return const [
+      {'name': 'No company data yet', 'jobs': 0, 'logo': '--'},
+    ];
+  }
+
+  List<Map<String, dynamic>> _mapRecentActivities(List<dynamic> logs) {
+    final mapped = logs.whereType<Map>().map((entry) {
+      final category = '${entry['category'] ?? 'admin'}'.toLowerCase();
+      final actorName =
+          '${entry['actor_name'] ?? entry['user_involved_name'] ?? 'System'}';
+      final eventType =
+          '${entry['event_type'] ?? entry['message'] ?? 'Activity'}';
+
+      return {
+        'action': eventType,
+        'user': actorName,
+        'time': _formatRelativeTime(entry['created_at']?.toString()),
+        'type': _mapActivityType(category),
+      };
+    }).toList();
+
+    return mapped.isEmpty ? _fallbackRecentActivities() : mapped;
+  }
+
+  List<Map<String, dynamic>> _mapTopCompanies(List<Map<String, dynamic>> jobs) {
+    final counts = <String, int>{};
+
+    for (final job in jobs) {
+      final rawName = '${job['company_name'] ?? 'Unknown Company'}'.trim();
+      final name = rawName.isEmpty ? 'Unknown Company' : rawName;
+      counts.update(name, (count) => count + 1, ifAbsent: () => 1);
+    }
+
+    final mapped =
+        counts.entries
+            .map(
+              (entry) => {
+                'name': entry.key,
+                'jobs': entry.value,
+                'logo': _buildInitials(entry.key),
+              },
+            )
+            .toList()
+          ..sort((a, b) => (b['jobs'] as int).compareTo(a['jobs'] as int));
+
+    if (mapped.isEmpty) {
+      return _fallbackTopCompanies();
+    }
+
+    return mapped.take(5).toList(growable: false);
+  }
+
+  String _buildInitials(String name) {
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.trim().isNotEmpty)
+        .toList();
+
+    if (parts.isEmpty) return '--';
+    if (parts.length == 1) {
+      final word = parts.first;
+      return word.length >= 2 ? word.substring(0, 2).toUpperCase() : word;
+    }
+
+    return '${parts.first[0]}${parts[1][0]}'.toUpperCase();
   }
 
   int _asInt(dynamic value) {
@@ -191,47 +242,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         first.day == second.day;
   }
 
-  String _weekdayLabel(DateTime date) {
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return weekdays[date.weekday - 1];
-  }
-
-  int _totalUsers(Map<String, dynamic> stats) {
-    return _asInt(stats['total_users']) == 0
-        ? _users.length
-        : _asInt(stats['total_users']);
-  }
-
-  int _totalApplications(Map<String, dynamic> stats) {
-    return _asInt(stats['total_applications']) == 0
-        ? _applications.length
-        : _asInt(stats['total_applications']);
-  }
-
-  int _pendingApplications(Map<String, dynamic> stats) {
-    final fromStats = _asInt(stats['pending_applications']);
-    if (fromStats > 0) return fromStats;
-    return _applications
-        .where((app) => _normalizedStatus(app['status']) == 'pending')
-        .length;
-  }
-
-  int _approvedApplications(Map<String, dynamic> stats) {
-    final fromStats = _asInt(stats['approved_applications']);
-    if (fromStats > 0) return fromStats;
-    return _applications
-        .where((app) => _normalizedStatus(app['status']) == 'approved')
-        .length;
-  }
-
-  int _rejectedApplications(Map<String, dynamic> stats) {
-    final fromStats = _asInt(stats['rejected_applications']);
-    if (fromStats > 0) return fromStats;
-    return _applications
-        .where((app) => _normalizedStatus(app['status']) == 'rejected')
-        .length;
-  }
-
   int get _newApplicationsToday {
     final today = DateTime.now();
     return _applications.where((application) {
@@ -242,281 +252,296 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }).length;
   }
 
-  int get _applicationsThisWeek {
-    return _applicationSeries().fold<int>(
-      0,
-      (total, point) => total + point.count,
-    );
-  }
-
-  double get _averageApplicationsPerDay {
-    return _applicationsThisWeek / 7;
-  }
-
-  _DailyApplicationsPoint? get _peakApplicationDay {
-    final series = _applicationSeries();
-    if (series.isEmpty) return null;
-
-    _DailyApplicationsPoint peak = series.first;
-    for (final point in series.skip(1)) {
-      if (point.count > peak.count) {
-        peak = point;
-      }
-    }
-    return peak;
-  }
-
-  List<_DailyApplicationsPoint> _applicationSeries() {
+  List<int> _applicationSeries() {
     final today = DateTime.now();
     final start = DateTime(
       today.year,
       today.month,
       today.day,
     ).subtract(const Duration(days: 6));
-    final counts = <DateTime, int>{};
-
-    for (var i = 0; i < 7; i++) {
-      final day = start.add(Duration(days: i));
-      counts[DateTime(day.year, day.month, day.day)] = 0;
-    }
+    final counts = List<int>.filled(7, 0);
 
     for (final application in _applications) {
       final appliedDate = _parseDate(
         application['applied_date'] ?? application['created_at'],
       );
       if (appliedDate == null) continue;
-      final key = DateTime(
+
+      final normalizedDate = DateTime(
         appliedDate.year,
         appliedDate.month,
         appliedDate.day,
       );
-      if (counts.containsKey(key)) {
-        counts[key] = (counts[key] ?? 0) + 1;
+      final difference = normalizedDate.difference(start).inDays;
+      if (difference >= 0 && difference < 7) {
+        counts[difference] += 1;
       }
     }
 
-    return counts.entries
-        .map(
-          (entry) =>
-              _DailyApplicationsPoint(date: entry.key, count: entry.value),
-        )
-        .toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
+    return counts;
   }
 
-  bool _matchesUserSearch(dynamic user) {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return false;
+  List<String> _applicationDayLabels() {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final today = DateTime.now();
+    final start = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(const Duration(days: 6));
 
-    final searchable = [
-      '${user['full_name'] ?? ''}',
-      '${user['company_name'] ?? ''}',
-      '${user['email'] ?? ''}',
-      '${user['role'] ?? ''}',
-      '${user['phone'] ?? ''}',
-      '${user['location'] ?? ''}',
-    ];
-
-    return searchable.any((value) => value.toLowerCase().contains(query));
+    return List<String>.generate(7, (index) {
+      final date = start.add(Duration(days: index));
+      return weekdays[date.weekday - 1];
+    }, growable: false);
   }
 
-  bool _matchesApplicationSearch(dynamic application) {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return true;
-
-    final searchable = [
-      '${application['user_name'] ?? ''}',
-      '${application['email'] ?? ''}',
-      '${application['company_name'] ?? ''}',
-      '${application['job_title'] ?? ''}',
-      '${application['status'] ?? ''}',
-    ];
-
-    return searchable.any((value) => value.toLowerCase().contains(query));
+  int _totalApplicationsThisWeek(List<int> weeklyData) {
+    return weeklyData.fold<int>(0, (total, value) => total + value);
   }
 
-  bool _matchesApplicationFilter(dynamic application) {
-    if (_selectedDashboardFilter == 'all') return true;
-    return _normalizedStatus(application['status']) == _selectedDashboardFilter;
+  String _peakApplicationsLabel(List<int> weeklyData) {
+    if (weeklyData.isEmpty) return 'No peak yet';
+
+    final peak = weeklyData.reduce((a, b) => a > b ? a : b);
+    if (peak == 0) return 'No peak yet';
+
+    final labels = _applicationDayLabels();
+    final peakIndex = weeklyData.indexOf(peak);
+    final dayLabel = peakIndex >= 0 && peakIndex < labels.length
+        ? labels[peakIndex]
+        : 'Day ${peakIndex + 1}';
+
+    return '$dayLabel • $peak';
   }
 
-  List<dynamic> _applicationsForDashboardCards() {
-    if (_searchQuery.trim().isEmpty) {
-      return List<dynamic>.from(_applications);
+  String _mapActivityType(String category) {
+    switch (category) {
+      case 'login':
+        return 'user';
+      case 'application':
+        return 'application';
+      case 'company':
+        return 'company';
+      case 'job':
+        return 'job';
+      case 'error':
+        return 'error';
+      default:
+        return 'admin';
+    }
+  }
+
+  String _formatRelativeTime(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Unknown time';
     }
 
-    return _applications.where(_matchesApplicationSearch).toList();
+    try {
+      final date = DateTime.parse(value).toLocal();
+      final diff = DateTime.now().difference(date);
+
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes} mins ago';
+      if (diff.inHours < 24) return '${diff.inHours} hours ago';
+      if (diff.inDays < 7) return '${diff.inDays} days ago';
+
+      final day = date.day.toString().padLeft(2, '0');
+      final month = date.month.toString().padLeft(2, '0');
+      return '$day/$month/${date.year}';
+    } catch (_) {
+      return value;
+    }
   }
 
-  int _applicationCountForCard(String filter) {
-    final applications = _applicationsForDashboardCards();
-    if (filter == 'all') return applications.length;
-
-    return applications
-        .where(
-          (application) => _normalizedStatus(application['status']) == filter,
-        )
-        .length;
-  }
-
-  void _setDashboardFilter(String filter) {
-    if (_selectedDashboardFilter == filter) return;
-    setState(() => _selectedDashboardFilter = filter);
-  }
-
-  List<dynamic> _filteredApplications() {
-    final filtered = _applications
-        .where(_matchesApplicationFilter)
-        .where(_matchesApplicationSearch)
-        .toList();
-
-    filtered.sort((a, b) {
-      final first = _parseDate(b['applied_date'] ?? b['created_at']);
-      final second = _parseDate(a['applied_date'] ?? a['created_at']);
-      if (first == null && second == null) return 0;
-      if (first == null) return 1;
-      if (second == null) return -1;
-      return first.compareTo(second);
-    });
-
-    return filtered;
-  }
-
-  List<dynamic> _filteredUsers() {
-    final filtered = _users.where(_matchesUserSearch).toList();
-    filtered.sort((a, b) {
-      final first = '${a['full_name'] ?? a['company_name'] ?? ''}'
-          .toLowerCase();
-      final second = '${b['full_name'] ?? b['company_name'] ?? ''}'
-          .toLowerCase();
-      return first.compareTo(second);
-    });
-    return filtered;
-  }
-
-  List<dynamic> _recentReports() {
-    final reports = List<dynamic>.from(_reports);
-    reports.sort((a, b) {
-      final first = _parseDate(b['created_at']);
-      final second = _parseDate(a['created_at']);
-      if (first == null && second == null) return 0;
-      if (first == null) return 1;
-      if (second == null) return -1;
-      return first.compareTo(second);
-    });
-    return reports.take(5).toList();
-  }
-
-  String _formatRelativeTime(dynamic rawDate) {
-    final parsed = _parseDate(rawDate);
-    if (parsed == null) return 'Unknown time';
-
-    final difference = DateTime.now().difference(parsed);
-    if (difference.inMinutes < 1) return 'Just now';
-    if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
-    if (difference.inHours < 24) return '${difference.inHours} hr ago';
-    if (difference.inDays == 1) return 'Yesterday';
-    return '${difference.inDays} days ago';
-  }
-
-  String _formatAppliedDate(dynamic rawDate) {
-    final parsed = _parseDate(rawDate);
-    if (parsed == null) return 'No date';
-    final day = parsed.day.toString().padLeft(2, '0');
-    final month = parsed.month.toString().padLeft(2, '0');
-    return '$day/$month/${parsed.year}';
-  }
-
-  double _percentage(int value, int total) {
-    if (total <= 0) return 0;
-    return value / total;
-  }
-
-  Widget _buildQuickAction({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(22),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: color.withValues(alpha: 0.12)),
-            gradient: LinearGradient(
-              colors: [
-                Colors.white,
-                color.withValues(alpha: 0.05),
-                color.withValues(alpha: 0.12),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 12),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      color.withValues(alpha: 0.18),
-                      color.withValues(alpha: 0.08),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(icon, color: color, size: 24),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(color: Colors.grey.shade700, height: 1.35),
-              ),
-            ],
-          ),
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('Loading dashboard...'),
+          ],
         ),
+      );
+    }
+
+    final applicationSeries = _applicationSeries();
+
+    return RefreshIndicator(
+      onRefresh: _fetchDashboardData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (_hasError)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Material(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Text(
+                    'Dashboard loaded with fallback data. $_errorMessage',
+                    style: TextStyle(color: Colors.red.shade700),
+                  ),
+                ),
+              ),
+            ),
+          _buildWelcomeSection(),
+          const SizedBox(height: 20),
+          _buildNotificationPanel(),
+          const SizedBox(height: 20),
+          _buildStatsSection(),
+          const SizedBox(height: 20),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth > 800) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: _buildApplicationsChart(applicationSeries),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(child: _buildTopCompaniesList()),
+                  ],
+                );
+              }
+
+              return Column(
+                children: [
+                  _buildApplicationsChart(applicationSeries),
+                  const SizedBox(height: 16),
+                  _buildTopCompaniesList(),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          _buildRecentActivities(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWelcomeSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _adminBrandNavy,
+            const Color(0xFF153E63),
+            _adminBrandOrange.withValues(alpha: 0.92),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _adminBrandNavy.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Welcome Admin!',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _newApplicationsToday == 1
+                      ? 'Welcome ${widget.adminName ?? 'Admin'}, there is 1 new application today.'
+                      : 'Welcome ${widget.adminName ?? 'Admin'}, there are $_newApplicationsToday new applications today.',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildHeroChip(
+                      label:
+                          '${_pendingApplications.length} pending approval${_pendingApplications.length == 1 ? '' : 's'}',
+                      icon: Icons.pending_actions_rounded,
+                    ),
+                    _buildHeroChip(
+                      label:
+                          '${_asInt(_stats['total_applications'])} total applications',
+                      icon: Icons.description_rounded,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.admin_panel_settings,
+              color: Colors.white,
+              size: 40,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildHeroChip({required String label, required IconData icon}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.18),
+            _adminBrandSand.withValues(alpha: 0.18),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: Colors.white),
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: _adminBrandOrange.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 14, color: Colors.white),
+          ),
           const SizedBox(width: 8),
           Text(
             label,
@@ -530,348 +555,64 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  Widget _buildAnalyticsCard({
-    required String title,
-    required String subtitle,
-    required Widget child,
-    Widget? trailing,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _adminBrandOrange.withValues(alpha: 0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: _adminBrandNavy.withValues(alpha: 0.06),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ...?trailing == null ? null : [trailing],
-            ],
-          ),
-          const SizedBox(height: 18),
-          child,
-        ],
-      ),
-    );
-  }
+  Widget _buildNotificationPanel() {
+    final latestUser = _users.isNotEmpty ? _users.first : null;
+    final latestJob = _jobs.isNotEmpty ? _jobs.first : null;
+    final latestPending = _pendingApplications.isNotEmpty
+        ? _pendingApplications.first
+        : null;
+    final pendingCount =
+        int.tryParse('${_stats['pending_applications'] ?? 0}') ?? 0;
 
-  Widget _buildApplicationsPerDayCard() {
-    final series = _applicationSeries();
-    final peakDay = _peakApplicationDay;
-    final totalWeeklyApplications = _applicationsThisWeek;
-    final averagePerDay = _averageApplicationsPerDay;
-    final currentStats = _stats ?? <String, dynamic>{};
-    final totalJobs = _asInt(currentStats['total_jobs']);
-    final totalCompanies = _asInt(currentStats['total_companies']);
-
-    return _buildAnalyticsCard(
-      title: 'Applications per day',
-      subtitle:
-          '$totalWeeklyApplications submissions captured over the last 7 days.',
-      trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: _adminBrandOrangeSoft,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          peakDay == null ? '7 days' : 'Peak ${_weekdayLabel(peakDay.date)}',
-          style: const TextStyle(
-            color: _adminBrandOrange,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _InsightMetricTile(
-                  label: 'This week',
-                  value: '$totalWeeklyApplications',
-                  color: _adminBrandNavy,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _InsightMetricTile(
-                  label: 'Avg / day',
-                  value: averagePerDay.toStringAsFixed(
-                    averagePerDay >= 10 ? 0 : 1,
-                  ),
-                  color: _adminBrandOrange,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _InsightMetricTile(
-                  label: 'Open system',
-                  value: '$totalJobs jobs',
-                  color: _adminBrandSuccess,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  _adminBrandNavySoft,
-                  Colors.white,
-                  _adminBrandOrangeSoft.withValues(alpha: 0.42),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: _adminBrandNavy.withValues(alpha: 0.08),
-              ),
-            ),
-            child: SizedBox(
-              height: 210,
-              child: _ApplicationsLineChart(points: series),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _MiniInsightChip(
-                  label: 'Today',
-                  value: '$_newApplicationsToday',
-                  color: _adminBrandOrange,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MiniInsightChip(
-                  label: 'Peak day',
-                  value: peakDay == null
-                      ? 'N/A'
-                      : '${_weekdayLabel(peakDay.date)} • ${peakDay.count}',
-                  color: _adminBrandNavy,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MiniInsightChip(
-                  label: 'Companies',
-                  value: '$totalCompanies active',
-                  color: _adminBrandSuccess,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildApprovalSplitCard(
-    int approved,
-    int rejected,
-    int pending,
-    int totalApplications,
-  ) {
-    final approvalRate = _percentage(approved, totalApplications);
-    final pendingRate = _percentage(pending, totalApplications);
-    final decisionRate = _percentage(approved + rejected, totalApplications);
-    final dominantLabel = () {
-      final counts = <String, int>{
-        'Approved': approved,
-        'Rejected': rejected,
-        'Pending': pending,
-      };
-      counts.removeWhere((_, value) => value <= 0);
-      if (counts.isEmpty) return 'No outcome yet';
-      final top = counts.entries.reduce(
-        (current, next) => next.value > current.value ? next : current,
-      );
-      return '${top.key} leads';
-    }();
-
-    return _buildAnalyticsCard(
-      title: 'Approved vs rejected',
-      subtitle: 'Dynamic split based on the latest application statuses.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _InsightMetricTile(
-                  label: 'Approval rate',
-                  value: '${(approvalRate * 100).round()}%',
-                  color: _adminBrandSuccess,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _InsightMetricTile(
-                  label: 'Pending share',
-                  value: '${(pendingRate * 100).round()}%',
-                  color: _adminBrandOrange,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _InsightMetricTile(
-                  label: 'Decisions made',
-                  value: '${(decisionRate * 100).round()}%',
-                  color: _adminBrandNavy,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.white,
-                  _adminBrandNavySoft,
-                  _adminBrandOrangeSoft.withValues(alpha: 0.3),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: _adminBrandNavy.withValues(alpha: 0.08),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _ApprovalDonutChart(
-                    approved: approved,
-                    rejected: rejected,
-                    pending: pending,
-                    total: totalApplications,
-                  ),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _StatusMetricRow(
-                        label: 'Approved',
-                        value: '$approved',
-                        percentage: approvalRate,
-                        color: _adminBrandSuccess,
-                      ),
-                      const SizedBox(height: 12),
-                      _StatusMetricRow(
-                        label: 'Rejected',
-                        value: '$rejected',
-                        percentage: _percentage(rejected, totalApplications),
-                        color: _adminBrandDanger,
-                      ),
-                      const SizedBox(height: 12),
-                      _StatusMetricRow(
-                        label: 'Pending',
-                        value: '$pending',
-                        percentage: pendingRate,
-                        color: _adminBrandOrange,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: const [
-              _InsightLegendChip(label: 'Approved', color: _adminBrandSuccess),
-              _InsightLegendChip(label: 'Rejected', color: _adminBrandDanger),
-              _InsightLegendChip(label: 'Pending', color: _adminBrandOrange),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: _adminBrandNavySoft,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Text(
-              totalApplications == 0
-                  ? 'No application outcomes yet.'
-                  : '$dominantLabel across $totalApplications applications. $approved approved, $rejected rejected, and $pending pending.',
-              style: const TextStyle(
-                color: _adminBrandNavy,
-                fontWeight: FontWeight.w600,
-                height: 1.35,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchAndFilterPanel(
-    List<dynamic> matchedUsers,
-    List<dynamic> matchedApplications,
-  ) {
-    final resultsCount = matchedUsers.length + matchedApplications.length;
+    final items = [
+      {
+        'title': 'New User Registered',
+        'message': latestUser == null
+            ? 'No newly registered users yet'
+            : '${latestUser['full_name'] ?? latestUser['email'] ?? 'New user'} joined the platform',
+        'meta': latestUser == null
+            ? 'User updates will appear here'
+            : _formatRelativeTime(latestUser['created_at']?.toString()),
+        'icon': Icons.person_add_alt_1_rounded,
+        'color': Colors.blue,
+        'onTap': () => widget.onNavigateToTab?.call(1),
+      },
+      {
+        'title': 'New Job Posted',
+        'message': latestJob == null
+            ? 'No jobs have been posted yet'
+            : '${latestJob['title'] ?? 'New job'} was posted by ${latestJob['company_name'] ?? 'a company'}',
+        'meta': latestJob == null
+            ? 'Recent job activity appears here'
+            : _formatRelativeTime(latestJob['created_at']?.toString()),
+        'icon': Icons.campaign_rounded,
+        'color': Colors.orange,
+        'onTap': null,
+      },
+      {
+        'title': 'Pending Approval',
+        'message': pendingCount == 0
+            ? 'No pending approvals right now'
+            : '$pendingCount application${pendingCount == 1 ? '' : 's'} waiting for review',
+        'meta': latestPending == null
+            ? 'Open applications to review requests'
+            : '${latestPending['user_name'] ?? latestPending['email'] ?? 'Applicant'} for ${latestPending['job_title'] ?? 'a job'}',
+        'icon': Icons.pending_actions_rounded,
+        'color': Colors.redAccent,
+        'onTap': () => widget.onNavigateToTab?.call(2),
+      },
+    ];
 
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            color: Colors.grey.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -879,1307 +620,731 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Search and filter',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            'Notification Panel',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF333333),
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
-            'Search any user or application, then narrow application results by status.',
-            style: TextStyle(color: Colors.grey.shade600, height: 1.35),
+            'Track new registrations, new jobs, and approvals that need attention.',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final stacked = constraints.maxWidth < 700;
-
-              if (stacked) {
-                return Column(
-                  children: [
-                    _buildSearchField(),
-                    const SizedBox(height: 12),
-                    _buildFilterDropdown(),
-                  ],
-                );
-              }
-
-              return Row(
-                children: [
-                  Expanded(flex: 3, child: _buildSearchField()),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildFilterDropdown()),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _DashboardBadge(
-                icon: Icons.manage_search_rounded,
-                label: '$resultsCount matches',
-                color: _adminBrandNavy,
-              ),
-              _DashboardBadge(
-                icon: Icons.assignment_rounded,
-                label: '${matchedApplications.length} applications',
-                color: _adminBrandOrange,
-              ),
-              _DashboardBadge(
-                icon: Icons.people_alt_rounded,
-                label: '${matchedUsers.length} users',
-                color: _adminBrandNavy,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchField() {
-    return TextField(
-      controller: _searchController,
-      onChanged: (value) => setState(() => _searchQuery = value),
-      decoration: InputDecoration(
-        hintText: 'Search user, email, company, application...',
-        prefixIcon: const Icon(Icons.search_rounded),
-        suffixIcon: _searchQuery.isEmpty
-            ? null
-            : IconButton(
-                onPressed: () {
-                  _searchController.clear();
-                  setState(() => _searchQuery = '');
-                },
-                icon: const Icon(Icons.close_rounded),
-              ),
-        filled: true,
-        fillColor: Colors.grey.shade50,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: _adminBrandOrange, width: 1.5),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilterDropdown() {
-    return DropdownButtonFormField<String>(
-      initialValue: _selectedDashboardFilter,
-      onChanged: (value) {
-        if (value == null) return;
-        setState(() => _selectedDashboardFilter = value);
-      },
-      decoration: InputDecoration(
-        labelText: 'Filter',
-        filled: true,
-        fillColor: Colors.grey.shade50,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: _adminBrandOrange, width: 1.5),
-        ),
-      ),
-      items: const [
-        DropdownMenuItem(value: 'all', child: Text('All')),
-        DropdownMenuItem(value: 'pending', child: Text('Pending')),
-        DropdownMenuItem(value: 'approved', child: Text('Approved')),
-        DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
-      ],
-    );
-  }
-
-  Widget _buildSearchResultsSection(
-    List<dynamic> matchedUsers,
-    List<dynamic> matchedApplications,
-  ) {
-    final showUsers = matchedUsers.isNotEmpty;
-    final showApplications = matchedApplications.isNotEmpty;
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Dashboard results',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _openReports,
-                icon: const Icon(Icons.insights_rounded, size: 18),
-                label: const Text('Open report'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _searchQuery.trim().isEmpty
-                ? 'Latest application updates based on the selected filter.'
-                : 'Showing matches for "${_searchQuery.trim()}".',
-            style: TextStyle(color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 16),
-          if (!showApplications && !showUsers)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: const Text(
-                'No users or applications match the current search and filter.',
-              ),
-            )
-          else ...[
-            if (showApplications) ...[
-              _SectionHeader(
-                title: 'Applications',
-                actionLabel: 'Open applications',
-                onTap: () => _openApplications(
-                  _selectedDashboardFilter == 'pending'
-                      ? AdminApplicationFilter.pending
-                      : _selectedDashboardFilter == 'approved'
-                      ? AdminApplicationFilter.approved
-                      : _selectedDashboardFilter == 'rejected'
-                      ? AdminApplicationFilter.rejected
-                      : AdminApplicationFilter.all,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ...matchedApplications.take(4).map((application) {
-                final status = _normalizedStatus(application['status']);
-                final color = status == 'approved'
-                    ? _adminBrandSuccess
-                    : status == 'rejected'
-                    ? _adminBrandDanger
-                    : _adminBrandOrange;
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _ResultTile(
-                    icon: Icons.assignment_turned_in_rounded,
-                    color: color,
-                    title:
-                        '${application['user_name'] ?? 'Applicant'} • ${application['job_title'] ?? 'Job'}',
-                    subtitle:
-                        '${application['company_name'] ?? 'Unknown company'} • ${_formatAppliedDate(application['applied_date'] ?? application['created_at'])}',
-                    badge: status.isEmpty ? 'pending' : status,
-                    onTap: () => _openApplications(
-                      status == 'approved'
-                          ? AdminApplicationFilter.approved
-                          : status == 'rejected'
-                          ? AdminApplicationFilter.rejected
-                          : status == 'pending'
-                          ? AdminApplicationFilter.pending
-                          : AdminApplicationFilter.all,
-                    ),
+          ...items.map((item) {
+            final color = item['color'] as Color;
+            final onTap = item['onTap'] as void Function()?;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: color.withValues(alpha: 0.2)),
                   ),
-                );
-              }),
-            ],
-            if (showApplications && showUsers) const SizedBox(height: 18),
-            if (showUsers) ...[
-              _SectionHeader(
-                title: 'Users',
-                actionLabel: 'Open users',
-                onTap: () => _openUsers(AdminUserFilter.all),
-              ),
-              const SizedBox(height: 12),
-              ...matchedUsers.take(4).map((user) {
-                final role = '${user['role'] ?? 'user'}';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _ResultTile(
-                    icon: Icons.person_search_rounded,
-                    color: _adminBrandNavy,
-                    title:
-                        '${user['full_name'] ?? user['company_name'] ?? 'User'}',
-                    subtitle:
-                        '${user['email'] ?? ''} • ${user['location'] ?? 'No location'}',
-                    badge: role,
-                    onTap: () => _openUsers(
-                      role == 'company'
-                          ? AdminUserFilter.companies
-                          : role == 'student' || role == 'graduate'
-                          ? AdminUserFilter.registeredUsers
-                          : AdminUserFilter.all,
-                    ),
-                  ),
-                );
-              }),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecentActivitySection(List<dynamic> reports) {
-    return _buildAnalyticsCard(
-      title: 'Recent activity',
-      subtitle: 'Latest system and admin report events.',
-      trailing: TextButton.icon(
-        onPressed: _openReports,
-        icon: const Icon(Icons.receipt_long_rounded, size: 18),
-        label: const Text('Open report'),
-      ),
-      child: reports.isEmpty
-          ? Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: const Text('No recent report activity available yet.'),
-            )
-          : Column(
-              children: reports.map((report) {
-                final category = '${report['category'] ?? 'admin_action'}'
-                    .toLowerCase();
-                final color = category == 'error'
-                    ? _adminBrandDanger
-                    : category == 'login'
-                    ? _adminBrandNavy
-                    : _adminBrandSuccess;
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 42,
-                        height: 42,
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(14),
+                          color: color.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(
-                          category == 'error'
-                              ? Icons.error_outline_rounded
-                              : category == 'login'
-                              ? Icons.login_rounded
-                              : Icons.insights_rounded,
-                          color: color,
-                        ),
+                        child: Icon(item['icon'] as IconData, color: color),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '${report['event_type'] ?? 'System event'}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                Text(
-                                  _formatRelativeTime(report['created_at']),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
                             Text(
-                              '${report['message'] ?? ''}',
+                              item['title'] as String,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              item['message'] as String,
                               style: TextStyle(
-                                color: Colors.grey.shade700,
-                                height: 1.35,
+                                fontSize: 13,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              item['meta'] as String,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
                               ),
                             ),
                           ],
                         ),
                       ),
+                      if (onTap != null)
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.grey.shade500,
+                        ),
                     ],
                   ),
-                );
-              }).toList(),
-            ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+  Widget _buildStatsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Stats',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: _adminBrandInk,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Overview of users, students, companies, and jobs.',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildStatsGrid(),
+      ],
+    );
+  }
 
-    if (_hasError) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+  Widget _buildStatsGrid() {
+    final stats = [
+      {
+        'title': 'Total Users',
+        'value': _stats['total_users'] ?? 0,
+        'icon': Icons.people,
+        'color': Colors.blue,
+      },
+      {
+        'title': 'Students',
+        'value': _stats['total_students'] ?? 0,
+        'icon': Icons.school,
+        'color': Colors.green,
+      },
+      {
+        'title': 'Companies',
+        'value': _stats['total_companies'] ?? 0,
+        'icon': Icons.business,
+        'color': Colors.purple,
+      },
+      {
+        'title': 'Jobs',
+        'value': _stats['total_jobs'] ?? 0,
+        'icon': Icons.work_outline,
+        'color': Colors.orange,
+      },
+    ];
+
+    return GridView.count(
+      crossAxisCount: MediaQuery.of(context).size.width < 600 ? 2 : 4,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.2,
+      children: stats
+          .map((stat) {
+            return _buildStatCard(
+              title: stat['title'] as String,
+              value: '${stat['value']}',
+              icon: stat['icon'] as IconData,
+              color: stat['color'] as Color,
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 28),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApplicationsChart(List<int> weeklyData) {
+    final weeklyTotal = _totalApplicationsThisWeek(weeklyData);
+    final maxValue = weeklyData.isEmpty
+        ? 0
+        : weeklyData.reduce((a, b) => a > b ? a : b);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _adminBrandNavy.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: _adminBrandNavy.withValues(alpha: 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                size: 56,
-                color: Colors.red,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Failed to load dashboard',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
               Text(
-                _errorMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade700),
+                'Applications Per Day',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF333333),
+                ),
               ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadDashboardData,
-                child: const Text('Retry'),
+              Text(
+                'Last 7 days',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _adminBrandOrange,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
-        ),
-      );
-    }
-
-    final stats = _stats ?? <String, dynamic>{};
-    final totalUsers = _totalUsers(stats);
-    final totalApplications = _totalApplications(stats);
-    final pending = _pendingApplications(stats);
-    final approved = _approvedApplications(stats);
-    final rejected = _rejectedApplications(stats);
-    final matchedUsers = _filteredUsers();
-    final matchedApplications = _filteredApplications();
-    final recentReports = _recentReports();
-    final firstName = widget.adminName.trim().isEmpty
-        ? 'Admin'
-        : widget.adminName.trim().split(' ').first;
-
-    return RefreshIndicator(
-      onRefresh: _loadDashboardData,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(30),
-              gradient: const LinearGradient(
-                colors: [_adminBrandNavy, Color(0xFF11466F), _adminBrandOrange],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _ChartStatBadge(
+                icon: Icons.insights_rounded,
+                label: 'This week',
+                value: '$weeklyTotal applications',
+                backgroundColor: _adminBrandNavy,
+                accentColor: _adminBrandOrange,
               ),
+              _ChartStatBadge(
+                icon: Icons.local_fire_department_rounded,
+                label: 'Peak day',
+                value: _peakApplicationsLabel(weeklyData),
+                backgroundColor: _adminBrandOrange.withValues(alpha: 0.1),
+                accentColor: _adminBrandOrange,
+                textColor: _adminBrandInk,
+              ),
+              _ChartStatBadge(
+                icon: Icons.show_chart_rounded,
+                label: 'Highest',
+                value: '$maxValue per day',
+                backgroundColor: _adminBrandNavy.withValues(alpha: 0.08),
+                accentColor: _adminBrandSky,
+                textColor: _adminBrandInk,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 240,
+            child: _ApplicationsTrendChart(
+              weeklyData: weeklyData,
+              labels: _applicationDayLabels(),
             ),
-            child: Stack(
-              children: [
-                Positioned(
-                  right: -22,
-                  top: -26,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: 46,
-                  bottom: -34,
-                  child: Container(
-                    width: 92,
-                    height: 92,
-                    decoration: BoxDecoration(
-                      color: _adminBrandOrange.withValues(alpha: 0.16),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopCompaniesList() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Top Companies',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF333333),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ..._topCompanies.map((company) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                onTap: () => widget.onNavigateToTab?.call(1),
+                child: Row(
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          height: 66,
-                          width: 66,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                blurRadius: 16,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${company['logo'] ?? '--'}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF3B82F6),
+                            fontSize: 16,
                           ),
-                          child: ClipOval(
-                            child: Image.asset(
-                              'assets/images/internshiplogo.png',
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(
-                                  Icons.verified_rounded,
-                                  color: _adminBrandNavy,
-                                  size: 34,
-                                );
-                              },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${company['name'] ?? 'Unknown Company'}',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  'Government Internship Platform',
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Welcome back, $firstName',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.96),
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 24,
-                                  height: 1.1,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'You have $_newApplicationsToday new application${_newApplicationsToday == 1 ? '' : 's'} today.',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.84),
-                                  height: 1.4,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+                          Text(
+                            '${company['jobs'] ?? 0} active jobs',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 18),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _buildHeroChip(
-                          label: '$totalUsers total users',
-                          icon: Icons.groups_rounded,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${company['jobs'] ?? 0}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF3B82F6),
                         ),
-                        _buildHeroChip(
-                          label: '$pending pending reviews',
-                          icon: Icons.hourglass_top_rounded,
-                        ),
-                        _buildHeroChip(
-                          label: '$approved approvals',
-                          icon: Icons.check_circle_rounded,
-                        ),
-                        _buildHeroChip(
-                          label: '${recentReports.length} recent reports',
-                          icon: Icons.receipt_long_rounded,
-                        ),
-                      ],
+                      ),
                     ),
                   ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => widget.onNavigateToTab?.call(1),
+            child: const Text('View All Companies'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecentActivities() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Recent Activities',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF333333),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _recentActivities.length > 5
+                ? 5
+                : _recentActivities.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final activity = _recentActivities[index];
+              final type = '${activity['type'] ?? 'admin'}';
+              final color = _getActivityColor(type);
+
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: color.withValues(alpha: 0.1),
+                  radius: 20,
+                  child: Icon(_getActivityIcon(type), color: color, size: 20),
+                ),
+                title: Text(
+                  '${activity['action'] ?? 'Activity'}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                subtitle: Text(
+                  '${activity['user'] ?? 'System'}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                trailing: Text(
+                  '${activity['time'] ?? 'Unknown time'}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getActivityColor(String type) {
+    switch (type) {
+      case 'user':
+        return Colors.blue;
+      case 'job':
+        return Colors.green;
+      case 'company':
+        return Colors.purple;
+      case 'application':
+        return Colors.orange;
+      case 'error':
+        return Colors.red;
+      default:
+        return Colors.indigo;
+    }
+  }
+
+  IconData _getActivityIcon(String type) {
+    switch (type) {
+      case 'user':
+        return Icons.person_add;
+      case 'job':
+        return Icons.work_outline;
+      case 'company':
+        return Icons.business;
+      case 'application':
+        return Icons.description;
+      case 'error':
+        return Icons.error_outline;
+      default:
+        return Icons.admin_panel_settings;
+    }
+  }
+}
+
+class _ChartStatBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color backgroundColor;
+  final Color accentColor;
+  final Color textColor;
+
+  const _ChartStatBadge({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.backgroundColor,
+    required this.accentColor,
+    this.textColor = Colors.white,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveTextColor = textColor;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accentColor.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: accentColor, size: 16),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: effectiveTextColor.withValues(alpha: 0.74),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  color: effectiveTextColor,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ApplicationsTrendChart extends StatelessWidget {
+  final List<int> weeklyData;
+  final List<String> labels;
+
+  const _ApplicationsTrendChart({
+    required this.weeklyData,
+    required this.labels,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final data = weeklyData.isEmpty ? const [0, 0, 0, 0, 0, 0, 0] : weeklyData;
+    final highestValue = data.reduce((a, b) => a > b ? a : b);
+    final maxValue = highestValue == 0 ? 4 : highestValue;
+    final scaleValues = [
+      maxValue,
+      (maxValue * 0.66).round(),
+      (maxValue * 0.33).round(),
+      0,
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 0),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _adminBrandNavy.withValues(alpha: 0.03),
+            _adminBrandOrange.withValues(alpha: 0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 34,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 34),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: scaleValues
+                    .map(
+                      (value) => Text(
+                        '$value',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(
+                  child: CustomPaint(
+                    painter: _ApplicationsTrendPainter(
+                      weeklyData: data,
+                      maxValue: maxValue,
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: List.generate(data.length, (index) {
+                    final isPeak =
+                        data[index] == highestValue && highestValue > 0;
+
+                    return Expanded(
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isPeak
+                                  ? _adminBrandOrange.withValues(alpha: 0.12)
+                                  : _adminBrandNavy.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${data[index]}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: isPeak
+                                    ? _adminBrandOrange
+                                    : _adminBrandNavy,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            index < labels.length
+                                ? labels[index]
+                                : 'Day ${index + 1}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          _buildSearchAndFilterPanel(matchedUsers, matchedApplications),
-          const SizedBox(height: 22),
-          const Text(
-            'Statistics',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Tap a card to filter the dashboard or open its full data view.',
-            style: TextStyle(color: Colors.grey.shade600, height: 1.35),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 1180
-                  ? 4
-                  : constraints.maxWidth >= 760
-                  ? 3
-                  : 2;
-              final spacing = constraints.maxWidth < 520 ? 8.0 : 10.0;
-              final itemWidth =
-                  (constraints.maxWidth - ((columns - 1) * spacing)) / columns;
-              final visibleApplications = _applicationCountForCard('all');
-              final pendingApplications = _applicationCountForCard('pending');
-              final approvedApplications = _applicationCountForCard('approved');
-              final rejectedApplications = _applicationCountForCard('rejected');
-
-              return Wrap(
-                spacing: spacing,
-                runSpacing: spacing,
-                children: [
-                  SizedBox(
-                    width: itemWidth,
-                    child: StatisticCard(
-                      title: 'Total users',
-                      value: totalUsers,
-                      subtitle: _searchQuery.trim().isEmpty
-                          ? 'All registered users'
-                          : '${matchedUsers.length} matched by current search',
-                      icon: Icons.people_rounded,
-                      color: _adminBrandNavy,
-                      trend: 'Open users',
-                      onTap: () => _openUsers(AdminUserFilter.all),
-                      compact: true,
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: StatisticCard(
-                      title: 'Pending',
-                      value: pendingApplications,
-                      subtitle: _searchQuery.trim().isEmpty
-                          ? 'Needs review from admin team'
-                          : 'Pending applications matching current search',
-                      icon: Icons.hourglass_top_rounded,
-                      color: _adminBrandOrange,
-                      trend: _selectedDashboardFilter == 'pending'
-                          ? 'Current filter'
-                          : 'Filter pending',
-                      onTap: () => _setDashboardFilter('pending'),
-                      compact: true,
-                      selected: _selectedDashboardFilter == 'pending',
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: StatisticCard(
-                      title: 'Approved',
-                      value: approvedApplications,
-                      subtitle: visibleApplications == 0
-                          ? 'No approvals yet'
-                          : '${(_percentage(approvedApplications, visibleApplications) * 100).round()}% approval rate',
-                      icon: Icons.check_circle_rounded,
-                      color: _adminBrandSuccess,
-                      trend: _selectedDashboardFilter == 'approved'
-                          ? 'Current filter'
-                          : 'Filter approved',
-                      onTap: () => _setDashboardFilter('approved'),
-                      compact: true,
-                      selected: _selectedDashboardFilter == 'approved',
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: StatisticCard(
-                      title: 'Rejected',
-                      value: rejectedApplications,
-                      subtitle: visibleApplications == 0
-                          ? 'No rejections yet'
-                          : '${(_percentage(rejectedApplications, visibleApplications) * 100).round()}% rejection rate',
-                      icon: Icons.cancel_rounded,
-                      color: _adminBrandDanger,
-                      trend: _selectedDashboardFilter == 'rejected'
-                          ? 'Current filter'
-                          : 'Filter rejected',
-                      onTap: () => _setDashboardFilter('rejected'),
-                      compact: true,
-                      selected: _selectedDashboardFilter == 'rejected',
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: StatisticCard(
-                      title: 'Applications',
-                      value: visibleApplications,
-                      subtitle: _searchQuery.trim().isEmpty
-                          ? 'All submissions in the system'
-                          : 'Applications matching current search',
-                      icon: Icons.assignment_rounded,
-                      color: _adminBrandOrange,
-                      trend: _selectedDashboardFilter == 'all'
-                          ? 'Current filter'
-                          : 'Show all',
-                      onTap: () => _setDashboardFilter('all'),
-                      compact: true,
-                      selected: _selectedDashboardFilter == 'all',
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: StatisticCard(
-                      title: 'Reports',
-                      value: recentReports.length,
-                      subtitle: 'Recent activity in report feed',
-                      icon: Icons.receipt_long_rounded,
-                      color: _adminBrandNavy,
-                      trend: 'Open report',
-                      onTap: _openReports,
-                      compact: true,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 22),
-          const Text(
-            'Insights',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final singleColumn = constraints.maxWidth < 860;
-              final itemWidth = singleColumn
-                  ? constraints.maxWidth
-                  : (constraints.maxWidth - 12) / 2;
-
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: itemWidth,
-                    child: _buildApplicationsPerDayCard(),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: _buildApprovalSplitCard(
-                      approved,
-                      rejected,
-                      pending,
-                      totalApplications,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 22),
-          _buildSearchResultsSection(matchedUsers, matchedApplications),
-          const SizedBox(height: 22),
-          _buildRecentActivitySection(recentReports),
-          const SizedBox(height: 22),
-          const Text(
-            'Quick actions',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth < 760 ? 1 : 3;
-              final itemWidth =
-                  (constraints.maxWidth - ((columns - 1) * 12)) / columns;
-
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: itemWidth,
-                    child: _buildQuickAction(
-                      title: 'View users',
-                      subtitle: 'Open user management and review access.',
-                      icon: Icons.manage_accounts_rounded,
-                      color: _adminBrandNavy,
-                      onTap: () => _openUsers(AdminUserFilter.all),
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: _buildQuickAction(
-                      title: 'View applications',
-                      subtitle: 'Review pending, approved, and rejected cases.',
-                      icon: Icons.assignment_turned_in_rounded,
-                      color: _adminBrandOrange,
-                      onTap: () =>
-                          _openApplications(AdminApplicationFilter.all),
-                    ),
-                  ),
-                  SizedBox(
-                    width: itemWidth,
-                    child: _buildQuickAction(
-                      title: 'Export report',
-                      subtitle: 'Download the latest admin summary as a file.',
-                      icon: Icons.download_rounded,
-                      color: _adminBrandNavy,
-                      onTap: _exportDashboardReport,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
         ],
       ),
     );
   }
 }
 
-class _DailyApplicationsPoint {
-  final DateTime date;
-  final int count;
+class _ApplicationsTrendPainter extends CustomPainter {
+  final List<int> weeklyData;
+  final int maxValue;
 
-  const _DailyApplicationsPoint({required this.date, required this.count});
-}
-
-class _DashboardBadge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  const _DashboardBadge({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(color: color, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniInsightChip extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _MiniInsightChip({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: color.withValues(alpha: 0.8),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InsightMetricTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _InsightMetricTile({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 18,
-              color: color,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InsightLegendChip extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _InsightLegendChip({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(color: color, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ApplicationsLineChart extends StatelessWidget {
-  final List<_DailyApplicationsPoint> points;
-
-  const _ApplicationsLineChart({required this.points});
-
-  @override
-  Widget build(BuildContext context) {
-    final maxCount = points.fold<int>(
-      1,
-      (current, point) => point.count > current ? point.count : current,
-    );
-
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '7-day trend',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            Text(
-              'Max $maxCount / day',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: _ApplicationsChartPainter(
-                points: points,
-                maxCount: maxCount,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: points
-              .map(
-                (point) => Expanded(
-                  child: Column(
-                    children: [
-                      Text(
-                        _shortStaticLabel(point.date),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.black54,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${point.count}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _adminBrandOrange,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-      ],
-    );
-  }
-
-  static String _shortStaticLabel(DateTime date) {
-    const weekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    return '${weekdays[date.weekday - 1]}\n${date.day}';
-  }
-}
-
-class _ApprovalDonutChart extends StatelessWidget {
-  final int approved;
-  final int rejected;
-  final int pending;
-  final int total;
-
-  const _ApprovalDonutChart({
-    required this.approved,
-    required this.rejected,
-    required this.pending,
-    required this.total,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        CustomPaint(
-          size: const Size.square(160),
-          painter: _ApprovalDonutPainter(
-            approved: approved,
-            rejected: rejected,
-            pending: pending,
-            total: total,
-          ),
-        ),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '$total',
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                color: _adminBrandNavy,
-              ),
-            ),
-            Text(
-              total == 0 ? 'No applications' : 'Application outcomes',
-              style: TextStyle(
-                color: Colors.black54,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String actionLabel;
-  final VoidCallback onTap;
-
-  const _SectionHeader({
-    required this.title,
-    required this.actionLabel,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-        ),
-        TextButton(onPressed: onTap, child: Text(actionLabel)),
-      ],
-    );
-  }
-}
-
-class _ResultTile extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String subtitle;
-  final String badge;
-  final VoidCallback onTap;
-
-  const _ResultTile({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.subtitle,
-    required this.badge,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: color),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  badge,
-                  style: TextStyle(color: color, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusMetricRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final double percentage;
-  final Color color;
-
-  const _StatusMetricRow({
-    required this.label,
-    required this.value,
-    required this.percentage,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            Text(
-              value,
-              style: TextStyle(color: color, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '${(percentage * 100).round()}%',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: percentage,
-            minHeight: 8,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ApplicationsChartPainter extends CustomPainter {
-  final List<_DailyApplicationsPoint> points;
-  final int maxCount;
-
-  const _ApplicationsChartPainter({
-    required this.points,
-    required this.maxCount,
+  const _ApplicationsTrendPainter({
+    required this.weeklyData,
+    required this.maxValue,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
+    if (weeklyData.isEmpty) return;
 
-    const leftPadding = 10.0;
-    const rightPadding = 10.0;
-    const topPadding = 16.0;
-    const bottomPadding = 18.0;
+    const topPadding = 12.0;
+    const bottomPadding = 16.0;
+    const leftPadding = 6.0;
+    const rightPadding = 6.0;
     final chartWidth = size.width - leftPadding - rightPadding;
     final chartHeight = size.height - topPadding - bottomPadding;
+
     if (chartWidth <= 0 || chartHeight <= 0) return;
 
     final gridPaint = Paint()
       ..color = _adminBrandNavy.withValues(alpha: 0.08)
       ..strokeWidth = 1;
+
     for (var i = 0; i < 4; i++) {
       final y = topPadding + (chartHeight / 3) * i;
       canvas.drawLine(
@@ -2189,19 +1354,22 @@ class _ApplicationsChartPainter extends CustomPainter {
       );
     }
 
-    final dxStep = points.length == 1 ? 0.0 : chartWidth / (points.length - 1);
-    final chartPoints = <Offset>[];
-    for (var i = 0; i < points.length; i++) {
-      final ratio = maxCount == 0 ? 0.0 : points[i].count / maxCount;
-      final x = leftPadding + (dxStep * i);
+    final stepX = weeklyData.length == 1
+        ? 0.0
+        : chartWidth / (weeklyData.length - 1);
+    final points = <Offset>[];
+
+    for (var i = 0; i < weeklyData.length; i++) {
+      final ratio = maxValue == 0 ? 0.0 : weeklyData[i] / maxValue;
+      final x = leftPadding + (stepX * i);
       final y = topPadding + chartHeight - (chartHeight * ratio);
-      chartPoints.add(Offset(x, y));
+      points.add(Offset(x, y));
     }
 
-    final linePath = Path()..moveTo(chartPoints.first.dx, chartPoints.first.dy);
-    for (var i = 1; i < chartPoints.length; i++) {
-      final previous = chartPoints[i - 1];
-      final current = chartPoints[i];
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      final previous = points[i - 1];
+      final current = points[i];
       final controlX = (previous.dx + current.dx) / 2;
       linePath.cubicTo(
         controlX,
@@ -2214,13 +1382,17 @@ class _ApplicationsChartPainter extends CustomPainter {
     }
 
     final areaPath = Path.from(linePath)
-      ..lineTo(chartPoints.last.dx, size.height - bottomPadding)
-      ..lineTo(chartPoints.first.dx, size.height - bottomPadding)
+      ..lineTo(points.last.dx, size.height - bottomPadding)
+      ..lineTo(points.first.dx, size.height - bottomPadding)
       ..close();
 
     final fillPaint = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0x55EF6C00), Color(0x220E3A5D), Colors.transparent],
+      ..shader = LinearGradient(
+        colors: [
+          _adminBrandOrange.withValues(alpha: 0.32),
+          _adminBrandSky.withValues(alpha: 0.16),
+          Colors.transparent,
+        ],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
@@ -2228,82 +1400,31 @@ class _ApplicationsChartPainter extends CustomPainter {
 
     final linePaint = Paint()
       ..shader = const LinearGradient(
-        colors: [_adminBrandOrange, _adminBrandNavy],
+        colors: [_adminBrandOrange, _adminBrandSky, _adminBrandNavy],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
     canvas.drawPath(linePath, linePaint);
 
-    for (final point in chartPoints) {
-      canvas.drawCircle(point, 6, Paint()..color = Colors.white);
-      canvas.drawCircle(point, 4, Paint()..color = _adminBrandOrange);
+    final peakValue = weeklyData.reduce((a, b) => a > b ? a : b);
+
+    for (var i = 0; i < points.length; i++) {
+      final point = points[i];
+      final isPeak = weeklyData[i] == peakValue && peakValue > 0;
+
+      canvas.drawCircle(point, isPeak ? 7 : 6, Paint()..color = Colors.white);
+      canvas.drawCircle(
+        point,
+        isPeak ? 4.5 : 4,
+        Paint()..color = isPeak ? _adminBrandOrange : _adminBrandNavy,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _ApplicationsChartPainter oldDelegate) {
-    return oldDelegate.points != points || oldDelegate.maxCount != maxCount;
-  }
-}
-
-class _ApprovalDonutPainter extends CustomPainter {
-  final int approved;
-  final int rejected;
-  final int pending;
-  final int total;
-
-  const _ApprovalDonutPainter({
-    required this.approved,
-    required this.rejected,
-    required this.pending,
-    required this.total,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-    const strokeWidth = 18.0;
-    final rect = Rect.fromCircle(
-      center: center,
-      radius: radius - (strokeWidth / 2),
-    );
-
-    final backgroundPaint = Paint()
-      ..color = Colors.grey.shade200
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-    canvas.drawArc(rect, 0, 6.28318, false, backgroundPaint);
-
-    if (total <= 0) return;
-
-    final segments = <({int value, Color color})>[
-      (value: approved, color: _adminBrandSuccess),
-      (value: rejected, color: _adminBrandDanger),
-      (value: pending, color: _adminBrandOrange),
-    ];
-
-    var startAngle = -1.5708;
-    for (final segment in segments) {
-      if (segment.value <= 0) continue;
-      final sweepAngle = (segment.value / total) * 6.28318;
-      final paint = Paint()
-        ..color = segment.color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round;
-      canvas.drawArc(rect, startAngle, sweepAngle, false, paint);
-      startAngle += sweepAngle + 0.06;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ApprovalDonutPainter oldDelegate) {
-    return oldDelegate.approved != approved ||
-        oldDelegate.rejected != rejected ||
-        oldDelegate.pending != pending ||
-        oldDelegate.total != total;
+  bool shouldRepaint(covariant _ApplicationsTrendPainter oldDelegate) {
+    return oldDelegate.weeklyData != weeklyData ||
+        oldDelegate.maxValue != maxValue;
   }
 }

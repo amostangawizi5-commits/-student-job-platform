@@ -31,6 +31,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   bool _isGraduate = false;
 
+  void _ensureCurrentUniversityOption({
+    required String? universityId,
+    required String? universityName,
+  }) {
+    final normalizedId = universityId?.trim();
+    if (normalizedId == null || normalizedId.isEmpty) {
+      return;
+    }
+
+    final alreadyPresent = _universities.any(
+      (uni) => uni['university_id']?.toString() == normalizedId,
+    );
+    if (alreadyPresent) {
+      return;
+    }
+
+    _universities = [
+      ..._universities,
+      {
+        'university_id': normalizedId,
+        'name': (universityName?.trim().isNotEmpty ?? false)
+            ? universityName!.trim()
+            : 'Current University',
+      },
+    ];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -98,6 +125,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _programController.text = user?['student_data']?['program'] ?? '';
       _selectedUniversityId = user?['student_data']?['university_id']
           ?.toString();
+      _ensureCurrentUniversityOption(
+        universityId: _selectedUniversityId,
+        universityName: user?['student_data']?['university_name']?.toString(),
+      );
 
       if (_isGraduate) {
         int? gradYear = user?['student_data']?['graduation_year'];
@@ -142,12 +173,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       Map<String, dynamic> studentData = {
         'program': _programController.text.trim(),
         'university_id': _selectedUniversityId,
+        'student_type': _isGraduate ? 'graduate' : 'current',
       };
 
       if (_isGraduate) {
+        studentData['expected_graduation_year'] = null;
         studentData['graduation_year'] = _graduationYear;
         studentData['experience_level'] = _experienceLevel;
       } else {
+        studentData['graduation_year'] = null;
+        studentData['experience_level'] = null;
         studentData['expected_graduation_year'] = _expectedGraduationYear;
       }
 
