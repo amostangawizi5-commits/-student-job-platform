@@ -206,7 +206,15 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              e,
+              fallback: 'Failed to upload logo. Please try again.',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -262,7 +270,15 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              ApiService.normalizeErrorMessage(
+                e,
+                fallback: 'Failed to update profile. Please try again.',
+              ),
+            ),
+            backgroundColor: Colors.red,
+          ),
         );
       } finally {
         if (mounted) {
@@ -333,7 +349,15 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              e,
+              fallback: 'Failed to change password. Please try again.',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) {
@@ -1243,7 +1267,15 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              e,
+              fallback: 'Failed to upload file. Please try again.',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) {

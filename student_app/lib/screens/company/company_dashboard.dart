@@ -11,6 +11,7 @@ import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/browser_pdf_opener.dart';
 import '../../services/local_file_service.dart';
+import '../../utils/role_theme.dart';
 import '../../widgets/change_pin_dialog.dart';
 import '../../widgets/reset_pin_dialog.dart';
 import '../../widgets/language_picker_dialog.dart';
@@ -20,6 +21,12 @@ import 'edit_company_profile_screen.dart';
 import 'company_notifications_screen.dart';
 
 enum _CompanyMoreAction { settings, language, logout }
+
+const Color _companyStudentPrimary = CompanyRoleTheme.primary;
+const Color _companyStudentPrimaryDark = CompanyRoleTheme.primaryDark;
+const Color _companyStudentSurface = CompanyRoleTheme.surface;
+const Color _companyStudentBorder = CompanyRoleTheme.border;
+const Color _companyStudentSurfaceSoft = CompanyRoleTheme.surfaceSoft;
 
 class CompanyDashboard extends StatefulWidget {
   final int initialIndex;
@@ -323,9 +330,10 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
       },
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: const Color(0xFF2C3E50),
+          backgroundColor: _companyStudentSurface,
           elevation: 0,
           titleSpacing: 8,
+          foregroundColor: _companyStudentPrimary,
           title: Row(
             children: [
               Container(
@@ -352,7 +360,7 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                       return const Icon(
                         Icons.verified,
                         size: 35,
-                        color: Colors.blue,
+                        color: _companyStudentPrimary,
                       );
                     },
                   ),
@@ -369,7 +377,7 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                 children: [
                   const Icon(
                     Icons.notifications_outlined,
-                    color: Colors.white,
+                    color: _companyStudentPrimary,
                     size: 24,
                   ),
                   if (_unreadNotifications > 0)
@@ -441,7 +449,10 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                   ),
                 ),
               ],
-              icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                color: _companyStudentPrimary,
+              ),
             ),
             const SizedBox(width: 4),
           ],
@@ -457,9 +468,9 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white24),
+                  border: Border.all(color: _companyStudentBorder),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -467,13 +478,13 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                     const Icon(
                       Icons.calendar_today_rounded,
                       size: 14,
-                      color: Colors.white,
+                      color: _companyStudentPrimary,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       today,
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: _companyStudentPrimary,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -492,7 +503,7 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
             navigateToTab(index);
             _loadUnreadNotificationCount();
           },
-          selectedItemColor: const Color(0xFF2C3E50),
+          selectedItemColor: _companyStudentPrimary,
           unselectedItemColor: Colors.grey.shade600,
           items: [
             BottomNavigationBarItem(
@@ -673,12 +684,12 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2C3E50).withValues(alpha: 0.1),
+                      color: _companyStudentSurface,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       Icons.work,
-                      color: const Color(0xFF2C3E50),
+                      color: _companyStudentPrimary,
                       size: 28,
                     ),
                   ),
@@ -819,7 +830,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2C3E50),
+                    backgroundColor: _companyStudentPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -971,7 +982,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF2C3E50), Color(0xFF34495E)],
+          colors: [_companyStudentPrimary, _companyStudentPrimaryDark],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1346,12 +1357,12 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2C3E50).withValues(alpha: 0.1),
+                  color: _companyStudentSurface,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   Icons.work,
-                  color: const Color(0xFF2C3E50),
+                  color: _companyStudentPrimary,
                   size: 22,
                 ),
               ),
@@ -1471,7 +1482,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                       );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2C3E50),
+                  backgroundColor: _companyStudentPrimary,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 10,
@@ -1570,7 +1581,10 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
       }
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = ApiService.normalizeErrorMessage(
+          e,
+          fallback: language.tr('failed_to_load_jobs'),
+        );
         _isLoading = false;
       });
     }
@@ -1648,7 +1662,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 10),
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F4F7),
+        color: _companyStudentSurface,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -1658,7 +1672,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
             icon: Icons.work_rounded,
             selected: true,
             onTap: () {},
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
           const SizedBox(width: 6),
           navItem(
@@ -1666,7 +1680,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
             icon: Icons.groups_rounded,
             selected: false,
             onTap: _goToApplicationsTab,
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
         ],
       ),
@@ -1854,7 +1868,7 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                           ElevatedButton(
                             onPressed: () => widget.selectJob(jobId, title),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2C3E50),
+                              backgroundColor: _companyStudentPrimary,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),
@@ -1940,7 +1954,10 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
 
   String _formatErrorMessage(Object error) {
     final language = context.read<LanguageProvider>();
-    final message = error.toString().replaceFirst('Exception: ', '');
+    final message = ApiService.normalizeErrorMessage(
+      error,
+      fallback: language.tr('something_went_wrong'),
+    );
     if (message.toLowerCase().contains('network')) {
       return language.tr('network_error');
     }
@@ -2782,7 +2799,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F4F7),
+        color: _companyStudentSurface,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -2798,7 +2815,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                 _showAllApplicationsFromTop();
               }
             },
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
           const SizedBox(width: 6),
           navItem(
@@ -2806,7 +2823,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
             icon: Icons.work_outline_rounded,
             selected: false,
             onTap: () => widget.onGoToJobs?.call(),
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
         ],
       ),
@@ -2991,9 +3008,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
+                  color: _companyStudentSurfaceSoft,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFD9E2EC)),
+                  border: Border.all(color: _companyStudentBorder),
                 ),
                 child: Row(
                   children: [
@@ -3116,9 +3133,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF4F7FB),
+                  color: _companyStudentSurfaceSoft,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFD6E0EA)),
+                  border: Border.all(color: _companyStudentBorder),
                 ),
                 child: Row(
                   children: [
@@ -3224,12 +3241,13 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF2C3E50),
+              color: _companyStudentSurface,
+              border: Border.all(color: _companyStudentBorder),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Row(
               children: [
-                const Icon(Icons.assignment_ind, color: Colors.white),
+                const Icon(Icons.assignment_ind, color: _companyStudentPrimary),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -3240,14 +3258,17 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                                 widget.jobTitle ?? language.tr('selected_job'),
                           }),
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: _companyStudentPrimary,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
                 IconButton(
                   onPressed: _loadApplications,
-                  icon: const Icon(Icons.refresh, color: Colors.white),
+                  icon: const Icon(
+                    Icons.refresh,
+                    color: _companyStudentPrimary,
+                  ),
                 ),
               ],
             ),
@@ -3286,7 +3307,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   label: language.tr('total'),
                   value: '${_applications.length}',
                   icon: Icons.groups_2_outlined,
-                  color: const Color(0xFF2C3E50),
+                  color: _companyStudentPrimary,
                 ),
                 _buildSummaryCard(
                   label: language.tr('interviewed'),
@@ -3779,7 +3800,7 @@ class CompanyProfileScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F4F7),
+        color: _companyStudentSurface,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -3789,7 +3810,7 @@ class CompanyProfileScreen extends StatelessWidget {
             icon: Icons.dashboard_rounded,
             selected: false,
             onTap: () => dashboard?.navigateToTab(0),
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
           const SizedBox(width: 6),
           navItem(
@@ -3797,7 +3818,7 @@ class CompanyProfileScreen extends StatelessWidget {
             icon: Icons.work_rounded,
             selected: false,
             onTap: () => dashboard?.navigateToTab(1),
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
           const SizedBox(width: 6),
           navItem(
@@ -3805,7 +3826,7 @@ class CompanyProfileScreen extends StatelessWidget {
             icon: Icons.groups_rounded,
             selected: false,
             onTap: () => dashboard?.navigateToTab(2),
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
           const SizedBox(width: 6),
           navItem(
@@ -3813,7 +3834,7 @@ class CompanyProfileScreen extends StatelessWidget {
             icon: Icons.business_rounded,
             selected: true,
             onTap: () {},
-            color: const Color(0xFF2C3E50),
+            color: _companyStudentPrimary,
           ),
         ],
       ),
@@ -3836,7 +3857,7 @@ class CompanyProfileScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: const Color(0xFF2C3E50)),
+          Icon(icon, size: 20, color: _companyStudentPrimary),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -3897,9 +3918,7 @@ class CompanyProfileScreen extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 38,
-                  backgroundColor: const Color(
-                    0xFF2C3E50,
-                  ).withValues(alpha: 0.1),
+                  backgroundColor: _companyStudentSurface,
                   backgroundImage: logoUrl != null && logoUrl.isNotEmpty
                       ? NetworkImage(logoUrl)
                       : null,
@@ -3911,7 +3930,7 @@ class CompanyProfileScreen extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF2C3E50),
+                            color: _companyStudentPrimary,
                           ),
                         )
                       : null,
@@ -3946,7 +3965,7 @@ class CompanyProfileScreen extends StatelessWidget {
                       dashboard?._handleRouteNavigationResult(result);
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2C3E50),
+                      backgroundColor: _companyStudentPrimary,
                     ),
                     icon: const Icon(Icons.edit),
                     label: Text(language.tr('edit_profile')),
@@ -3969,8 +3988,8 @@ class CompanyProfileScreen extends StatelessWidget {
                       );
                     },
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF2C3E50),
-                      side: const BorderSide(color: Color(0xFF2C3E50)),
+                      foregroundColor: _companyStudentPrimary,
+                      side: const BorderSide(color: _companyStudentPrimary),
                     ),
                     icon: const Icon(Icons.pin_outlined),
                     label: Text(language.tr('change_pin')),

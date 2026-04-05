@@ -269,10 +269,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              e
-                  .toString()
-                  .replaceFirst('FormatException: ', '')
-                  .replaceFirst('Exception: ', ''),
+              ApiService.normalizeErrorMessage(
+                e,
+                fallback: 'Failed to save job. Please try again.',
+              ),
             ),
             backgroundColor: Colors.red,
           ),

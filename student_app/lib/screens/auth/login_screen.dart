@@ -66,7 +66,12 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              e,
+              fallback: language.tr('failed_send_password_reset_link'),
+            ),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -661,7 +666,10 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _errorText = e.toString().replaceFirst('Exception: ', '');
+        _errorText = ApiService.normalizeErrorMessage(
+          e,
+          fallback: language.tr('failed_send_password_reset_link'),
+        );
       });
     }
   }

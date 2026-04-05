@@ -23,7 +23,10 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
   String? _error;
 
   String _formatErrorMessage(Object error) {
-    final message = error.toString().replaceFirst('Exception: ', '');
+    final message = ApiService.normalizeErrorMessage(
+      error,
+      fallback: 'Failed to load applications',
+    );
     if (message.toLowerCase().contains('network')) {
       return 'Network error';
     }

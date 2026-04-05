@@ -190,7 +190,10 @@ class ApiService {
   }
 
   static String _sanitizeAuthResponseMessage(String? message) {
-    final normalized = (message ?? '').replaceFirst('Exception: ', '').trim();
+    final normalized = sanitizeUserMessage(
+      message,
+      fallback: 'Authentication failed. Please try again.',
+    );
     final lowerMessage = normalized.toLowerCase();
     if (lowerMessage.contains('device is locked') ||
         lowerMessage.contains('app locked') ||
@@ -203,6 +206,98 @@ class ApiService {
     return normalized;
   }
 
+  static String sanitizeUserMessage(
+    String? message, {
+    String fallback = 'Something went wrong. Please try again.',
+  }) {
+    final normalized = (message ?? '')
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '')
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('DioException: ', '')
+        .replaceFirst(RegExp(r'^DioException \[[^\]]+\]:\s*'), '')
+        .replaceFirst(
+          RegExp(
+            r'^(error|typeerror|filesystemexception|formatexception):\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+
+    if (normalized.isEmpty || normalized.toLowerCase() == 'null') {
+      return fallback;
+    }
+
+    final lowerMessage = normalized.toLowerCase();
+
+    if (lowerMessage.contains('invalid email or password') ||
+        lowerMessage.contains('invalid credentials') ||
+        lowerMessage.contains('wrong password') ||
+        lowerMessage.contains('user not found')) {
+      return 'Invalid email or password.';
+    }
+
+    if (lowerMessage.contains('unauthorized') ||
+        lowerMessage.contains('forbidden') ||
+        lowerMessage.contains('jwt') ||
+        (lowerMessage.contains('token') &&
+            (lowerMessage.contains('expired') ||
+                lowerMessage.contains('invalid')))) {
+      return 'Your session has expired. Please log in again.';
+    }
+
+    if (lowerMessage.contains('timeout') ||
+        lowerMessage.contains('socket') ||
+        lowerMessage.contains('xmlhttprequest') ||
+        lowerMessage.contains('clientexception') ||
+        lowerMessage.contains('connection error') ||
+        lowerMessage.contains('connection refused') ||
+        lowerMessage.contains('network error') ||
+        lowerMessage.contains('failed host lookup') ||
+        lowerMessage.contains('cannot connect') ||
+        lowerMessage.contains('network is unreachable')) {
+      return 'Network error. Please check your internet connection and try again.';
+    }
+
+    if (lowerMessage.contains('status code 404') ||
+        lowerMessage == 'not found') {
+      return 'The requested information could not be found.';
+    }
+
+    if (lowerMessage.contains('status code 413') ||
+        lowerMessage.contains('file too large') ||
+        lowerMessage.contains('too large')) {
+      return 'The selected file is too large.';
+    }
+
+    if (lowerMessage.contains('status code 415') ||
+        lowerMessage.contains('unsupported media type')) {
+      return 'That file type is not supported.';
+    }
+
+    if (lowerMessage.contains('status code 429') ||
+        lowerMessage.contains('too many requests')) {
+      return 'Too many attempts. Please wait a moment and try again.';
+    }
+
+    if (lowerMessage.contains('status code 500') ||
+        lowerMessage.contains('status code 502') ||
+        lowerMessage.contains('status code 503') ||
+        lowerMessage.contains('internal server error') ||
+        lowerMessage.contains('unexpected error') ||
+        lowerMessage.contains('null check operator') ||
+        lowerMessage.contains('typeerror') ||
+        lowerMessage.contains('database') ||
+        lowerMessage.contains('sqlstate') ||
+        lowerMessage.contains('stack trace')) {
+      return fallback;
+    }
+
+    return normalized;
+  }
+
   static String normalizeErrorMessage(
     Object? error, {
     String fallback = 'Something went wrong. Please try again.',
@@ -211,13 +306,13 @@ class ApiService {
       final responseData = error.response?.data;
       final structuredMessage = _extractErrorMessage(responseData);
       if (structuredMessage != null && structuredMessage.isNotEmpty) {
-        return structuredMessage;
+        return sanitizeUserMessage(structuredMessage, fallback: fallback);
       }
 
       final rawMessage = error.message?.trim() ?? '';
       if (rawMessage.isNotEmpty &&
           !rawMessage.toLowerCase().contains('status code of')) {
-        return rawMessage;
+        return sanitizeUserMessage(rawMessage, fallback: fallback);
       }
     }
 
@@ -227,11 +322,7 @@ class ApiService {
         .replaceFirst(RegExp(r'^DioException \[[^\]]+\]:\s*'), '')
         .trim();
 
-    if (message.isEmpty || message.toLowerCase() == 'null') {
-      return fallback;
-    }
-
-    return message;
+    return sanitizeUserMessage(message, fallback: fallback);
   }
 
   static String? _extractErrorMessage(dynamic data) {
@@ -296,7 +387,7 @@ class ApiService {
       return fallback;
     }
 
-    return message;
+    return sanitizeUserMessage(message, fallback: fallback);
   }
 
   Future<String?> getToken() async {
@@ -323,12 +414,9 @@ class ApiService {
   }
 
   Future<void> setToken(String token) async {
-    String? storageError;
-
     try {
       await _storage.write(key: _tokenStorageKey, value: token);
     } catch (error) {
-      storageError = '$error';
       _log('⚠️ Secure token write failed: $error');
     }
 
@@ -340,7 +428,9 @@ class ApiService {
       _log('⚠️ SharedPreferences token write failed: $error');
     }
 
-    throw Exception('Unable to save login session. $storageError');
+    throw Exception(
+      'Unable to save login session right now. Please try again.',
+    );
   }
 
   String _resolveFileUrl(String pathOrUrl) {
@@ -403,7 +493,8 @@ class ApiService {
 
       final contentType =
           response.headers.value('content-type')?.toLowerCase().trim() ?? '';
-      if (!contentType.contains('application/pdf') && !_looksLikePdfBytes(bytes)) {
+      if (!contentType.contains('application/pdf') &&
+          !_looksLikePdfBytes(bytes)) {
         throw Exception(
           _extractErrorMessage(bytes) ??
               'Downloaded file is not a valid PDF document.',
@@ -540,12 +631,19 @@ class ApiService {
           errorMessage = errorData;
         }
 
-        throw Exception(errorMessage);
+        throw Exception(
+          sanitizeUserMessage(
+            errorMessage,
+            fallback: 'Request failed. Please try again.',
+          ),
+        );
       }
-      throw Exception('Network error: ${e.message}');
+      throw Exception(
+        normalizeErrorMessage(e, fallback: 'Network error. Please try again.'),
+      );
     } catch (e) {
       _log('❌ Unexpected error: $e');
-      throw Exception('Unexpected error: $e');
+      throw Exception(normalizeErrorMessage(e));
     }
   }
 
@@ -667,7 +765,13 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Forgot password error: $e');
-      return {'success': false, 'message': e.toString()};
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(
+          e,
+          fallback: 'Failed to send password reset link. Please try again.',
+        ),
+      };
     }
   }
 
@@ -688,7 +792,13 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Complete password reset error: $e');
-      return {'success': false, 'message': e.toString()};
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(
+          e,
+          fallback: 'Failed to reset password. Please try again.',
+        ),
+      };
     }
   }
 
@@ -710,7 +820,9 @@ class ApiService {
       _log('❌ Registration error: $e');
       return {
         'success': false,
-        'message': _sanitizeAuthResponseMessage(e.toString()),
+        'message': _sanitizeAuthResponseMessage(
+          normalizeErrorMessage(e, fallback: 'Registration failed'),
+        ),
       };
     }
   }
@@ -736,7 +848,7 @@ class ApiService {
       }
       return response;
     } catch (e) {
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -751,7 +863,7 @@ class ApiService {
       _invalidateProfileCache();
       return response;
     } catch (e) {
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -764,7 +876,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1222,7 +1334,14 @@ class ApiService {
       if (_universitiesCache != null) {
         return {'success': true, 'data': _universitiesCache};
       }
-      return {'success': false, 'message': e.toString(), 'data': []};
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(
+          e,
+          fallback: 'Failed to load universities right now.',
+        ),
+        'data': [],
+      };
     }
   }
 
@@ -1232,7 +1351,7 @@ class ApiService {
       return await _request('GET', '/api/projects/student', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting projects: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1248,7 +1367,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error adding project: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1261,7 +1380,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error removing project: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1319,12 +1438,12 @@ class ApiService {
           );
     } on DioException catch (e) {
       _log('❌ Error uploading resume: $e');
-      final errorData = e.response?.data;
-      if (errorData is Map &&
-          (errorData['message'] != null || errorData['error'] != null)) {
-        throw Exception(errorData['message'] ?? errorData['error']);
-      }
-      throw Exception('Failed to upload resume: ${e.message}');
+      throw Exception(
+        normalizeErrorMessage(
+          e,
+          fallback: 'Failed to upload resume. Please try again.',
+        ),
+      );
     }
   }
 
@@ -1339,7 +1458,7 @@ class ApiService {
       return response;
     } catch (e) {
       _log('❌ Error deleting resume: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1367,12 +1486,12 @@ class ApiService {
       return response.data;
     } on DioException catch (e) {
       _log('❌ Error uploading student profile image: $e');
-      final errorData = e.response?.data;
-      if (errorData is Map &&
-          (errorData['message'] != null || errorData['error'] != null)) {
-        throw Exception(errorData['message'] ?? errorData['error']);
-      }
-      throw Exception('Failed to upload profile image: ${e.message}');
+      throw Exception(
+        normalizeErrorMessage(
+          e,
+          fallback: 'Failed to upload profile image. Please try again.',
+        ),
+      );
     }
   }
 
@@ -1387,7 +1506,7 @@ class ApiService {
       return response;
     } catch (e) {
       _log('❌ Error deleting student profile image: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1397,7 +1516,7 @@ class ApiService {
       return await _request('GET', '/api/auth/profile', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting company profile: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1415,7 +1534,7 @@ class ApiService {
       return response;
     } catch (e) {
       _log('❌ Error updating company profile: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1447,12 +1566,12 @@ class ApiService {
       return response.data;
     } on DioException catch (e) {
       _log('❌ Error uploading $errorLabel: $e');
-      final errorData = e.response?.data;
-      if (errorData is Map &&
-          (errorData['message'] != null || errorData['error'] != null)) {
-        throw Exception(errorData['message'] ?? errorData['error']);
-      }
-      throw Exception('Failed to upload $errorLabel: ${e.message}');
+      throw Exception(
+        normalizeErrorMessage(
+          e,
+          fallback: 'Failed to upload $errorLabel. Please try again.',
+        ),
+      );
     }
   }
 
@@ -1507,7 +1626,7 @@ class ApiService {
       return await _request('GET', '/api/admin/stats', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting admin stats: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1516,7 +1635,7 @@ class ApiService {
       return await _request('GET', '/api/admin/users', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting users: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1525,7 +1644,7 @@ class ApiService {
       return await _request('GET', '/api/admin/jobs', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting admin jobs: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1538,7 +1657,7 @@ class ApiService {
       return await _request('GET', path, requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting applications: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1555,7 +1674,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error updating user role: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1570,7 +1689,7 @@ class ApiService {
       return await _request('PUT', path, data: {}, requiresAuth: true);
     } catch (e) {
       _log('❌ Error toggling user status: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1583,7 +1702,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error sending reset link: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1596,7 +1715,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error verifying user: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1609,7 +1728,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error deleting user: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1627,7 +1746,7 @@ class ApiService {
       );
     } catch (e) {
       _log('❌ Error updating application status: $e');
-      return {'success': false, 'message': e.toString()};
+      return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
@@ -1636,7 +1755,11 @@ class ApiService {
       return await _request('GET', '/api/admin/logs', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting admin logs: $e');
-      return {'success': false, 'message': e.toString(), 'data': []};
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
     }
   }
 

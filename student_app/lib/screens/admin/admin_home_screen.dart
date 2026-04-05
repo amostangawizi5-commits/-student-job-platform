@@ -2,12 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
+import '../../utils/role_theme.dart';
 
-const Color _adminBrandNavy = Color(0xFF0E3A5D);
-const Color _adminBrandOrange = Color(0xFFEF6C00);
-const Color _adminBrandSand = Color(0xFFFFE0B2);
-const Color _adminBrandSky = Color(0xFF3B82F6);
-const Color _adminBrandInk = Color(0xFF1E293B);
+const Color _adminBrandNavy = AdminRoleTheme.primary;
+const Color _adminBrandOrange = AdminRoleTheme.accent;
+const Color _adminBrandSand = AdminRoleTheme.accentSoft;
+const Color _adminBrandSky = AdminRoleTheme.info;
+const Color _adminBrandInk = AdminRoleTheme.ink;
 
 class AdminHomeScreen extends StatefulWidget {
   final String? adminName;
@@ -104,7 +105,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         _pendingApplications = const [];
         _isLoading = false;
         _hasError = true;
-        _errorMessage = '$error';
+        _errorMessage = ApiService.normalizeErrorMessage(
+          error,
+          fallback: 'Some dashboard data could not be loaded right now.',
+        );
       });
     }
   }
@@ -436,7 +440,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         gradient: LinearGradient(
           colors: [
             _adminBrandNavy,
-            const Color(0xFF153E63),
+            AdminRoleTheme.primaryDark,
             _adminBrandOrange.withValues(alpha: 0.92),
           ],
           begin: Alignment.topLeft,
@@ -452,7 +456,30 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(
+            width: 68,
+            height: 68,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+            ),
+            child: Image.asset(
+              'assets/images/internshiplogo.png',
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.workspace_premium_rounded,
+                  color: Colors.white,
+                  size: 34,
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -490,18 +517,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   ],
                 ),
               ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.admin_panel_settings,
-              color: Colors.white,
-              size: 40,
             ),
           ),
         ],
@@ -954,7 +969,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                        color: _adminBrandSky.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Center(
@@ -962,7 +977,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           '${company['logo'] ?? '--'}',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF3B82F6),
+                            color: _adminBrandSky,
                             fontSize: 16,
                           ),
                         ),
@@ -1004,7 +1019,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF3B82F6),
+                          color: _adminBrandSky,
                         ),
                       ),
                     ),

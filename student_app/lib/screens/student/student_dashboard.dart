@@ -4,6 +4,7 @@ import '../../models/job.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../utils/role_theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import 'browse_jobs_screen.dart';
 import 'job_details_screen.dart';
@@ -13,6 +14,10 @@ import 'notifications_screen.dart';
 import '../auth/login_screen.dart';
 
 enum _StudentMoreAction { settings, language, logout }
+
+const Color _studentBrandPrimary = StudentRoleTheme.primary;
+const Color _studentBrandSurface = StudentRoleTheme.surface;
+const Color _studentBrandBorder = StudentRoleTheme.border;
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -373,7 +378,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
       child: Scaffold(
         backgroundColor: Colors.grey.shade50,
         appBar: AppBar(
-          backgroundColor: const Color(0xFFE3F2FD),
+          backgroundColor: _studentBrandSurface,
           elevation: 0,
           titleSpacing: 8,
           title: Row(
@@ -403,7 +408,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                       return const Icon(
                         Icons.verified,
                         size: 35,
-                        color: Colors.blue,
+                        color: _studentBrandPrimary,
                       );
                     },
                   ),
@@ -418,7 +423,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 IconButton(
                   icon: const Icon(
                     Icons.notifications_outlined,
-                    color: Color(0xFF1976D2),
+                    color: _studentBrandPrimary,
                     size: 24,
                   ),
                   tooltip: language.tr('notifications'),
@@ -502,7 +507,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
               ],
               icon: const Icon(
                 Icons.more_vert_rounded,
-                color: Color(0xFF1976D2),
+                color: _studentBrandPrimary,
               ),
             ),
             const SizedBox(width: 4),
@@ -516,7 +521,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
               decoration: BoxDecoration(
-                color: const Color(0xFFE3F2FD),
+                color: _studentBrandSurface,
                 border: Border(
                   bottom: BorderSide(color: Colors.grey.shade200, width: 1),
                 ),
@@ -530,7 +535,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1976D2),
+                      color: _studentBrandPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -551,7 +556,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: const Color(0xFF90CAF9)),
+                      border: Border.all(color: _studentBrandBorder),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -559,7 +564,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                         const Icon(
                           Icons.calendar_today_rounded,
                           size: 15,
-                          color: Color(0xFF1976D2),
+                          color: _studentBrandPrimary,
                         ),
                         const SizedBox(width: 8),
                         Text(
@@ -567,7 +572,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF1976D2),
+                            color: _studentBrandPrimary,
                           ),
                         ),
                       ],
@@ -589,7 +594,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
           type: BottomNavigationBarType.fixed,
           currentIndex: _currentIndex,
           onTap: _switchTab,
-          selectedItemColor: const Color(0xFF1976D2),
+          selectedItemColor: _studentBrandPrimary,
           unselectedItemColor: Colors.grey.shade600,
           items: [
             BottomNavigationBarItem(
@@ -1063,7 +1068,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: const Color(0xFF1976D2), size: 28),
+                child: Icon(icon, color: _studentBrandPrimary, size: 28),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1075,7 +1080,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF1976D2),
+                        color: _studentBrandPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../utils/role_theme.dart';
 import '../../widgets/change_pin_dialog.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../../widgets/reset_pin_dialog.dart';
@@ -17,9 +18,8 @@ import 'admin_users_screen.dart';
 
 enum _AdminMoreAction { settings, language, logout }
 
-const Color _adminBrandNavy = Color(0xFF0E3A5D);
-const Color _adminBrandOrange = Color(0xFFEF6C00);
-const Color _adminBrandSand = Color(0xFFFFE0B2);
+const Color _adminBrandNavy = AdminRoleTheme.primary;
+const Color _adminBrandOrange = AdminRoleTheme.accent;
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -300,34 +300,25 @@ class _AdminDashboardState extends State<AdminDashboard> {
         backgroundColor: _adminBrandNavy,
         surfaceTintColor: _adminBrandNavy,
         elevation: 0,
+        toolbarHeight: 92,
         titleSpacing: 8,
         iconTheme: const IconThemeData(color: Colors.white),
-        flexibleSpace: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                _adminBrandNavy,
-                const Color(0xFF153E63),
-                _adminBrandOrange.withValues(alpha: 0.88),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
+        flexibleSpace: const DecoratedBox(
+          decoration: BoxDecoration(color: _adminBrandNavy),
         ),
         title: Row(
           children: [
             Container(
-              height: 55,
-              width: 55,
+              height: 58,
+              width: 58,
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.2),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
+                    color: Colors.black.withValues(alpha: 0.16),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
@@ -436,39 +427,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  _adminBrandNavy.withValues(alpha: 0.08),
-                  _adminBrandOrange.withValues(alpha: 0.08),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade200, width: 1),
-              ),
-            ),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+            decoration: const BoxDecoration(color: AdminRoleTheme.warmSurface),
             child: Center(
               child: Container(
                 width: double.infinity,
-                constraints: const BoxConstraints(maxWidth: 520),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 14,
-                ),
+                constraints: const BoxConstraints(maxWidth: 540),
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: _adminBrandOrange.withValues(alpha: 0.18),
-                  ),
+                  borderRadius: BorderRadius.circular(26),
                   boxShadow: [
                     BoxShadow(
-                      color: _adminBrandNavy.withValues(alpha: 0.07),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
+                      color: const Color(0x120E3A5D),
+                      blurRadius: 22,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
                     ),
                   ],
                 ),
@@ -479,37 +457,38 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w800,
                         color: _adminBrandNavy,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       adminEmail,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 14),
                     Wrap(
                       alignment: WrapAlignment.center,
-                      spacing: 10,
+                      spacing: 12,
                       runSpacing: 10,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
+                            horizontal: 16,
+                            vertical: 11,
                           ),
                           decoration: BoxDecoration(
-                            color: _adminBrandSand.withValues(alpha: 0.3),
+                            color: AdminRoleTheme.chipSurface,
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
-                              color: _adminBrandOrange.withValues(alpha: 0.22),
+                              color: AdminRoleTheme.chipBorder,
                             ),
                           ),
                           child: Row(
@@ -524,8 +503,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                               Text(
                                 today,
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
                                   color: _adminBrandNavy,
                                 ),
                               ),
@@ -534,8 +513,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
+                            horizontal: 18,
+                            vertical: 11,
                           ),
                           decoration: BoxDecoration(
                             color: _adminBrandNavy,
@@ -544,8 +523,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           child: Text(
                             titles[_currentIndex],
                             style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
                               color: Colors.white,
                             ),
                           ),

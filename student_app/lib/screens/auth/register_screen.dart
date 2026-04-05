@@ -134,7 +134,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _universitiesError = e.toString();
+        _universitiesError = ApiService.normalizeErrorMessage(
+          e,
+          fallback: context.read<LanguageProvider>().tr(
+            'no_universities_available_right_now',
+          ),
+        );
       });
       debugPrint('Error loading data: $e');
     }

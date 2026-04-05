@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
@@ -193,6 +194,181 @@ function parseJpegDimensions(buffer) {
     throw new Error('Could not read JPEG dimensions');
 }
 
+function isPngBuffer(buffer) {
+    return (
+        Buffer.isBuffer(buffer) &&
+        buffer.length > 8 &&
+        buffer[0] === 0x89 &&
+        buffer[1] === 0x50 &&
+        buffer[2] === 0x4E &&
+        buffer[3] === 0x47 &&
+        buffer[4] === 0x0D &&
+        buffer[5] === 0x0A &&
+        buffer[6] === 0x1A &&
+        buffer[7] === 0x0A
+    );
+}
+
+function isJpegBuffer(buffer) {
+    return Buffer.isBuffer(buffer) && buffer.length > 2 && buffer[0] === 0xFF && buffer[1] === 0xD8;
+}
+
+function paethPredictor(left, up, upLeft) {
+    const prediction = left + up - upLeft;
+    const leftDistance = Math.abs(prediction - left);
+    const upDistance = Math.abs(prediction - up);
+    const upLeftDistance = Math.abs(prediction - upLeft);
+
+    if (leftDistance <= upDistance && leftDistance <= upLeftDistance) {
+        return left;
+    }
+
+    if (upDistance <= upLeftDistance) {
+        return up;
+    }
+
+    return upLeft;
+}
+
+function parsePngAsset(buffer, name) {
+    if (!isPngBuffer(buffer)) {
+        throw new Error('Image must be a PNG file');
+    }
+
+    let offset = 8;
+    let width = 0;
+    let height = 0;
+    let bitDepth = 0;
+    let colorType = 0;
+    const idatChunks = [];
+
+    while (offset < buffer.length) {
+        const chunkLength = buffer.readUInt32BE(offset);
+        const chunkType = buffer.toString('ascii', offset + 4, offset + 8);
+        const chunkDataStart = offset + 8;
+        const chunkDataEnd = chunkDataStart + chunkLength;
+        const chunkData = buffer.subarray(chunkDataStart, chunkDataEnd);
+
+        if (chunkType === 'IHDR') {
+            width = chunkData.readUInt32BE(0);
+            height = chunkData.readUInt32BE(4);
+            bitDepth = chunkData[8];
+            colorType = chunkData[9];
+        } else if (chunkType === 'IDAT') {
+            idatChunks.push(chunkData);
+        } else if (chunkType === 'IEND') {
+            break;
+        }
+
+        offset = chunkDataEnd + 4;
+    }
+
+    if (!width || !height || idatChunks.length === 0) {
+        throw new Error('PNG image data is incomplete');
+    }
+
+    if (bitDepth !== 8 || ![2, 6].includes(colorType)) {
+        throw new Error('Only 8-bit RGB or RGBA PNG images are supported');
+    }
+
+    const channels = colorType === 6 ? 4 : 3;
+    const bytesPerPixel = channels;
+    const rowLength = width * channels;
+    const inflated = zlib.inflateSync(Buffer.concat(idatChunks));
+    const expectedLength = height * (rowLength + 1);
+
+    if (inflated.length < expectedLength) {
+        throw new Error('PNG image data is truncated');
+    }
+
+    const rawRows = Buffer.alloc(width * height * channels);
+    let readOffset = 0;
+    let writeOffset = 0;
+    let previousRow = null;
+
+    for (let rowIndex = 0; rowIndex < height; rowIndex += 1) {
+        const filterType = inflated[readOffset];
+        readOffset += 1;
+        const currentRow = Buffer.from(inflated.subarray(readOffset, readOffset + rowLength));
+        readOffset += rowLength;
+
+        for (let column = 0; column < rowLength; column += 1) {
+            const left = column >= bytesPerPixel ? currentRow[column - bytesPerPixel] : 0;
+            const up = previousRow ? previousRow[column] : 0;
+            const upLeft =
+                previousRow && column >= bytesPerPixel
+                    ? previousRow[column - bytesPerPixel]
+                    : 0;
+
+            switch (filterType) {
+                case 0:
+                    break;
+                case 1:
+                    currentRow[column] = (currentRow[column] + left) & 0xFF;
+                    break;
+                case 2:
+                    currentRow[column] = (currentRow[column] + up) & 0xFF;
+                    break;
+                case 3:
+                    currentRow[column] = (currentRow[column] + Math.floor((left + up) / 2)) & 0xFF;
+                    break;
+                case 4:
+                    currentRow[column] =
+                        (currentRow[column] + paethPredictor(left, up, upLeft)) & 0xFF;
+                    break;
+                default:
+                    throw new Error(`Unsupported PNG filter type: ${filterType}`);
+            }
+        }
+
+        currentRow.copy(rawRows, writeOffset);
+        writeOffset += rowLength;
+        previousRow = currentRow;
+    }
+
+    if (colorType === 6) {
+        const rgbBuffer = Buffer.alloc(width * height * 3);
+        const alphaBuffer = Buffer.alloc(width * height);
+
+        for (let source = 0, rgbOffset = 0, alphaOffset = 0; source < rawRows.length; source += 4) {
+            rgbBuffer[rgbOffset] = rawRows[source];
+            rgbBuffer[rgbOffset + 1] = rawRows[source + 1];
+            rgbBuffer[rgbOffset + 2] = rawRows[source + 2];
+            alphaBuffer[alphaOffset] = rawRows[source + 3];
+            rgbOffset += 3;
+            alphaOffset += 1;
+        }
+
+        return {
+            name,
+            width,
+            height,
+            buffer: zlib.deflateSync(rgbBuffer),
+            pdfFilter: '/FlateDecode',
+            colorSpace: '/DeviceRGB',
+            bitsPerComponent: 8,
+            smask: {
+                width,
+                height,
+                buffer: zlib.deflateSync(alphaBuffer),
+                pdfFilter: '/FlateDecode',
+                colorSpace: '/DeviceGray',
+                bitsPerComponent: 8
+            }
+        };
+    }
+
+    return {
+        name,
+        width,
+        height,
+        buffer: zlib.deflateSync(rawRows),
+        pdfFilter: '/FlateDecode',
+        colorSpace: '/DeviceRGB',
+        bitsPerComponent: 8
+    };
+}
+
 function resolveLocalAbsolutePath(fileUrl) {
     const normalizedPath = `${fileUrl || ''}`.replace(/^\/+/, '');
     return path.join(__dirname, '../../', normalizedPath);
@@ -221,7 +397,7 @@ async function loadBinaryFromUrl(fileUrl) {
     return fs.readFileSync(absolutePath);
 }
 
-async function loadJpegAsset(fileUrl, name) {
+async function loadImageAsset(fileUrl, name) {
     if (!fileUrl) {
         return null;
     }
@@ -232,8 +408,24 @@ async function loadJpegAsset(fileUrl, name) {
             return null;
         }
 
-        const { width, height } = parseJpegDimensions(buffer);
-        return { name, buffer, width, height };
+        if (isJpegBuffer(buffer)) {
+            const { width, height } = parseJpegDimensions(buffer);
+            return {
+                name,
+                buffer,
+                width,
+                height,
+                pdfFilter: '/DCTDecode',
+                colorSpace: '/DeviceRGB',
+                bitsPerComponent: 8
+            };
+        }
+
+        if (isPngBuffer(buffer)) {
+            return parsePngAsset(buffer, name);
+        }
+
+        throw new Error('Only JPEG and PNG image assets are supported');
     } catch (error) {
         console.error(`${ACCEPTANCE_LETTER_LOG_PREFIX} Failed to load image asset`, {
             assetName: name,
@@ -257,10 +449,21 @@ function createStreamObject(objectNumber, dictionary, streamBuffer) {
 
 function buildPdfBuffer({ operations, imageAssets }) {
     const contentBuffer = Buffer.from(operations.join('\n'), 'utf8');
-    const imageEntries = imageAssets.map((asset, index) => ({
-        ...asset,
-        objectNumber: 8 + index
-    }));
+    let nextObjectNumber = 8;
+    const imageEntries = imageAssets.map((asset) => {
+        const entry = {
+            ...asset,
+            objectNumber: nextObjectNumber
+        };
+        nextObjectNumber += 1;
+
+        if (asset.smask) {
+            entry.smaskObjectNumber = nextObjectNumber;
+            nextObjectNumber += 1;
+        }
+
+        return entry;
+    });
 
     const xObjectEntries = imageEntries
         .map((asset) => `/${asset.name} ${asset.objectNumber} 0 R`)
@@ -293,10 +496,21 @@ function buildPdfBuffer({ operations, imageAssets }) {
         ...imageEntries.map((asset) =>
             createStreamObject(
                 asset.objectNumber,
-                ` /Type /XObject /Subtype /Image /Width ${asset.width} /Height ${asset.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`,
+                ` /Type /XObject /Subtype /Image /Width ${asset.width} /Height ${asset.height} /ColorSpace ${asset.colorSpace || '/DeviceRGB'} /BitsPerComponent ${asset.bitsPerComponent || 8} /Filter ${asset.pdfFilter || '/DCTDecode'}${
+                    asset.smaskObjectNumber ? ` /SMask ${asset.smaskObjectNumber} 0 R` : ''
+                }`,
                 asset.buffer
             )
-        )
+        ),
+        ...imageEntries
+            .filter((asset) => asset.smask && asset.smaskObjectNumber)
+            .map((asset) =>
+                createStreamObject(
+                    asset.smaskObjectNumber,
+                    ` /Type /XObject /Subtype /Image /Width ${asset.smask.width} /Height ${asset.smask.height} /ColorSpace ${asset.smask.colorSpace} /BitsPerComponent ${asset.smask.bitsPerComponent} /Filter ${asset.smask.pdfFilter}`,
+                    asset.smask.buffer
+                )
+            )
     ];
 
     const parts = [Buffer.from('%PDF-1.4\n', 'utf8')];
@@ -357,10 +571,10 @@ async function buildAcceptanceLetterPdf({
     });
 
     const [governmentLogoImage, companyLogoImage, stampImage, signatureImage] = await Promise.all([
-        loadJpegAsset(GOVERNMENT_LOGO_ABSOLUTE_PATH, 'GOVERNMENT_LOGO'),
-        loadJpegAsset(companyLogoUrl, 'COMPANY_LOGO'),
-        loadJpegAsset(stampImageUrl, 'STAMP_IMAGE'),
-        loadJpegAsset(signatureImageUrl, 'SIGNATURE_IMAGE')
+        loadImageAsset(GOVERNMENT_LOGO_ABSOLUTE_PATH, 'GOVERNMENT_LOGO'),
+        loadImageAsset(companyLogoUrl, 'COMPANY_LOGO'),
+        loadImageAsset(stampImageUrl, 'STAMP_IMAGE'),
+        loadImageAsset(signatureImageUrl, 'SIGNATURE_IMAGE')
     ]);
 
     console.log(`${ACCEPTANCE_LETTER_LOG_PREFIX} Asset load result`, {
@@ -385,19 +599,19 @@ async function buildAcceptanceLetterPdf({
     const operations = [];
     const imageAssets = [];
     let y = 806;
-    const headerLogoTopY = 742;
+    const headerLogoTopY = 736;
 
     if (companyLogoImage) {
         const fitted = fitInside({
             width: companyLogoImage.width,
             height: companyLogoImage.height,
-            maxWidth: 72,
-            maxHeight: 72
+            maxWidth: 82,
+            maxHeight: 62
         });
         imageAssets.push(companyLogoImage);
         operations.push(createImageOperation({
             name: companyLogoImage.name,
-            x: PAGE_WIDTH - LEFT_MARGIN - fitted.width + 6,
+            x: PAGE_WIDTH - LEFT_MARGIN - fitted.width,
             y: headerLogoTopY,
             width: fitted.width,
             height: fitted.height
@@ -408,13 +622,13 @@ async function buildAcceptanceLetterPdf({
         const fitted = fitInside({
             width: governmentLogoImage.width,
             height: governmentLogoImage.height,
-            maxWidth: 72,
-            maxHeight: 72
+            maxWidth: 78,
+            maxHeight: 62
         });
         imageAssets.push(governmentLogoImage);
         operations.push(createImageOperation({
             name: governmentLogoImage.name,
-            x: LEFT_MARGIN - 6,
+            x: LEFT_MARGIN,
             y: headerLogoTopY,
             width: fitted.width,
             height: fitted.height
@@ -449,8 +663,8 @@ async function buildAcceptanceLetterPdf({
         }
     );
 
-    operations.push(createLineOperation(LEFT_MARGIN - 2, y, RIGHT_MARGIN + 2, y));
-    y -= 26;
+    operations.push(createLineOperation(LEFT_MARGIN - 6, y - 4, RIGHT_MARGIN + 6, y - 4, 1.2));
+    y -= 28;
 
     operations.push(createCenteredTextOperation({
         text: 'INDUSTRIAL PRACTICAL TRAINING (IPT)',
@@ -466,10 +680,7 @@ async function buildAcceptanceLetterPdf({
         size: 13,
         font: 'F2'
     }));
-    y -= 16;
-
-    operations.push(createLineOperation(LEFT_MARGIN - 2, y, RIGHT_MARGIN + 2, y, 0.8));
-    y -= 24;
+    y -= 28;
 
     operations.push(createTextOperation({
         text: 'Name of Organization / Institution',
@@ -485,8 +696,7 @@ async function buildAcceptanceLetterPdf({
         organizationName,
         { x: LEFT_MARGIN + 6, y, maxWidth: CONTENT_WIDTH - 12, size: 12.5, lineHeight: 18 }
     );
-    operations.push(createLineOperation(LEFT_MARGIN, y + 8, RIGHT_MARGIN, y + 8, 0.8));
-    y -= 18;
+    y -= 16;
 
     y = appendWrappedText(
         operations,
@@ -509,7 +719,6 @@ async function buildAcceptanceLetterPdf({
         sectionDepartment,
         { x: LEFT_MARGIN + 6, y, maxWidth: CONTENT_WIDTH - 12, size: 12, lineHeight: 18 }
     );
-    operations.push(createLineOperation(LEFT_MARGIN, y + 8, RIGHT_MARGIN, y + 8, 0.8));
     y -= 18;
 
     operations.push(createTextOperation({
@@ -525,7 +734,7 @@ async function buildAcceptanceLetterPdf({
     const signatureLines = [
         `${officerName} (Name of Authorizing Officer)`,
         `${officerDesignation} (Designation)`,
-        '........................................................ (Signature of Authorizing Officer)',
+        'Signature of Authorizing Officer',
         `${officerPhone} (Telephone Number)`,
         `${officerEmail} (E-mail Address)`,
         `${officerRegion} (Region)`,
@@ -592,7 +801,6 @@ async function buildAcceptanceLetterPdf({
         }));
     }
 
-    operations.push(createLineOperation(44, 62, 551, 62, 0.8));
     operations.push(createCenteredTextOperation({
         text: footerLineOne,
         y: 48,

@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/app_lock_service.dart';
 
 class AuthProvider extends ChangeNotifier {
+  static bool _launchSessionCleared = false;
   final ApiService _apiService = ApiService();
 
   Map<String, dynamic>? _user;
@@ -63,6 +64,18 @@ class AuthProvider extends ChangeNotifier {
 
   // Check if user is logged in on app start
   Future<void> checkAuthStatus() async {
+    if (!_launchSessionCleared) {
+      _launchSessionCleared = true;
+      await _apiService.logout();
+      _isAuthenticated = false;
+      _sessionRestored = false;
+      _requiresPinSetup = false;
+      _user = null;
+      _errorMessage = null;
+      notifyListeners();
+      return;
+    }
+
     final token = await _apiService.getToken();
     _log('checkAuthStatus - Token exists: ${token != null}');
 
