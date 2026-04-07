@@ -51,6 +51,7 @@ typedef _AcceptanceInputBuilder =
       String? hint,
       TextInputType keyboardType,
       int maxLines,
+      String? Function(String?)? validator,
     });
 
 class _CompanyDashboardState extends State<CompanyDashboard> {
@@ -2363,6 +2364,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     String? hint,
     TextInputType keyboardType = TextInputType.text,
     int maxLines = 1,
+    String? Function(String?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -2370,12 +2372,15 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         controller: controller,
         keyboardType: keyboardType,
         maxLines: maxLines,
-        validator: (value) {
-          if (value == null || value.trim().isEmpty) {
-            return '$label is required';
-          }
-          return null;
-        },
+        scrollPadding: const EdgeInsets.only(bottom: 140),
+        validator:
+            validator ??
+            (value) {
+              if (value == null || value.trim().isEmpty) {
+                return '$label is required';
+              }
+              return null;
+            },
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
@@ -2406,8 +2411,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final hasDigitalSignature = '${companyAssets?['signature_url'] ?? ''}'
         .trim()
         .isNotEmpty;
-    return showDialog<Map<String, String>>(
+    return showModalBottomSheet<Map<String, String>>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => _AcceptanceLetterDialog(
         initialOrganizationName: application['company_name']?.toString() ?? '',
         collegeNamePlaceholder: 'College of Informatics and Virtual Education',
@@ -3439,6 +3447,43 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
     return DateTime.tryParse(normalized);
   }
 
+  String? _validateRequired(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return '$label is required';
+    }
+    return null;
+  }
+
+  String? _validatePhoneNumber(String? value) {
+    final requiredError = _validateRequired(value, 'Officer Phone Number');
+    if (requiredError != null) {
+      return requiredError;
+    }
+
+    final normalized = value!.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+    final phonePattern = RegExp(r'^\+?\d{9,15}$');
+    if (!phonePattern.hasMatch(normalized)) {
+      return 'Enter a valid phone number';
+    }
+
+    return null;
+  }
+
+  String? _validateEmailAddress(String? value) {
+    final requiredError = _validateRequired(value, 'Officer Email Address');
+    if (requiredError != null) {
+      return requiredError;
+    }
+
+    final normalized = value!.trim();
+    final emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+    if (!emailPattern.hasMatch(normalized)) {
+      return 'Enter a valid email address';
+    }
+
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3529,6 +3574,7 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
         controller: controller,
         readOnly: true,
         onTap: _pickLetterDate,
+        scrollPadding: const EdgeInsets.only(bottom: 140),
         validator: (value) {
           if (value == null || value.trim().isEmpty) {
             return '$label is required';
@@ -3549,128 +3595,214 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
     );
   }
 
+  Widget _buildResponsiveRow({
+    required bool compact,
+    required Widget first,
+    Widget? second,
+  }) {
+    if (second == null) {
+      return first;
+    }
+
+    if (compact) {
+      return Column(children: [first, second]);
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: first),
+        const SizedBox(width: 12),
+        Expanded(child: second),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
+    final viewInsets = MediaQuery.of(context).viewInsets;
     final buildInput = widget.buildInput;
 
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 520,
-          maxHeight: screenSize.height * 0.86,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Acceptance Letter Details',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Fill in the response letter details for ${widget.studentName} (${widget.jobTitle}).',
-                          style: TextStyle(color: Colors.grey.shade700),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          widget.hasDigitalStamp || widget.hasDigitalSignature
-                              ? 'Saved company stamp/signature will be inserted automatically where available.'
-                              : 'No digital stamp or signature uploaded yet. The PDF will keep manual spaces for stamping and signing.',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
-                            height: 1.4,
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: viewInsets.bottom),
+      child: FractionallySizedBox(
+        heightFactor: 0.94,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 720,
+              maxHeight: screenSize.height * 0.94,
+            ),
+            child: Material(
+              color: Colors.white,
+              elevation: 16,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 560;
+
+                    return Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.max,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 44,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade300,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        buildInput(
-                          controller: _organizationNameController,
-                          label: 'Organization / Institution',
-                          hint: 'Example: ABC Company Limited',
-                        ),
-                        buildInput(
-                          controller: _registrationNumberController,
-                          label: 'Student Registration Number',
-                          hint: 'Example: UDOM/2023/12345',
-                        ),
-                        buildInput(
-                          controller: _collegeNameController,
-                          label: 'College Name',
-                          hint: widget.collegeNamePlaceholder,
-                        ),
-                        buildInput(
-                          controller: _sectionDepartmentController,
-                          label: 'Section / Department',
-                          hint: 'Example: ICT Department',
-                        ),
-                        buildInput(
-                          controller: _officerNameController,
-                          label: 'Authorizing Officer Name',
-                        ),
-                        buildInput(
-                          controller: _officerDesignationController,
-                          label: 'Officer Designation',
-                        ),
-                        buildInput(
-                          controller: _officerPhoneController,
-                          label: 'Officer Phone Number',
-                          keyboardType: TextInputType.phone,
-                        ),
-                        buildInput(
-                          controller: _officerEmailController,
-                          label: 'Officer Email Address',
-                          keyboardType: TextInputType.emailAddress,
-                        ),
-                        buildInput(
-                          controller: _officerRegionController,
-                          label: 'Region',
-                        ),
-                        buildInput(
-                          controller: _officerDistrictController,
-                          label: 'District',
-                        ),
-                        buildInput(
-                          controller: _officerAreaController,
-                          label: 'Area / Physical Address',
-                          hint: 'Example: Mtumba, Dodoma',
-                        ),
-                        _buildDateInput(
-                          controller: _letterDateController,
-                          label: 'Letter Date',
-                          hint: 'Tap to choose date',
-                        ),
-                      ],
-                    ),
-                  ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Acceptance Letter Details',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              padding: EdgeInsets.only(
+                                bottom: viewInsets.bottom > 0 ? 24 : 4,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Fill in the response letter details for ${widget.studentName} (${widget.jobTitle}).',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    widget.hasDigitalStamp ||
+                                            widget.hasDigitalSignature
+                                        ? 'Saved company stamp/signature will be inserted automatically where available.'
+                                        : 'No digital stamp or signature uploaded yet. The PDF will keep manual spaces for stamping and signing.',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 12,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _buildResponsiveRow(
+                                    compact: compact,
+                                    first: buildInput(
+                                      controller: _organizationNameController,
+                                      label: 'Organization / Institution',
+                                      hint: 'Example: ABC Company Limited',
+                                    ),
+                                    second: buildInput(
+                                      controller: _registrationNumberController,
+                                      label: 'Student Registration Number',
+                                      hint: 'Example: UDOM/2023/12345',
+                                    ),
+                                  ),
+                                  _buildResponsiveRow(
+                                    compact: compact,
+                                    first: buildInput(
+                                      controller: _collegeNameController,
+                                      label: 'College Name',
+                                      hint: widget.collegeNamePlaceholder,
+                                    ),
+                                    second: buildInput(
+                                      controller: _sectionDepartmentController,
+                                      label: 'Section / Department',
+                                      hint: 'Example: ICT Department',
+                                    ),
+                                  ),
+                                  _buildResponsiveRow(
+                                    compact: compact,
+                                    first: buildInput(
+                                      controller: _officerNameController,
+                                      label: 'Authorizing Officer Name',
+                                    ),
+                                    second: buildInput(
+                                      controller: _officerDesignationController,
+                                      label: 'Officer Designation',
+                                    ),
+                                  ),
+                                  _buildResponsiveRow(
+                                    compact: compact,
+                                    first: buildInput(
+                                      controller: _officerPhoneController,
+                                      label: 'Officer Phone Number',
+                                      keyboardType: TextInputType.phone,
+                                      validator: _validatePhoneNumber,
+                                    ),
+                                    second: buildInput(
+                                      controller: _officerEmailController,
+                                      label: 'Officer Email Address',
+                                      keyboardType: TextInputType.emailAddress,
+                                      validator: _validateEmailAddress,
+                                    ),
+                                  ),
+                                  _buildResponsiveRow(
+                                    compact: compact,
+                                    first: buildInput(
+                                      controller: _officerRegionController,
+                                      label: 'Region',
+                                    ),
+                                    second: buildInput(
+                                      controller: _officerDistrictController,
+                                      label: 'District',
+                                    ),
+                                  ),
+                                  buildInput(
+                                    controller: _officerAreaController,
+                                    label: 'Area / Physical Address',
+                                    hint: 'Example: Mtumba, Dodoma',
+                                  ),
+                                  _buildDateInput(
+                                    controller: _letterDateController,
+                                    label: 'Letter Date',
+                                    hint: 'Tap to choose date',
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: _submit,
+                                child: const Text('Generate Letter'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _submit,
-                      child: const Text('Generate Letter'),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -3749,98 +3881,6 @@ class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
 class CompanyProfileScreen extends StatelessWidget {
   const CompanyProfileScreen({super.key});
 
-  Widget _buildTopNavigationBar(BuildContext context) {
-    final language = context.read<LanguageProvider>();
-    final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
-
-    Widget navItem({
-      required String label,
-      required IconData icon,
-      required bool selected,
-      required VoidCallback onTap,
-      required Color color,
-    }) {
-      return Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-            decoration: BoxDecoration(
-              color: selected ? color : Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: selected ? Colors.white : Colors.grey.shade700,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected ? Colors.white : Colors.grey.shade800,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: _companyStudentSurface,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          navItem(
-            label: language.tr('home'),
-            icon: Icons.dashboard_rounded,
-            selected: false,
-            onTap: () => dashboard?.navigateToTab(0),
-            color: _companyStudentPrimary,
-          ),
-          const SizedBox(width: 6),
-          navItem(
-            label: language.tr('my_jobs'),
-            icon: Icons.work_rounded,
-            selected: false,
-            onTap: () => dashboard?.navigateToTab(1),
-            color: _companyStudentPrimary,
-          ),
-          const SizedBox(width: 6),
-          navItem(
-            label: language.tr('applications'),
-            icon: Icons.groups_rounded,
-            selected: false,
-            onTap: () => dashboard?.navigateToTab(2),
-            color: _companyStudentPrimary,
-          ),
-          const SizedBox(width: 6),
-          navItem(
-            label: language.tr('profile'),
-            icon: Icons.business_rounded,
-            selected: true,
-            onTap: () {},
-            color: _companyStudentPrimary,
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildInfoTile({
     required BuildContext context,
     required IconData icon,
@@ -3898,8 +3938,6 @@ class CompanyProfileScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildTopNavigationBar(context),
-          const SizedBox(height: 14),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(18),

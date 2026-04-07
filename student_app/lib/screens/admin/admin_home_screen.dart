@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
 import '../../utils/role_theme.dart';
+import 'admin_application_filter.dart';
+import 'admin_user_filter.dart';
 
 const Color _adminBrandNavy = AdminRoleTheme.primary;
 const Color _adminBrandOrange = AdminRoleTheme.accent;
@@ -12,7 +14,12 @@ const Color _adminBrandInk = AdminRoleTheme.ink;
 
 class AdminHomeScreen extends StatefulWidget {
   final String? adminName;
-  final ValueChanged<int>? onNavigateToTab;
+  final void Function(
+    int index, {
+    AdminUserFilter? userFilter,
+    AdminApplicationFilter? applicationFilter,
+  })?
+  onNavigateToTab;
 
   const AdminHomeScreen({super.key, this.adminName, this.onNavigateToTab});
 
@@ -962,7 +969,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: InkWell(
-                onTap: () => widget.onNavigateToTab?.call(1),
+                onTap: () => widget.onNavigateToTab?.call(
+                  1,
+                  userFilter: AdminUserFilter.companies,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -1030,7 +1040,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           }),
           const SizedBox(height: 8),
           TextButton(
-            onPressed: () => widget.onNavigateToTab?.call(1),
+            onPressed: () => widget.onNavigateToTab?.call(
+              1,
+              userFilter: AdminUserFilter.companies,
+            ),
             child: const Text('View All Companies'),
           ),
         ],

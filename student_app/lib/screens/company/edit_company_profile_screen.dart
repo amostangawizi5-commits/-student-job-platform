@@ -366,102 +366,6 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
   }
 
-  void _goToSection(int index) {
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context, {'targetIndex': index});
-    }
-  }
-
-  Widget _buildTopNavigationBar() {
-    Widget navItem({
-      required String label,
-      required IconData icon,
-      required bool selected,
-      required VoidCallback onTap,
-      required Color color,
-    }) {
-      return Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-            decoration: BoxDecoration(
-              color: selected ? color : Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: selected ? Colors.white : Colors.grey.shade700,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected ? Colors.white : Colors.grey.shade800,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      width: MediaQuery.of(context).size.width * 0.85,
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2F4F7),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          navItem(
-            label: 'Home',
-            icon: Icons.dashboard_rounded,
-            selected: false,
-            onTap: () => _goToSection(0),
-            color: const Color(0xFF2C3E50),
-          ),
-          const SizedBox(width: 6),
-          navItem(
-            label: 'My Jobs',
-            icon: Icons.work_rounded,
-            selected: false,
-            onTap: () => _goToSection(1),
-            color: const Color(0xFF2C3E50),
-          ),
-          const SizedBox(width: 6),
-          navItem(
-            label: 'Applications',
-            icon: Icons.groups_rounded,
-            selected: false,
-            onTap: () => _goToSection(2),
-            color: const Color(0xFF2C3E50),
-          ),
-          const SizedBox(width: 6),
-          navItem(
-            label: 'Profile',
-            icon: Icons.business_rounded,
-            selected: true,
-            onTap: () => _goToSection(3),
-            color: const Color(0xFF2C3E50),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _companyNameController.text.isEmpty) {
@@ -485,8 +389,6 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 16),
-                _buildTopNavigationBar(),
-                const SizedBox(height: 12),
 
                 // ========== CARD 1: COMPANY LOGO ==========
                 Container(

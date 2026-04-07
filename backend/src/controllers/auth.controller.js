@@ -163,9 +163,17 @@ const ensureDefaultUniversities = async () => {
 };
 
 // Generate JWT Token
-const generateToken = (userId, email, role) => {
+const generateToken = (userId, email, role, authVersion = 0) => {
+    const normalizedAuthVersion = Number.parseInt(`${authVersion ?? 0}`, 10);
     return jwt.sign(
-        { user_id: userId, email, role },
+        {
+            user_id: userId,
+            email,
+            role,
+            auth_version: Number.isNaN(normalizedAuthVersion)
+                ? 0
+                : normalizedAuthVersion
+        },
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -559,7 +567,12 @@ const login = async (req, res) => {
         }
         
         // Generate token
-        const token = generateToken(user.user_id, user.email, user.role);
+        const token = generateToken(
+            user.user_id,
+            user.email,
+            user.role,
+            user.auth_version
+        );
         
         // Get full profile
         const userProfile = await UserModel.findById(user.user_id);
@@ -911,10 +924,13 @@ const completePasswordReset = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(`${password}`.trim(), salt);
 
-        await query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [
-            passwordHash,
-            tokenRow.user_id
-        ]);
+        await query(
+            `UPDATE users
+             SET password_hash = $1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $2`,
+            [passwordHash, tokenRow.user_id]
+        );
 
         await query(
             'UPDATE password_reset_tokens SET used_at = NOW() WHERE token_id = $1',

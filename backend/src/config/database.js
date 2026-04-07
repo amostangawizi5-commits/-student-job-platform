@@ -71,12 +71,59 @@ const ensureCompanyProfileSchema = async () => {
     `);
 };
 
+const ensureUserAuthVersionSchema = async () => {
+    if (!(await tableExists('users'))) {
+        console.warn(
+            'Skipping user auth version schema update because table "users" does not exist yet.'
+        );
+        return;
+    }
+
+    await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS auth_version INTEGER NOT NULL DEFAULT 0
+    `);
+
+    await pool.query(`
+        CREATE OR REPLACE FUNCTION sync_user_auth_version()
+        RETURNS trigger
+        AS $$
+        BEGIN
+            IF TG_OP = 'UPDATE' AND (
+                NEW.email IS DISTINCT FROM OLD.email OR
+                NEW.password_hash IS DISTINCT FROM OLD.password_hash OR
+                NEW.role IS DISTINCT FROM OLD.role OR
+                NEW.is_active IS DISTINCT FROM OLD.is_active
+            ) THEN
+                NEW.auth_version := COALESCE(OLD.auth_version, 0) + 1;
+            ELSIF NEW.auth_version IS NULL THEN
+                NEW.auth_version := COALESCE(OLD.auth_version, 0);
+            END IF;
+
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+    `);
+
+    await pool.query(`
+        DROP TRIGGER IF EXISTS users_auth_version_trigger ON users
+    `);
+
+    await pool.query(`
+        CREATE TRIGGER users_auth_version_trigger
+        BEFORE UPDATE ON users
+        FOR EACH ROW
+        EXECUTE FUNCTION sync_user_auth_version()
+    `);
+};
+
 // Test database connection
 const connectDB = async () => {
     try {
         const client = await pool.connect();
         console.log('✅ PostgreSQL connected successfully');
         client.release();
+        await ensureUserAuthVersionSchema();
         await ensureApplicationWorkflowSchema();
         await ensureCompanyProfileSchema();
         return true;

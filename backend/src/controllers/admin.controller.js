@@ -186,7 +186,8 @@ const updateUserRole = async (req, res) => {
 
         const result = await client.query(
             `UPDATE users
-             SET role = $1
+             SET role = $1,
+                 updated_at = CURRENT_TIMESTAMP
              WHERE user_id = $2
              RETURNING user_id, full_name, email, role`,
             [role, id]
@@ -312,7 +313,13 @@ const verifyUser = async (req, res) => {
 const suspendUser = async (req, res) => {
     try {
         const { id } = req.params;
-        await query('UPDATE users SET is_active = false WHERE user_id = $1', [id]);
+        await query(
+            `UPDATE users
+             SET is_active = false,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $1`,
+            [id]
+        );
         await logAuditEvent({
             category: 'admin_action',
             eventType: 'User blocked',
@@ -333,7 +340,13 @@ const suspendUser = async (req, res) => {
 const activateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        await query('UPDATE users SET is_active = true WHERE user_id = $1', [id]);
+        await query(
+            `UPDATE users
+             SET is_active = true,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $1`,
+            [id]
+        );
         await logAuditEvent({
             category: 'admin_action',
             eventType: 'User unblocked',

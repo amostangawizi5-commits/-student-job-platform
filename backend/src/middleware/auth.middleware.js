@@ -17,7 +17,7 @@ const authMiddleware = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userResult = await query(
-            `SELECT user_id, email, role, full_name, is_active
+            `SELECT user_id, email, role, full_name, is_active, auth_version
              FROM users
              WHERE user_id = $1
              LIMIT 1`,
@@ -36,6 +36,37 @@ const authMiddleware = async (req, res, next) => {
             return res.status(403).json({
                 success: false,
                 message: 'User blocked. Please contact IT support.'
+            });
+        }
+
+        const tokenAuthVersion = Number.parseInt(
+            `${decoded.auth_version ?? 0}`,
+            10
+        );
+        const currentAuthVersion = Number.parseInt(
+            `${currentUser.auth_version ?? 0}`,
+            10
+        );
+
+        if (
+            (Number.isNaN(tokenAuthVersion) ? 0 : tokenAuthVersion) !==
+            (Number.isNaN(currentAuthVersion) ? 0 : currentAuthVersion)
+        ) {
+            return res.status(401).json({
+                success: false,
+                message: 'Your session has expired. Please log in again.'
+            });
+        }
+
+        const tokenEmail = `${decoded.email || ''}`.trim().toLowerCase();
+        const currentEmail = `${currentUser.email || ''}`.trim().toLowerCase();
+        const tokenRole = `${decoded.role || ''}`.trim().toLowerCase();
+        const currentRole = `${currentUser.role || ''}`.trim().toLowerCase();
+
+        if (tokenEmail !== currentEmail || tokenRole !== currentRole) {
+            return res.status(401).json({
+                success: false,
+                message: 'Your session has expired. Please log in again.'
             });
         }
 

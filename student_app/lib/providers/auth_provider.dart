@@ -49,6 +49,12 @@ class AuthProvider extends ChangeNotifier {
       return 'Invalid email or password';
     }
 
+    if (lowerMessage.contains('blocked') ||
+        lowerMessage.contains('deactivated') ||
+        (lowerMessage.contains('contact') && lowerMessage.contains('support'))) {
+      return 'User blocked. Please contact IT support.';
+    }
+
     if (lowerMessage.contains('network') ||
         lowerMessage.contains('timeout') ||
         lowerMessage.contains('cannot connect') ||

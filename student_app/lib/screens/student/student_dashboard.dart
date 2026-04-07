@@ -204,6 +204,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
+  void _showBottomSnackBar(String message, Color backgroundColor) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     final language = context.read<LanguageProvider>();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -232,7 +245,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
     if (confirmed == true) {
       await authProvider.logout();
       if (!mounted) return;
-      _showTopSnackBar(language.tr('logout_success'), Colors.green);
+      _showBottomSnackBar(language.tr('logout_success'), Colors.green);
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(

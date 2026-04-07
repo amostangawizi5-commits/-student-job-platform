@@ -599,14 +599,14 @@ async function buildAcceptanceLetterPdf({
     const operations = [];
     const imageAssets = [];
     let y = 806;
-    const headerLogoTopY = 736;
+    const headerLogoTopY = 754;
 
     if (companyLogoImage) {
         const fitted = fitInside({
             width: companyLogoImage.width,
             height: companyLogoImage.height,
             maxWidth: 82,
-            maxHeight: 62
+            maxHeight: 50
         });
         imageAssets.push(companyLogoImage);
         operations.push(createImageOperation({
@@ -623,7 +623,7 @@ async function buildAcceptanceLetterPdf({
             width: governmentLogoImage.width,
             height: governmentLogoImage.height,
             maxWidth: 78,
-            maxHeight: 62
+            maxHeight: 50
         });
         imageAssets.push(governmentLogoImage);
         operations.push(createImageOperation({
@@ -663,8 +663,8 @@ async function buildAcceptanceLetterPdf({
         }
     );
 
-    operations.push(createLineOperation(LEFT_MARGIN - 6, y - 4, RIGHT_MARGIN + 6, y - 4, 1.2));
-    y -= 28;
+    operations.push(createLineOperation(LEFT_MARGIN - 6, y - 10, RIGHT_MARGIN + 6, y - 10, 1.2));
+    y -= 34;
 
     operations.push(createCenteredTextOperation({
         text: 'INDUSTRIAL PRACTICAL TRAINING (IPT)',

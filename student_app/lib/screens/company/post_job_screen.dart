@@ -179,11 +179,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   Future<void> _selectDeadline() async {
     final now = DateTime.now();
-    final initialDate = _selectedDeadline ?? now.add(const Duration(days: 30));
+    final today = DateTime(now.year, now.month, now.day);
+    final initialDate = _selectedDeadline ?? today;
     final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: initialDate,
-      firstDate: now,
+      firstDate: today,
       lastDate: now.add(const Duration(days: 365)),
     );
     if (pickedDate == null || !mounted) return;

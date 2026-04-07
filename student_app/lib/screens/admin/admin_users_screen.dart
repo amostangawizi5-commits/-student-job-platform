@@ -190,7 +190,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     if (response['success'] == true) {
       await _fetchUsers();
-      _showMessage('Role updated successfully', backgroundColor: Colors.green);
+      _showMessage(
+        response['message']?.toString() ?? 'Role updated successfully',
+        backgroundColor: Colors.green,
+      );
     } else {
       _showMessage(
         response['message']?.toString() ?? 'Failed to update role',
@@ -209,7 +212,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     if (response['success'] == true) {
       await _fetchUsers();
       _showMessage(
-        currentStatus ? 'User blocked successfully' : 'User unblocked successfully',
+        currentStatus
+            ? 'User blocked successfully'
+            : 'User unblocked successfully',
         backgroundColor: Colors.green,
       );
     } else {
@@ -428,7 +433,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 4),
             Text(title, style: TextStyle(color: Colors.grey.shade700)),
           ],
@@ -585,9 +593,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         .where(_matchesFilter)
         .where(_matchesSearch)
         .toList();
-    final activeCount = _users.where((user) => user['is_active'] == true).length;
-    final blockedCount =
-        _users.where((user) => user['is_active'] != true).length;
+    final activeCount = _users
+        .where((user) => user['is_active'] == true)
+        .length;
+    final blockedCount = _users
+        .where((user) => user['is_active'] != true)
+        .length;
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -600,9 +611,17 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         children: [
           Row(
             children: [
-              _buildSummaryCard('All users', '${_users.length}', const Color(0xFF2563EB)),
+              _buildSummaryCard(
+                'All users',
+                '${_users.length}',
+                const Color(0xFF2563EB),
+              ),
               const SizedBox(width: 12),
-              _buildSummaryCard('Active', '$activeCount', const Color(0xFF059669)),
+              _buildSummaryCard(
+                'Active',
+                '$activeCount',
+                const Color(0xFF059669),
+              ),
               const SizedBox(width: 12),
               _buildSummaryCard('Blocked', '$blockedCount', Colors.red),
             ],

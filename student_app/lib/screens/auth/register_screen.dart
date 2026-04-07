@@ -76,9 +76,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     '1000+',
   ];
 
-  final List<int> _years = List<int>.generate(
-    DateTime.now().year - 2000 + 11,
-    (i) => DateTime.now().year + 10 - i,
+  late final List<int> _studentExpectedYears = List<int>.generate(
+    11,
+    (i) => DateTime.now().year + i,
+  );
+  late final List<int> _graduateYears = List<int>.generate(
+    DateTime.now().year - 2000 + 1,
+    (i) => DateTime.now().year - i,
   );
 
   @override
@@ -940,15 +944,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              items: _years.map<DropdownMenuItem<int>>((year) {
-                                return DropdownMenuItem<int>(
-                                  value: year,
-                                  child: Text(
-                                    year.toString(),
-                                    style: const TextStyle(color: Colors.black),
-                                  ),
-                                );
-                              }).toList(),
+                              items: _studentExpectedYears
+                                  .map<DropdownMenuItem<int>>((year) {
+                                    return DropdownMenuItem<int>(
+                                      value: year,
+                                      child: Text(
+                                        year.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.black,
+                                        ),
+                                      ),
+                                    );
+                                  })
+                                  .toList(),
                               onChanged: (v) =>
                                   setState(() => _expectedGraduationYear = v),
                               validator: (v) => v == null
@@ -983,7 +991,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              items: _years.map<DropdownMenuItem<int>>((year) {
+                              items: _graduateYears.map<DropdownMenuItem<int>>((
+                                year,
+                              ) {
                                 return DropdownMenuItem<int>(
                                   value: year,
                                   child: Text(
