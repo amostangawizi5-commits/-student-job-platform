@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+const { pool, query } = require('../config/database');
 const crypto = require('crypto');
 const { sendPasswordResetEmail } = require('../services/email.service');
 const NotificationModel = require('../models/notification.model');
@@ -168,6 +168,7 @@ const getUserById = async (req, res) => {
 
 // Update user role
 const updateUserRole = async (req, res) => {
+    let client;
     try {
         const { id } = req.params;
         const { role } = req.body;
@@ -180,7 +181,10 @@ const updateUserRole = async (req, res) => {
             });
         }
 
-        const result = await query(
+        client = await pool.connect();
+        await client.query('BEGIN');
+
+        const result = await client.query(
             `UPDATE users
              SET role = $1
              WHERE user_id = $2
@@ -189,6 +193,7 @@ const updateUserRole = async (req, res) => {
         );
 
         if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -196,6 +201,41 @@ const updateUserRole = async (req, res) => {
         }
 
         const updatedUser = result.rows[0];
+
+        if (role === 'company') {
+            await client.query(
+                `INSERT INTO companies (
+                    company_id,
+                    company_name,
+                    industry,
+                    company_size,
+                    location,
+                    description
+                ) VALUES ($1, $2, NULL, NULL, NULL, NULL)
+                ON CONFLICT (company_id) DO UPDATE
+                SET company_name = COALESCE(
+                    NULLIF(companies.company_name, ''),
+                    EXCLUDED.company_name
+                )`,
+                [
+                    updatedUser.user_id,
+                    `${updatedUser.full_name || updatedUser.email || 'Company'}`
+                        .trim(),
+                ]
+            );
+        }
+
+        if (role === 'student' || role === 'graduate') {
+            await client.query(
+                `INSERT INTO students (student_id, student_type)
+                 VALUES ($1, $2)
+                 ON CONFLICT (student_id) DO UPDATE
+                 SET student_type = EXCLUDED.student_type`,
+                [updatedUser.user_id, role === 'graduate' ? 'graduate' : 'current']
+            );
+        }
+
+        await client.query('COMMIT');
         await logAuditEvent({
             category: 'admin_action',
             eventType: 'Role changed',
@@ -208,12 +248,18 @@ const updateUserRole = async (req, res) => {
 
         res.json({
             success: true,
-            message: 'User role updated successfully',
+            message:
+                'User role updated successfully. If the user is logged in, the new access will apply on the next request.',
             data: updatedUser
         });
     } catch (error) {
+        if (client) {
+            await client.query('ROLLBACK').catch(() => {});
+        }
         console.error('Update role error:', error);
         res.status(500).json({ success: false, message: error.message });
+    } finally {
+        client?.release();
     }
 };
 
@@ -221,15 +267,39 @@ const updateUserRole = async (req, res) => {
 const verifyUser = async (req, res) => {
     try {
         const { id } = req.params;
+        const userResult = await query(
+            `SELECT user_id, full_name, email, is_verified
+             FROM users
+             WHERE user_id = $1
+             LIMIT 1`,
+            [id]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const user = userResult.rows[0];
         await query('UPDATE users SET is_verified = true WHERE user_id = $1', [id]);
+
+        if (user.is_verified !== true) {
+            await NotificationModel.create({
+                user_id: user.user_id,
+                title: 'Account verified',
+                message:
+                    'Your account has been verified by admin. You can continue using the app.',
+                type: 'account'
+            });
+        }
+
         await logAuditEvent({
             category: 'admin_action',
             eventType: 'User verified',
-            message: `User ${id} was verified`,
+            message: `${user.full_name || user.email || id} was verified`,
             actorUserId: req.user.user_id,
             actorName: req.user.email,
             userInvolved: id,
-            userInvolvedName: id
+            userInvolvedName: user.full_name || user.email || id
         });
         res.json({ success: true, message: 'User verified successfully' });
     } catch (error) {
