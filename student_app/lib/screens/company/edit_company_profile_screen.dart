@@ -1,9 +1,16 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../utils/role_theme.dart';
+
+const Color _companyEditPrimary = CompanyRoleTheme.primary;
+const Color _companyEditPrimaryDark = CompanyRoleTheme.primaryDark;
+const Color _companyEditSurfaceSoft = CompanyRoleTheme.surfaceSoft;
+const Color _companyEditBorder = CompanyRoleTheme.border;
 
 class EditCompanyProfileScreen extends StatefulWidget {
   const EditCompanyProfileScreen({super.key});
@@ -40,6 +47,12 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
   String? _logoUrl;
   String? _stampUrl;
   String? _signatureUrl;
+  Uint8List? _logoPreviewBytes;
+  Uint8List? _stampPreviewBytes;
+  Uint8List? _signaturePreviewBytes;
+  int _logoPreviewVersion = DateTime.now().millisecondsSinceEpoch;
+  int _stampPreviewVersion = DateTime.now().millisecondsSinceEpoch;
+  int _signaturePreviewVersion = DateTime.now().millisecondsSinceEpoch;
   bool _isLoading = false;
   bool _isChangingPassword = false;
 
@@ -97,6 +110,10 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       _logoUrl = companyData?['logo_url']?.toString();
       _stampUrl = companyData?['stamp_url']?.toString();
       _signatureUrl = companyData?['signature_url']?.toString();
+      final refreshedAt = DateTime.now().millisecondsSinceEpoch;
+      _logoPreviewVersion = refreshedAt;
+      _stampPreviewVersion = refreshedAt;
+      _signaturePreviewVersion = refreshedAt;
 
       String? industry = companyData?['industry'];
       if (industry != null && !_industries.contains(industry)) {
@@ -123,20 +140,82 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
   }
 
-  String? _resolveAssetUrl(String? assetPath) {
-    if (assetPath == null || assetPath.isEmpty) return null;
-    if (assetPath.startsWith('http://') || assetPath.startsWith('https://')) {
-      return assetPath;
-    }
-    return '${_apiService.baseUrl}$assetPath';
+  void _syncUploadedAssetState({
+    String? logoUrl,
+    String? stampUrl,
+    String? signatureUrl,
+    Uint8List? logoPreviewBytes,
+    Uint8List? stampPreviewBytes,
+    Uint8List? signaturePreviewBytes,
+    bool refreshLogoVersion = false,
+    bool refreshStampVersion = false,
+    bool refreshSignatureVersion = false,
+  }) {
+    final refreshedAt = DateTime.now().millisecondsSinceEpoch;
+    setState(() {
+      if (logoUrl != null && logoUrl.isNotEmpty) {
+        _logoUrl = logoUrl;
+      }
+      if (stampUrl != null && stampUrl.isNotEmpty) {
+        _stampUrl = stampUrl;
+      }
+      if (signatureUrl != null && signatureUrl.isNotEmpty) {
+        _signatureUrl = signatureUrl;
+      }
+      if (logoPreviewBytes != null) {
+        _logoPreviewBytes = logoPreviewBytes;
+      }
+      if (stampPreviewBytes != null) {
+        _stampPreviewBytes = stampPreviewBytes;
+      }
+      if (signaturePreviewBytes != null) {
+        _signaturePreviewBytes = signaturePreviewBytes;
+      }
+      if (refreshLogoVersion) {
+        _logoPreviewVersion = refreshedAt;
+      }
+      if (refreshStampVersion) {
+        _stampPreviewVersion = refreshedAt;
+      }
+      if (refreshSignatureVersion) {
+        _signaturePreviewVersion = refreshedAt;
+      }
+    });
+  }
+
+  Future<void> _reloadUploadedAssetsFromProfile() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    await authProvider.loadProfile();
+    if (!mounted) return;
+
+    final companyData = authProvider.user?['company_data'];
+    _syncUploadedAssetState(
+      logoUrl: companyData?['logo_url']?.toString(),
+      stampUrl: companyData?['stamp_url']?.toString(),
+      signatureUrl: companyData?['signature_url']?.toString(),
+      refreshLogoVersion: true,
+      refreshStampVersion: true,
+      refreshSignatureVersion: true,
+    );
+  }
+
+  String? _resolveAssetUrl(String? assetPath, {int? cacheBust}) {
+    return _apiService.resolveAssetUrl(assetPath, cacheBust: cacheBust);
+  }
+
+  List<String> _resolveAssetUrlCandidates(String? assetPath, {int? cacheBust}) {
+    return _apiService.resolveAssetUrlCandidates(
+      assetPath,
+      cacheBust: cacheBust,
+    );
   }
 
   Future<void> _uploadLogo() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['jpg', 'jpeg', 'png'],
-        withData: kIsWeb,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
       );
       if (!mounted) return;
 
@@ -164,6 +243,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
           );
           return;
         }
+        final previousLogoUrl = _logoUrl;
         setState(() => _isLoading = true);
 
         final response = await _apiService.uploadCompanyLogo(
@@ -174,24 +254,29 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         if (!mounted) return;
 
         if (response['success']) {
+          final uploadedCompany = response['data']?['company'];
           final uploadedLogo =
+              uploadedCompany?['logo_url']?.toString() ??
               response['data']?['logo_url']?.toString() ??
               response['logo_url']?.toString();
-          if (uploadedLogo != null && uploadedLogo.isNotEmpty) {
-            setState(() => _logoUrl = uploadedLogo);
-          }
+          _syncUploadedAssetState(
+            logoUrl: uploadedLogo,
+            logoPreviewBytes: fileBytes,
+            refreshLogoVersion: true,
+          );
+          await _reloadUploadedAssetsFromProfile();
+          if (!mounted) return;
 
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Logo uploaded successfully!'),
+            SnackBar(
+              content: Text(
+                _logoUrl != null && _logoUrl != previousLogoUrl
+                    ? 'Logo uploaded successfully!'
+                    : 'Logo upload saved successfully.',
+              ),
               backgroundColor: Colors.green,
             ),
           );
-          final authProvider = Provider.of<AuthProvider>(
-            context,
-            listen: false,
-          );
-          await authProvider.loadProfile();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -366,6 +451,56 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
   }
 
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: _companyEditBorder.withValues(alpha: 0.7)),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.05),
+          blurRadius: 10,
+          offset: const Offset(0, 3),
+        ),
+      ],
+    );
+  }
+
+  InputDecoration _inputDecoration({
+    required String labelText,
+    required IconData icon,
+    Widget? suffixIcon,
+    String? helperText,
+    bool enabled = true,
+  }) {
+    return InputDecoration(
+      labelText: labelText,
+      labelStyle: TextStyle(
+        fontSize: 12,
+        color: enabled ? _companyEditPrimaryDark : Colors.grey.shade600,
+      ),
+      prefixIcon: Icon(icon, size: 18, color: _companyEditPrimary),
+      suffixIcon: suffixIcon,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: _companyEditBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: _companyEditPrimary),
+      ),
+      filled: true,
+      fillColor: enabled ? _companyEditSurfaceSoft : Colors.grey.shade100,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      helperText: helperText,
+      helperStyle: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _companyNameController.text.isEmpty) {
@@ -373,11 +508,11 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFFF5F7F2),
       appBar: AppBar(
         title: const Text('Edit Company Profile'),
         backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        foregroundColor: _companyEditPrimaryDark,
         elevation: 0,
         centerTitle: true,
       ),
@@ -395,18 +530,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                   width:
                       MediaQuery.of(context).size.width *
                       0.85, // 85% of screen width
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.08),
-                        spreadRadius: 1,
-                        blurRadius: 8,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
+                  decoration: _cardDecoration(),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -416,7 +540,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                           children: [
                             Icon(
                               Icons.image,
-                              color: Color(0xFF2C3E50),
+                              color: _companyEditPrimary,
                               size: 20,
                             ),
                             SizedBox(width: 8),
@@ -425,7 +549,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF2C3E50),
+                                color: _companyEditPrimaryDark,
                               ),
                             ),
                           ],
@@ -438,34 +562,45 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               height: 80,
                               width: 80,
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: _companyEditSurfaceSoft,
                                 borderRadius: BorderRadius.circular(40),
                                 border: Border.all(
-                                  color: Colors.grey.shade300,
+                                  color: _companyEditBorder,
                                   width: 1.5,
                                 ),
                               ),
                               child: Builder(
                                 builder: (context) {
-                                  final logoPreviewUrl = _resolveAssetUrl(
-                                    _logoUrl,
-                                  );
-                                  if (logoPreviewUrl != null) {
+                                  final logoPreviewUrls =
+                                      _resolveAssetUrlCandidates(
+                                        _logoUrl,
+                                        cacheBust: _logoPreviewVersion,
+                                      );
+                                  if (_logoPreviewBytes != null) {
                                     return ClipRRect(
                                       borderRadius: BorderRadius.circular(40),
-                                      child: Image.network(
-                                        logoPreviewUrl,
+                                      child: Image.memory(
+                                        _logoPreviewBytes!,
+                                        key: ValueKey(
+                                          'logo-memory-$_logoPreviewVersion',
+                                        ),
                                         fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                              return const Center(
-                                                child: Icon(
-                                                  Icons.camera_alt,
-                                                  size: 24,
-                                                  color: Colors.grey,
-                                                ),
-                                              );
-                                            },
+                                      ),
+                                    );
+                                  }
+                                  if (logoPreviewUrls.isNotEmpty) {
+                                    return ClipRRect(
+                                      borderRadius: BorderRadius.circular(40),
+                                      child: _AssetImageWithFallbacks(
+                                        imageUrls: logoPreviewUrls,
+                                        fit: BoxFit.cover,
+                                        emptyChild: const Center(
+                                          child: Icon(
+                                            Icons.camera_alt,
+                                            size: 24,
+                                            color: _companyEditPrimary,
+                                          ),
+                                        ),
                                       ),
                                     );
                                   }
@@ -477,7 +612,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                                         Icon(
                                           Icons.camera_alt,
                                           size: 24,
-                                          color: Colors.grey,
+                                          color: _companyEditPrimary,
                                         ),
                                         SizedBox(height: 2),
                                         Text(
@@ -498,7 +633,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                             'Tap to upload logo',
                             style: TextStyle(
                               fontSize: 10,
-                              color: Colors.grey[500],
+                              color: Colors.grey[600],
                             ),
                           ),
                         ),
@@ -511,18 +646,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 // ========== CARD 2: ACCEPTANCE LETTER ASSETS ==========
                 Container(
                   width: MediaQuery.of(context).size.width * 0.85,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.08),
-                        spreadRadius: 1,
-                        blurRadius: 8,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
+                  decoration: _cardDecoration(),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -532,7 +656,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                           children: [
                             Icon(
                               Icons.approval_rounded,
-                              color: Color(0xFF2C3E50),
+                              color: _companyEditPrimary,
                               size: 20,
                             ),
                             SizedBox(width: 8),
@@ -541,14 +665,14 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF2C3E50),
+                                color: _companyEditPrimaryDark,
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Upload a JPG/JPEG company stamp and signature once. Accepted response letters will use them automatically.',
+                          'Upload a JPG/JPEG/PNG company stamp and signature once. Accepted response letters will use them automatically.',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade700,
@@ -563,6 +687,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               subtitle:
                                   'Used on the official rubber stamp area',
                               assetUrl: _stampUrl,
+                              previewBytes: _stampPreviewBytes,
                               emptyIcon: Icons.verified_outlined,
                               onTap: () => _uploadAcceptanceLetterAsset(
                                 isSignature: false,
@@ -574,6 +699,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               subtitle:
                                   'Placed on the authorizing officer signature line',
                               assetUrl: _signatureUrl,
+                              previewBytes: _signaturePreviewBytes,
                               emptyIcon: Icons.draw_outlined,
                               onTap: () => _uploadAcceptanceLetterAsset(
                                 isSignature: true,
@@ -600,18 +726,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                   width:
                       MediaQuery.of(context).size.width *
                       0.85, // 85% of screen width
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.08),
-                        spreadRadius: 1,
-                        blurRadius: 8,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
+                  decoration: _cardDecoration(),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -621,7 +736,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                           children: [
                             Icon(
                               Icons.business,
-                              color: Color(0xFF2C3E50),
+                              color: _companyEditPrimary,
                               size: 20,
                             ),
                             SizedBox(width: 8),
@@ -630,7 +745,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF2C3E50),
+                                color: _companyEditPrimaryDark,
                               ),
                             ),
                           ],
@@ -640,19 +755,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         // Company Name
                         TextFormField(
                           controller: _companyNameController,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Company Name',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.business, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.business,
                           ),
                           style: const TextStyle(fontSize: 14),
                           validator: (v) =>
@@ -664,28 +769,15 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         DropdownButtonFormField<String>(
                           initialValue: _selectedCompanySize,
                           dropdownColor: Colors.white,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Company Size',
-                            labelStyle: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                            prefixIcon: const Icon(Icons.people, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.people,
                           ),
                           style: const TextStyle(
                             fontSize: 14,
-                            color: Colors.black87,
+                            color: _companyEditPrimaryDark,
                           ),
-                          iconEnabledColor: Colors.black87,
+                          iconEnabledColor: _companyEditPrimaryDark,
                           items: _companySizes.map((size) {
                             return DropdownMenuItem(
                               value: size,
@@ -705,28 +797,15 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         DropdownButtonFormField<String>(
                           initialValue: _selectedIndustry,
                           dropdownColor: Colors.white,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Industry',
-                            labelStyle: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                            prefixIcon: const Icon(Icons.factory, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.factory,
                           ),
                           style: const TextStyle(
                             fontSize: 14,
-                            color: Colors.black87,
+                            color: _companyEditPrimaryDark,
                           ),
-                          iconEnabledColor: Colors.black87,
+                          iconEnabledColor: _companyEditPrimaryDark,
                           items: _industries.map((industry) {
                             return DropdownMenuItem(
                               value: industry,
@@ -745,19 +824,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         // Location
                         TextFormField(
                           controller: _locationController,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Location',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.location_on, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.location_on,
                           ),
                           style: const TextStyle(fontSize: 14),
                           validator: (v) =>
@@ -768,19 +837,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         // Website
                         TextFormField(
                           controller: _websiteController,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Website',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.link, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.link,
                           ),
                           style: const TextStyle(fontSize: 14),
                           keyboardType: TextInputType.url,
@@ -790,19 +849,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         // Phone
                         TextFormField(
                           controller: _phoneController,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Phone',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.phone, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.phone,
                           ),
                           style: const TextStyle(fontSize: 14),
                           keyboardType: TextInputType.phone,
@@ -813,19 +862,10 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         TextFormField(
                           controller: _emailController,
                           enabled: false,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Email',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.email, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.email,
+                            enabled: false,
                           ),
                           style: TextStyle(
                             fontSize: 14,
@@ -838,19 +878,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         TextFormField(
                           controller: _descriptionController,
                           maxLines: 3,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Description',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.description, size: 18),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                            icon: Icons.description,
                           ),
                           style: const TextStyle(fontSize: 14),
                         ),
@@ -865,18 +895,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                   width:
                       MediaQuery.of(context).size.width *
                       0.85, // 85% of screen width
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.08),
-                        spreadRadius: 1,
-                        blurRadius: 8,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
+                  decoration: _cardDecoration(),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -886,7 +905,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                           children: [
                             Icon(
                               Icons.lock,
-                              color: Color(0xFF2C3E50),
+                              color: _companyEditPrimary,
                               size: 20,
                             ),
                             SizedBox(width: 8),
@@ -895,7 +914,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF2C3E50),
+                                color: _companyEditPrimaryDark,
                               ),
                             ),
                           ],
@@ -906,13 +925,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         TextFormField(
                           controller: _currentPasswordController,
                           obscureText: !_showCurrentPassword,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Current Password',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(
-                              Icons.lock_outline,
-                              size: 18,
-                            ),
+                            icon: Icons.lock_outline,
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _showCurrentPassword
@@ -926,15 +941,6 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                                 });
                               },
                             ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
                           ),
                           style: const TextStyle(fontSize: 14),
                         ),
@@ -944,10 +950,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         TextFormField(
                           controller: _newPasswordController,
                           obscureText: !_showNewPassword,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'New Password',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.lock_open, size: 18),
+                            icon: Icons.lock_open,
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _showNewPassword
@@ -961,20 +966,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                                 });
                               },
                             ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
                             helperText: 'Min. 6 characters',
-                            helperStyle: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey[600],
-                            ),
                           ),
                           style: const TextStyle(fontSize: 14),
                         ),
@@ -984,10 +976,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         TextFormField(
                           controller: _confirmPasswordController,
                           obscureText: !_showConfirmPassword,
-                          decoration: InputDecoration(
+                          decoration: _inputDecoration(
                             labelText: 'Confirm New Password',
-                            labelStyle: const TextStyle(fontSize: 12),
-                            prefixIcon: const Icon(Icons.lock, size: 18),
+                            icon: Icons.lock,
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _showConfirmPassword
@@ -1000,15 +991,6 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                                   _showConfirmPassword = !_showConfirmPassword;
                                 });
                               },
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
                             ),
                           ),
                           style: const TextStyle(fontSize: 14),
@@ -1023,7 +1005,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                                 ? null
                                 : _changePassword,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
+                              backgroundColor: _companyEditPrimary,
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
@@ -1056,7 +1038,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _updateProfile,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2C3E50),
+                      backgroundColor: _companyEditPrimaryDark,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -1093,8 +1075,8 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['jpg', 'jpeg'],
-        withData: kIsWeb,
+        allowedExtensions: const ['jpg', 'jpeg', 'png'],
+        withData: true,
       );
       if (!mounted || result == null) return;
 
@@ -1121,6 +1103,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         return;
       }
 
+      final previousAssetUrl = isSignature ? _signatureUrl : _stampUrl;
       setState(() => _isLoading = true);
       final response = isSignature
           ? await _apiService.uploadCompanySignature(
@@ -1136,28 +1119,39 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       if (!mounted) return;
 
       if (response['success'] == true) {
+        final uploadedCompany = response['data']?['company'];
         final uploadedUrl =
+            uploadedCompany?[isSignature ? 'signature_url' : 'stamp_url']
+                ?.toString() ??
             response['data']?[isSignature ? 'signature_url' : 'stamp_url']
                 ?.toString();
-        setState(() {
-          if (isSignature) {
-            _signatureUrl = uploadedUrl;
-          } else {
-            _stampUrl = uploadedUrl;
-          }
-        });
+        _syncUploadedAssetState(
+          stampUrl: isSignature ? null : uploadedUrl,
+          signatureUrl: isSignature ? uploadedUrl : null,
+          stampPreviewBytes: isSignature ? null : fileBytes,
+          signaturePreviewBytes: isSignature ? fileBytes : null,
+          refreshStampVersion: !isSignature,
+          refreshSignatureVersion: isSignature,
+        );
+        await _reloadUploadedAssetsFromProfile();
+        if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              isSignature
-                  ? 'Digital signature uploaded successfully!'
-                  : 'Company stamp uploaded successfully!',
+              (isSignature ? _signatureUrl : _stampUrl) != null &&
+                      (isSignature ? _signatureUrl : _stampUrl) !=
+                          previousAssetUrl
+                  ? (isSignature
+                        ? 'Digital signature uploaded successfully!'
+                        : 'Company stamp uploaded successfully!')
+                  : (isSignature
+                        ? 'Digital signature saved successfully.'
+                        : 'Company stamp saved successfully.'),
             ),
             backgroundColor: Colors.green,
           ),
         );
-        await Provider.of<AuthProvider>(context, listen: false).loadProfile();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1190,12 +1184,24 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     required String title,
     required String subtitle,
     required String? assetUrl,
+    Uint8List? previewBytes,
     required IconData emptyIcon,
     required VoidCallback onTap,
     double previewWidth = 110,
     double previewHeight = 72,
   }) {
-    final previewUrl = _resolveAssetUrl(assetUrl);
+    final previewUrl = _resolveAssetUrl(
+      assetUrl,
+      cacheBust: title == 'Company Stamp'
+          ? _stampPreviewVersion
+          : _signaturePreviewVersion,
+    );
+    final previewUrls = _resolveAssetUrlCandidates(
+      assetUrl,
+      cacheBust: title == 'Company Stamp'
+          ? _stampPreviewVersion
+          : _signaturePreviewVersion,
+    );
 
     return Expanded(
       child: GestureDetector(
@@ -1203,9 +1209,9 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
+            color: _companyEditSurfaceSoft,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: _companyEditBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1215,7 +1221,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF2C3E50),
+                  color: _companyEditPrimaryDark,
                 ),
               ),
               const SizedBox(height: 4),
@@ -1230,14 +1236,27 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: _companyEditBorder),
                 ),
                 alignment: Alignment.center,
-                child: previewUrl == null
+                child: previewBytes != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: Image.memory(
+                          previewBytes,
+                          key: ValueKey(
+                            '$title-memory-${title == 'Company Stamp' ? _stampPreviewVersion : _signaturePreviewVersion}',
+                          ),
+                          fit: BoxFit.contain,
+                          width: double.infinity,
+                          height: double.infinity,
+                        ),
+                      )
+                    : previewUrl == null
                     ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(emptyIcon, color: Colors.grey.shade500),
+                          Icon(emptyIcon, color: _companyEditPrimary),
                           const SizedBox(height: 4),
                           const Text(
                             'Upload JPG',
@@ -1247,14 +1266,13 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                       )
                     : ClipRRect(
                         borderRadius: BorderRadius.circular(11),
-                        child: Image.network(
-                          previewUrl,
+                        child: _AssetImageWithFallbacks(
+                          imageUrls: previewUrls,
                           fit: BoxFit.contain,
-                          width: double.infinity,
-                          height: double.infinity,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(emptyIcon, color: Colors.grey.shade500);
-                          },
+                          emptyChild: Icon(
+                            emptyIcon,
+                            color: _companyEditPrimary,
+                          ),
                         ),
                       ),
               ),
@@ -1264,13 +1282,67 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: Colors.blueGrey.shade700,
+                  color: _companyEditPrimaryDark,
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AssetImageWithFallbacks extends StatefulWidget {
+  final List<String> imageUrls;
+  final BoxFit fit;
+  final Widget emptyChild;
+
+  const _AssetImageWithFallbacks({
+    required this.imageUrls,
+    required this.fit,
+    required this.emptyChild,
+  });
+
+  @override
+  State<_AssetImageWithFallbacks> createState() =>
+      _AssetImageWithFallbacksState();
+}
+
+class _AssetImageWithFallbacksState extends State<_AssetImageWithFallbacks> {
+  int _imageIndex = 0;
+
+  @override
+  void didUpdateWidget(covariant _AssetImageWithFallbacks oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrls.join('|') != widget.imageUrls.join('|')) {
+      _imageIndex = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.imageUrls.isEmpty || _imageIndex >= widget.imageUrls.length) {
+      return widget.emptyChild;
+    }
+
+    final currentUrl = widget.imageUrls[_imageIndex];
+    return Image.network(
+      currentUrl,
+      key: ValueKey('$currentUrl-$_imageIndex'),
+      fit: widget.fit,
+      width: double.infinity,
+      height: double.infinity,
+      errorBuilder: (context, error, stackTrace) {
+        if (_imageIndex < widget.imageUrls.length - 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _imageIndex += 1);
+          });
+          return const SizedBox.expand();
+        }
+        return widget.emptyChild;
+      },
     );
   }
 }

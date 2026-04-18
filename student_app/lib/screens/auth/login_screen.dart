@@ -4,10 +4,12 @@ import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
+import '../../utils/user_role.dart';
 import 'register_screen.dart';
 import '../student/student_dashboard.dart';
 import '../company/company_dashboard.dart';
 import '../admin/admin_dashboard.dart';
+import '../university/university_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -94,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final user = authProvider.user;
 
         if (user != null) {
-          final role = user['role'];
+          final role = normalizeUserRole(user['role']);
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -105,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
           );
 
           if (mounted) {
-            if (role == 'student' || role == 'graduate') {
+            if (isStudentRole(role)) {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const StudentDashboard()),
@@ -115,6 +117,12 @@ class _LoginScreenState extends State<LoginScreen> {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const CompanyDashboard()),
+                (route) => false,
+              );
+            } else if (role == 'university') {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const UniversityDashboard()),
                 (route) => false,
               );
             } else if (role == 'admin') {
@@ -191,9 +199,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Container(
                   constraints: const BoxConstraints(maxWidth: 450),
                   child: Card(
-                    elevation: 8,
+                    elevation: 4,
+                    surfaceTintColor: Colors.transparent,
+                    shadowColor: AppTheme.primaryBlue.withValues(alpha: 0.18),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24),
+                      side: BorderSide(
+                        color: AppTheme.primaryBlue.withValues(alpha: 0.28),
+                        width: 1.2,
+                      ),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(32),
@@ -206,8 +220,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               // Logo ya Serikali
                               Container(
-                                height: 80,
-                                width: 80,
+                                height: 108,
+                                width: 108,
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   shape: BoxShape.circle,
@@ -221,9 +235,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 child: ClipOval(
                                   child: Image.asset(
-                                    'assets/images/internshiplogo.png',
-                                    height: 80,
-                                    width: 80,
+                                    'assets/images/splash_logo.png',
+                                    height: 108,
+                                    width: 108,
                                     fit: BoxFit.cover,
                                     errorBuilder: (context, error, stackTrace) {
                                       return Container(
@@ -301,27 +315,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                     prefixIcon: const Icon(
                                       Icons.email_outlined,
                                     ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(
-                                        color: AppTheme.borderGrey,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(
-                                        color: AppTheme.borderGrey,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.primaryBlue,
-                                        width: 2,
-                                      ),
-                                    ),
                                     filled: true,
-                                    fillColor: AppTheme.white,
+                                    fillColor: AppTheme.surfaceSoft,
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
@@ -359,27 +354,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                         });
                                       },
                                     ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(
-                                        color: AppTheme.borderGrey,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(
-                                        color: AppTheme.borderGrey,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.primaryBlue,
-                                        width: 2,
-                                      ),
-                                    ),
                                     filled: true,
-                                    fillColor: AppTheme.white,
+                                    fillColor: AppTheme.surfaceSoft,
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
@@ -398,7 +374,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
 
                           Material(
-                            color: const Color(0xFFEAF3FF),
+                            color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             child: InkWell(
                               onTap: _isLoggingIn
@@ -413,11 +389,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: AppTheme.primaryBlue.withValues(
-                                      alpha: 0.2,
+                                  color: const Color(0xFFF6FAFF),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppTheme.shadow.withValues(
+                                        alpha: 0.04,
+                                      ),
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 8),
                                     ),
-                                  ),
+                                  ],
                                 ),
                                 child: Row(
                                   children: [
@@ -541,17 +522,17 @@ class _LoginScreenState extends State<LoginScreen> {
                           Column(
                             children: [
                               Text(
-                                '© 2026 ${language.tr('developed_by_name', {'name': 'DEVELOPER GINGER'})}',
+                                '© 2026 ${language.tr('IPTkiganjani', {'name': 'IPTkiganjani'})}',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 14,
                                   color: Colors.grey.shade500,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 language.tr('version_value', {
-                                  'value': '1.0.0',
+                                  'value': '1.2.1',
                                 }),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(

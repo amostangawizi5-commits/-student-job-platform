@@ -56,6 +56,65 @@ function normalizeRequiredApplicants(rawValue, { required = false } = {}) {
     return value;
 }
 
+function normalizeStringArray(rawValue) {
+    const values = Array.isArray(rawValue)
+        ? rawValue
+        : `${rawValue || ''}`
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean);
+
+    return [...new Set(values.map((item) => `${item}`.trim()).filter(Boolean))];
+}
+
+function normalizeEligiblePrograms(rawValue) {
+    if (rawValue === undefined) return undefined;
+    return normalizeStringArray(rawValue);
+}
+
+function normalizeMinimumGpa(rawValue) {
+    if (rawValue === undefined) return undefined;
+    if (rawValue === null || `${rawValue}`.trim() === '') return null;
+
+    const value = Number.parseFloat(`${rawValue}`.trim());
+    if (Number.isNaN(value) || value < 0 || value > 5) {
+        throw new JobValidationError('Minimum GPA must be a number between 0.0 and 5.0');
+    }
+
+    return Number(value.toFixed(2));
+}
+
+function normalizeMinimumAcademicYear(rawValue) {
+    if (rawValue === undefined) return undefined;
+    if (rawValue === null || `${rawValue}`.trim() === '') return null;
+
+    const value = Number.parseInt(`${rawValue}`.trim(), 10);
+    if (!Number.isInteger(value) || value < 1 || value > 6) {
+        throw new JobValidationError('Minimum academic year must be between 1 and 6');
+    }
+
+    return value;
+}
+
+function normalizeOptionalText(rawValue) {
+    if (rawValue === undefined) return undefined;
+    const value = `${rawValue || ''}`.trim();
+    return value ? value : null;
+}
+
+function normalizeEligibilityMatchMode(rawValue) {
+    if (rawValue === undefined) return undefined;
+
+    const value = `${rawValue || ''}`.trim().toLowerCase();
+    if (!value) return 'all';
+
+    if (!['all', 'any'].includes(value)) {
+        throw new JobValidationError('Eligibility mode must be either "all" or "any"');
+    }
+
+    return value;
+}
+
 function normalizeApplicationDeadline(rawValue, { required = false } = {}) {
     if (rawValue === undefined || rawValue === null || `${rawValue}`.trim() === '') {
         if (required) {
@@ -77,7 +136,37 @@ function normalizeApplicationDeadline(rawValue, { required = false } = {}) {
 }
 
 function sanitizeJobPayload(payload, { requireCoreFields = false } = {}) {
-    const sanitized = { ...payload };
+    const sanitized = {};
+    const allowedFields = [
+        'title',
+        'type',
+        'target_candidates',
+        'description',
+        'location',
+        'salary_range',
+        'required_applicants',
+        'application_deadline',
+        'eligible_programs',
+        'minimum_gpa',
+        'minimum_academic_year',
+        'eligibility_notes',
+        'eligibility_match_mode',
+        'status'
+    ];
+
+    for (const field of allowedFields) {
+        if (payload[field] !== undefined) {
+            sanitized[field] = payload[field];
+        }
+    }
+
+    if (payload.target_candidates !== undefined) {
+        const targetCandidates = normalizeStringArray(payload.target_candidates);
+        if (requireCoreFields && targetCandidates.length === 0) {
+            throw new JobValidationError('Select at least one target candidate group');
+        }
+        sanitized.target_candidates = targetCandidates;
+    }
 
     const normalizedSalaryRange = normalizeSalaryRange(payload.salary_range);
     if (normalizedSalaryRange !== undefined) {
@@ -98,6 +187,39 @@ function sanitizeJobPayload(payload, { requireCoreFields = false } = {}) {
     );
     if (normalizedDeadline !== undefined) {
         sanitized.application_deadline = normalizedDeadline;
+    }
+
+    const normalizedEligiblePrograms = normalizeEligiblePrograms(
+        payload.eligible_programs
+    );
+    if (normalizedEligiblePrograms !== undefined) {
+        sanitized.eligible_programs = normalizedEligiblePrograms;
+    }
+
+    const normalizedMinimumGpa = normalizeMinimumGpa(payload.minimum_gpa);
+    if (normalizedMinimumGpa !== undefined) {
+        sanitized.minimum_gpa = normalizedMinimumGpa;
+    }
+
+    const normalizedMinimumAcademicYear = normalizeMinimumAcademicYear(
+        payload.minimum_academic_year
+    );
+    if (normalizedMinimumAcademicYear !== undefined) {
+        sanitized.minimum_academic_year = normalizedMinimumAcademicYear;
+    }
+
+    const normalizedEligibilityNotes = normalizeOptionalText(
+        payload.eligibility_notes
+    );
+    if (normalizedEligibilityNotes !== undefined) {
+        sanitized.eligibility_notes = normalizedEligibilityNotes;
+    }
+
+    const normalizedEligibilityMatchMode = normalizeEligibilityMatchMode(
+        payload.eligibility_match_mode
+    );
+    if (normalizedEligibilityMatchMode !== undefined) {
+        sanitized.eligibility_match_mode = normalizedEligibilityMatchMode;
     }
 
     return sanitized;
@@ -177,7 +299,7 @@ const createJob = async (req, res) => {
         const job = await JobModel.create(jobData);
         
         // Add skills if provided
-        if (req.body.skills && Array.isArray(req.body.skills)) {
+        if (Array.isArray(req.body.skills)) {
             for (const skillId of req.body.skills) {
                 await JobModel.addJobSkill(job.job_id, skillId);
             }
@@ -215,7 +337,7 @@ const updateJob = async (req, res) => {
         }
         
         // Check if user owns this job
-        if (job.company_id !== req.user.user_id && req.user.role !== 'admin') {
+        if (`${job.company_id}` !== `${req.user.user_id}` && req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to update this job'
@@ -226,6 +348,13 @@ const updateJob = async (req, res) => {
             id,
             sanitizeJobPayload(req.body)
         );
+
+        if (Array.isArray(req.body.skills)) {
+            const skillIds = req.body.skills
+                .map((skillId) => Number.parseInt(`${skillId}`, 10))
+                .filter((skillId) => Number.isInteger(skillId));
+            await JobModel.replaceJobSkills(id, skillIds);
+        }
         
         res.json({
             success: true,
@@ -259,7 +388,7 @@ const deleteJob = async (req, res) => {
         }
         
         // Check if user owns this job
-        if (job.company_id !== req.user.user_id && req.user.role !== 'admin') {
+        if (`${job.company_id}` !== `${req.user.user_id}` && req.user.role !== 'admin') {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to delete this job'

@@ -42,6 +42,249 @@ function cleanTextValue(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function parseCompanyLocationParts(locationValue) {
+    const location = cleanTextValue(locationValue);
+    if (!location) {
+        return { area: '', district: '', region: '' };
+    }
+
+    const parts = location
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+    if (parts.length === 0) {
+        return { area: location, district: '', region: '' };
+    }
+
+    if (parts.length === 1) {
+        return { area: location, district: '', region: parts[0] };
+    }
+
+    return {
+        area: location,
+        district: parts[0],
+        region: parts[parts.length - 1]
+    };
+}
+
+function normalizeText(value) {
+    return `${value || ''}`.trim().toLowerCase();
+}
+
+function deriveAcademicYear(studentProfile) {
+    const studentType = normalizeText(studentProfile?.student_type);
+    if (studentType === 'graduate') {
+        return 4;
+    }
+
+    const expectedGraduationYear = Number.parseInt(
+        `${studentProfile?.expected_graduation_year ?? ''}`,
+        10
+    );
+    if (Number.isNaN(expectedGraduationYear)) {
+        return null;
+    }
+
+    const currentYear = new Date().getFullYear();
+    const remainingYears = expectedGraduationYear - currentYear;
+
+    if (remainingYears <= 0) return 3;
+    if (remainingYears === 1) return 2;
+    return 1;
+}
+
+function matchesTargetCandidates(targetCandidates, academicYear) {
+    if (!Array.isArray(targetCandidates) || targetCandidates.length === 0) {
+        return true;
+    }
+
+    if (academicYear == null) {
+        return false;
+    }
+
+    return targetCandidates.some((target) => {
+        switch (normalizeText(target)) {
+            case 'first_year':
+                return academicYear === 1;
+            case 'second_year':
+                return academicYear === 2;
+            case 'third_year':
+            case 'third_year_plus':
+            case 'current_students':
+                return academicYear >= 3;
+            default:
+                return false;
+        }
+    });
+}
+
+function normalizeTargetBucket(target) {
+    switch (normalizeText(target)) {
+        case 'first_year':
+            return 'first_year';
+        case 'second_year':
+            return 'second_year';
+        case 'third_year':
+        case 'third_year_plus':
+        case 'current_students':
+            return 'third_year_plus';
+        default:
+            return '';
+    }
+}
+
+function isUnrestrictedTargetCandidates(targetCandidates) {
+    if (!Array.isArray(targetCandidates) || targetCandidates.length === 0) {
+        return true;
+    }
+
+    const normalizedTargets = new Set(
+        targetCandidates
+            .map((target) => normalizeTargetBucket(target))
+            .filter(Boolean)
+    );
+
+    return (
+        normalizedTargets.has('first_year') &&
+        normalizedTargets.has('second_year') &&
+        normalizedTargets.has('third_year_plus')
+    );
+}
+
+function buildEligibilityCriteria(job, studentProfile) {
+    const academicYear = deriveAcademicYear(studentProfile);
+    const studentProgram = normalizeText(studentProfile?.program);
+    const studentGpa = Number.parseFloat(`${studentProfile?.gpa ?? ''}`);
+    const studentSkillIds = Array.isArray(studentProfile?.skill_ids)
+        ? studentProfile.skill_ids
+              .map((skillId) => `${skillId || ''}`.trim())
+              .filter(Boolean)
+        : [];
+
+    const criteria = [];
+
+    if (!isUnrestrictedTargetCandidates(job.target_candidates)) {
+        criteria.push({
+            passed: matchesTargetCandidates(job.target_candidates, academicYear),
+            reason: 'This opportunity is not open for your current academic year.',
+            option: 'your academic year must match the target candidate years'
+        });
+    }
+
+    const minimumAcademicYear = Number.parseInt(
+        `${job.minimum_academic_year ?? ''}`,
+        10
+    );
+    if (!Number.isNaN(minimumAcademicYear) && minimumAcademicYear > 0) {
+        criteria.push({
+            passed: academicYear != null && academicYear >= minimumAcademicYear,
+            reason: `This opportunity requires students from year ${minimumAcademicYear} and above.`,
+            option: `be in year ${minimumAcademicYear} or above`
+        });
+    }
+
+    const eligiblePrograms = Array.isArray(job.eligible_programs)
+        ? job.eligible_programs
+              .map((program) => `${program}`.trim())
+              .filter(Boolean)
+        : [];
+    if (eligiblePrograms.length > 0) {
+        const matchesProgram = eligiblePrograms.some((program) => {
+            const normalizedProgram = normalizeText(program);
+            return (
+                normalizedProgram &&
+                studentProgram &&
+                (
+                    studentProgram.includes(normalizedProgram) ||
+                    normalizedProgram.includes(studentProgram)
+                )
+            );
+        });
+
+        criteria.push({
+            passed: matchesProgram,
+            reason: `This opportunity is only for: ${eligiblePrograms.join(', ')}.`,
+            option: `study one of these programs: ${eligiblePrograms.join(', ')}`
+        });
+    }
+
+    const minimumGpa = Number.parseFloat(`${job.minimum_gpa ?? ''}`);
+    if (!Number.isNaN(minimumGpa)) {
+        criteria.push({
+            passed: !Number.isNaN(studentGpa) && studentGpa >= minimumGpa,
+            reason: Number.isNaN(studentGpa)
+                ? `A minimum GPA of ${minimumGpa.toFixed(2)} is required.`
+                : `Your GPA does not meet the minimum requirement of ${minimumGpa.toFixed(2)}.`,
+            option: `have a GPA of at least ${minimumGpa.toFixed(2)}`
+        });
+    }
+
+    const requiredSkills = Array.isArray(job.required_skills)
+        ? job.required_skills
+        : [];
+    for (const skill of requiredSkills) {
+        const skillId = `${skill.skill_id ?? ''}`.trim();
+        const skillName = `${skill.name || ''}`.trim();
+        if (!skillId || !skillName) {
+            continue;
+        }
+
+        criteria.push({
+            passed: studentSkillIds.includes(skillId),
+            reason: `You need the ${skillName} skill before applying.`,
+            option: `have the ${skillName} skill`
+        });
+    }
+
+    return {
+        academicYear,
+        criteria
+    };
+}
+
+function evaluateJobEligibility(job, studentProfile) {
+    const { academicYear, criteria } = buildEligibilityCriteria(job, studentProfile);
+    if (criteria.length === 0) {
+        return {
+            isEligible: true,
+            reasons: [],
+            academicYear
+        };
+    }
+
+    const matchMode = `${job.eligibility_match_mode || 'all'}`.trim().toLowerCase() === 'any'
+        ? 'any'
+        : 'all';
+    const passedCriteria = criteria.filter((criterion) => criterion.passed);
+    const failedCriteria = criteria.filter((criterion) => !criterion.passed);
+
+    if (matchMode === 'any') {
+        if (passedCriteria.length > 0) {
+            return {
+                isEligible: true,
+                reasons: [],
+                academicYear
+            };
+        }
+
+        return {
+            isEligible: false,
+            reasons: [
+                'You must match at least one of the company requirements below.',
+                ...criteria.map((criterion) => `Requirement option: ${criterion.option}`)
+            ],
+            academicYear
+        };
+    }
+
+    return {
+        isEligible: failedCriteria.length === 0,
+        reasons: failedCriteria.map((criterion) => criterion.reason),
+        academicYear
+    };
+}
+
 async function ensureStudentProfileExists({ userId, role }) {
     if (!userId || !['student', 'graduate'].includes(`${role}`)) {
         return;
@@ -148,7 +391,27 @@ const applyForJob = async (req, res) => {
         });
 
         const jobData = await query(
-            `SELECT job_id, title, status, application_deadline
+            `SELECT
+                jobs.job_id,
+                jobs.title,
+                jobs.status,
+                jobs.application_deadline,
+                jobs.target_candidates,
+                jobs.eligible_programs,
+                jobs.minimum_gpa,
+                jobs.minimum_academic_year,
+                jobs.eligibility_match_mode,
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'skill_id', s.skill_id,
+                            'name', s.name
+                        )
+                    )
+                    FROM job_skills js
+                    JOIN skills s ON js.skill_id = s.skill_id
+                    WHERE js.job_id = jobs.job_id
+                ) AS required_skills
              FROM jobs
              WHERE job_id = $1`,
             [job_id]
@@ -191,6 +454,40 @@ const applyForJob = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'You have already applied for this job'
+            });
+        }
+
+        const studentProfileResult = await query(
+            `SELECT
+                s.student_id,
+                s.student_type,
+                s.program,
+                s.expected_graduation_year,
+                s.gpa,
+                COALESCE(
+                    ARRAY(
+                        SELECT ss.skill_id
+                        FROM student_skills ss
+                        WHERE ss.student_id = s.student_id
+                    ),
+                    ARRAY[]::uuid[]
+                ) AS skill_ids
+             FROM students s
+             WHERE s.student_id = $1
+             LIMIT 1`,
+            [student_id]
+        );
+
+        const studentProfile = studentProfileResult.rows[0];
+        const eligibility = evaluateJobEligibility(job, studentProfile);
+        if (!eligibility.isEligible) {
+            return res.status(403).json({
+                success: false,
+                message: eligibility.reasons[0] || 'You are not eligible for this opportunity.',
+                data: {
+                    reasons: eligibility.reasons,
+                    academic_year: eligibility.academicYear
+                }
             });
         }
 
@@ -597,17 +894,27 @@ const updateApplicationStatus = async (req, res) => {
         }
 
         if (status === 'accepted') {
+            const inferredLocation = parseCompanyLocationParts(app.company_location);
             const organizationName = cleanTextValue(organization_name) || app.company_name;
-            const registrationNumber = cleanTextValue(student_registration_number);
-            const collegeName = cleanTextValue(college_name) || 'College of Informatics and Virtual Education';
+            const registrationNumber =
+                cleanTextValue(student_registration_number) ||
+                cleanTextValue(app.student_registration_number);
+            const collegeName =
+                cleanTextValue(college_name) ||
+                cleanTextValue(app.college_name) ||
+                cleanTextValue(app.university_name) ||
+                'College of Informatics and Virtual Education';
             const sectionDepartment = cleanTextValue(section_department);
             const officerName = cleanTextValue(officer_name);
             const officerDesignation = cleanTextValue(officer_designation);
             const officerPhone = cleanTextValue(officer_phone);
             const officerEmail = cleanTextValue(officer_email);
-            const officerRegion = cleanTextValue(officer_region);
-            const officerDistrict = cleanTextValue(officer_district);
-            const officerArea = cleanTextValue(officer_area);
+            const officerRegion =
+                cleanTextValue(officer_region) || inferredLocation.region;
+            const officerDistrict =
+                cleanTextValue(officer_district) || inferredLocation.district;
+            const officerArea =
+                cleanTextValue(officer_area) || inferredLocation.area;
             const letterDate = cleanTextValue(letter_date);
 
             if (

@@ -9,6 +9,7 @@ const {
     sendPasswordChangedEmail
 } = require('../services/email.service');
 const { logAuditEvent } = require('../services/audit-log.service');
+const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
 
 const TCU_REGISTERED_INSTITUTIONS = [
     { name: 'University of Dar es Salaam (UDSM)', location: 'Dar es Salaam' },
@@ -125,6 +126,31 @@ const TCU_REGISTERED_INSTITUTIONS = [
 const OFFICIAL_INSTITUTION_NAMES = TCU_REGISTERED_INSTITUTIONS.map(({ name }) =>
     name.toLowerCase()
 );
+
+const PDF_FILE_SIGNATURE = Buffer.from('%PDF-', 'utf8');
+const IDENTIFICATION_CARD_PDF_ONLY_MESSAGE =
+    'Only PDF files are allowed for identification cards.';
+
+const isPdfFileUpload = (file) => {
+    if (!file) {
+        return false;
+    }
+
+    const originalName = `${file.originalname || ''}`.trim().toLowerCase();
+    const mimeType = `${file.mimetype || ''}`.trim().toLowerCase();
+    const fileBuffer = Buffer.isBuffer(file.buffer) ? file.buffer : null;
+    const hasPdfExtension = originalName.endsWith('.pdf');
+    const hasPdfMimeType =
+        mimeType === 'application/pdf' || mimeType === 'application/octet-stream';
+    const hasPdfHeader =
+        fileBuffer &&
+        fileBuffer.length >= PDF_FILE_SIGNATURE.length &&
+        fileBuffer
+            .subarray(0, PDF_FILE_SIGNATURE.length)
+            .equals(PDF_FILE_SIGNATURE);
+
+    return hasPdfExtension && hasPdfMimeType && hasPdfHeader;
+};
 
 const ensureDefaultUniversities = async () => {
     for (const institution of TCU_REGISTERED_INSTITUTIONS) {
@@ -463,9 +489,14 @@ const renderResetPasswordPage = ({
 
 // Register User
 const register = async (req, res) => {
+    let uploadedIdentificationCard = null;
+    let uploadedCollegeLogo = null;
+
     try {
         const userData = req.body;
-        const allowedRoles = new Set(['student', 'graduate', 'company']);
+        const allowedRoles = new Set(['student', 'company', 'university']);
+        const identificationCardFile = req.files?.identification_card?.[0] || null;
+        const collegeLogoFile = req.files?.college_logo?.[0] || null;
 
         if (!allowedRoles.has(userData.role)) {
             return res.status(403).json({
@@ -473,14 +504,150 @@ const register = async (req, res) => {
                 message: 'This account type cannot be registered from the app'
             });
         }
+
+        if (userData.role === 'student') {
+            const registrationNumber = `${userData.registration_number || ''}`.trim();
+            if (!registrationNumber) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Registration number is required for students'
+                });
+            }
+
+            if (!identificationCardFile) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Identification card is required for students'
+                });
+            }
+
+            if (!isPdfFileUpload(identificationCardFile)) {
+                return res.status(400).json({
+                    success: false,
+                    message: IDENTIFICATION_CARD_PDF_ONLY_MESSAGE
+                });
+            }
+
+            const selectedUniversityId = `${userData.university_id || ''}`.trim();
+            if (!selectedUniversityId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'University selection is required for students'
+                });
+            }
+
+            const selectedUniversityResult = await query(
+                `SELECT university_id, name
+                 FROM universities
+                 WHERE university_id::text = $1
+                 LIMIT 1`,
+                [selectedUniversityId]
+            );
+
+            if (selectedUniversityResult.rows.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Selected university was not found'
+                });
+            }
+
+            userData.university_id = selectedUniversityResult.rows[0].university_id;
+        }
+
+        if (userData.role === 'university') {
+            const requiredFields = [
+                ['university_id', 'University selection is required'],
+                ['college_name', 'College name is required'],
+                ['registration_number', 'College registration number is required'],
+                ['college_email', 'College email is required'],
+                ['college_phone', 'College phone is required'],
+                ['address', 'College address is required'],
+                ['region', 'College region is required'],
+                ['district', 'College district is required'],
+                ['coordinator_name', 'Coordinator name is required'],
+                ['coordinator_phone', 'Coordinator phone is required'],
+                ['coordinator_email', 'Coordinator email is required'],
+                ['password', 'Password is required']
+            ];
+
+            for (const [field, message] of requiredFields) {
+                if (`${userData[field] || ''}`.trim() === '') {
+                    return res.status(400).json({
+                        success: false,
+                        message
+                    });
+                }
+            }
+
+            const selectedUniversityId = `${userData.university_id || ''}`.trim();
+            const selectedUniversityResult = await query(
+                `SELECT university_id, name
+                 FROM universities
+                 WHERE university_id::text = $1
+                 LIMIT 1`,
+                [selectedUniversityId]
+            );
+
+            if (selectedUniversityResult.rows.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Selected university was not found'
+                });
+            }
+
+            const selectedUniversity = selectedUniversityResult.rows[0];
+
+            if (!collegeLogoFile) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'College logo is required for university registration'
+                });
+            }
+
+            userData.university_id = selectedUniversity.university_id;
+            userData.college_name = `${selectedUniversity.name || ''}`.trim();
+            userData.email = `${userData.college_email || ''}`.trim().toLowerCase();
+            userData.full_name = `${userData.college_name || ''}`.trim();
+            userData.phone = `${userData.college_phone || ''}`.trim();
+        }
         
         // Check if email already exists
         const emailExists = await UserModel.emailExists(userData.email);
         if (emailExists) {
-            return res.status(400).json({ 
+            return res.status(409).json({
                 success: false, 
                 message: 'Email already registered' 
             });
+        }
+
+        if (identificationCardFile && userData.role === 'student') {
+            uploadedIdentificationCard = await uploadAsset({
+                buffer: identificationCardFile.buffer,
+                mimeType: identificationCardFile.mimetype,
+                originalName: identificationCardFile.originalname,
+                localSubdir: 'student-identification-cards',
+                fileNamePrefix: `${`${userData.email || 'student'}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-id`,
+                cloudinaryFolder: 'student-job-platform/student-identification-cards',
+                cloudinaryResourceType: 'raw'
+            });
+
+            userData.identification_card_url = uploadedIdentificationCard.secureUrl;
+            userData.identification_card_name = identificationCardFile.originalname;
+        }
+
+        if (collegeLogoFile && userData.role === 'university') {
+            uploadedCollegeLogo = await uploadAsset({
+                buffer: collegeLogoFile.buffer,
+                mimeType: collegeLogoFile.mimetype,
+                originalName: collegeLogoFile.originalname,
+                localSubdir: 'college-logos',
+                fileNamePrefix: `${`${userData.college_name || 'college'}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-logo`,
+                cloudinaryFolder: 'student-job-platform/college-logos',
+                cloudinaryResourceType: 'image'
+            });
+
+            userData.logo_url = uploadedCollegeLogo.secureUrl;
+            userData.logo_name = collegeLogoFile.originalname;
         }
         
         // Create user
@@ -500,6 +667,26 @@ const register = async (req, res) => {
         
     } catch (error) {
         console.error('Registration error:', error);
+        if (uploadedIdentificationCard?.secureUrl) {
+            try {
+                await deleteAssetByUrl({
+                    fileUrl: uploadedIdentificationCard.secureUrl,
+                    resourceType: 'raw'
+                });
+            } catch (cleanupError) {
+                console.error('Identification card cleanup error:', cleanupError);
+            }
+        }
+        if (uploadedCollegeLogo?.secureUrl) {
+            try {
+                await deleteAssetByUrl({
+                    fileUrl: uploadedCollegeLogo.secureUrl,
+                    resourceType: 'image'
+                });
+            } catch (cleanupError) {
+                console.error('College logo cleanup error:', cleanupError);
+            }
+        }
         res.status(500).json({ 
             success: false, 
             message: 'Registration failed', 
@@ -639,13 +826,161 @@ const getProfile = async (req, res) => {
     }
 };
 
-// Update Profile
-const updateProfile = async (req, res) => {
+const changePassword = async (req, res) => {
     try {
         const userId = req.user.user_id;
-        const updateData = req.body;
+        const currentPassword = `${req.body?.current_password || ''}`.trim();
+        const newPassword = `${req.body?.new_password || ''}`.trim();
+
+        if (!currentPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current password is required'
+            });
+        }
+
+        if (!newPassword || newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters long'
+            });
+        }
+
+        const userResult = await query(
+            `SELECT user_id, email, full_name, password_hash
+             FROM users
+             WHERE user_id = $1
+             LIMIT 1`,
+            [userId]
+        );
+
+        const user = userResult.rows[0];
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const isPasswordValid = await bcrypt.compare(
+            currentPassword,
+            user.password_hash
+        );
+        if (!isPasswordValid) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current password is incorrect'
+            });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(newPassword, salt);
+
+        await query(
+            `UPDATE users
+             SET password_hash = $1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $2`,
+            [passwordHash, userId]
+        );
+
+        try {
+            await sendPasswordChangedEmail({
+                to: user.email,
+                userName: user.full_name
+            });
+        } catch (emailError) {
+            console.error('Change password email error:', emailError);
+        }
+
+        return res.json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+    } catch (error) {
+        console.error('Change password error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to change password'
+        });
+    }
+};
+
+// Update Profile
+const updateProfile = async (req, res) => {
+    let uploadedIdentificationCard = null;
+    let previousIdentificationCardUrl = null;
+
+    try {
+        const userId = req.user.user_id;
+        const updateData = { ...req.body };
+        const identificationCardFile = req.files?.identification_card?.[0] || null;
+
+        if (
+            updateData.student_data &&
+            typeof updateData.student_data === 'string'
+        ) {
+            try {
+                updateData.student_data = JSON.parse(updateData.student_data);
+            } catch (parseError) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid student profile data'
+                });
+            }
+        }
+
+        if (identificationCardFile) {
+            if (!isPdfFileUpload(identificationCardFile)) {
+                return res.status(400).json({
+                    success: false,
+                    message: IDENTIFICATION_CARD_PDF_ONLY_MESSAGE
+                });
+            }
+
+            const existingCardResult = await query(
+                `SELECT identification_card_url
+                 FROM students
+                 WHERE student_id = $1
+                 LIMIT 1`,
+                [userId]
+            );
+
+            uploadedIdentificationCard = await uploadAsset({
+                buffer: identificationCardFile.buffer,
+                mimeType: identificationCardFile.mimetype,
+                originalName: identificationCardFile.originalname,
+                localSubdir: 'student-identification-cards',
+                fileNamePrefix: `${userId}-id`,
+                cloudinaryFolder: 'student-job-platform/student-identification-cards',
+                cloudinaryResourceType: 'raw'
+            });
+
+            previousIdentificationCardUrl =
+                existingCardResult.rows[0]?.identification_card_url || null;
+
+            updateData.student_data = {
+                ...(updateData.student_data && typeof updateData.student_data === 'object'
+                    ? updateData.student_data
+                    : {}),
+                identification_card_url: uploadedIdentificationCard.secureUrl,
+                identification_card_name: identificationCardFile.originalname
+            };
+        }
         
         const updatedUser = await UserModel.update(userId, updateData);
+
+        if (
+            previousIdentificationCardUrl &&
+            previousIdentificationCardUrl !== uploadedIdentificationCard?.secureUrl
+        ) {
+            await deleteAssetByUrl({
+                fileUrl: previousIdentificationCardUrl,
+                resourceType: 'raw'
+            }).catch((cleanupError) => {
+                console.error('Previous identification card cleanup error:', cleanupError);
+            });
+        }
         
         res.json({
             success: true,
@@ -655,6 +990,16 @@ const updateProfile = async (req, res) => {
         
     } catch (error) {
         console.error('Update profile error:', error);
+        if (uploadedIdentificationCard?.secureUrl) {
+            try {
+                await deleteAssetByUrl({
+                    fileUrl: uploadedIdentificationCard.secureUrl,
+                    resourceType: 'raw'
+                });
+            } catch (cleanupError) {
+                console.error('Identification card cleanup error:', cleanupError);
+            }
+        }
         res.status(500).json({ 
             success: false, 
             message: 'Failed to update profile', 
@@ -971,6 +1316,7 @@ module.exports = {
     register,
     login,
     getProfile,
+    changePassword,
     updateProfile,
     getUniversities,
     getSkills,

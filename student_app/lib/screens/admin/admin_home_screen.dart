@@ -7,13 +7,14 @@ import 'admin_application_filter.dart';
 import 'admin_user_filter.dart';
 
 const Color _adminBrandNavy = AdminRoleTheme.primary;
-const Color _adminBrandOrange = AdminRoleTheme.accent;
-const Color _adminBrandSand = AdminRoleTheme.accentSoft;
-const Color _adminBrandSky = AdminRoleTheme.info;
+const Color _adminBrandOrange = AdminRoleTheme.primaryDark;
+const Color _adminBrandSand = Color(0xFFE8EEF4);
+const Color _adminBrandSky = AdminRoleTheme.primaryDark;
 const Color _adminBrandInk = AdminRoleTheme.ink;
 
 class AdminHomeScreen extends StatefulWidget {
   final String? adminName;
+  final int refreshToken;
   final void Function(
     int index, {
     AdminUserFilter? userFilter,
@@ -21,7 +22,12 @@ class AdminHomeScreen extends StatefulWidget {
   })?
   onNavigateToTab;
 
-  const AdminHomeScreen({super.key, this.adminName, this.onNavigateToTab});
+  const AdminHomeScreen({
+    super.key,
+    this.adminName,
+    this.refreshToken = 0,
+    this.onNavigateToTab,
+  });
 
   @override
   State<AdminHomeScreen> createState() => _AdminHomeScreenState();
@@ -40,6 +46,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   List<Map<String, dynamic>> _jobs = const [];
   List<Map<String, dynamic>> _applications = const [];
   List<Map<String, dynamic>> _pendingApplications = const [];
+  List<Map<String, dynamic>> _awardAnnouncements = const [];
 
   void _log(String message) {
     if (kDebugMode) {
@@ -51,6 +58,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   void initState() {
     super.initState();
     _fetchDashboardData();
+  }
+
+  @override
+  void didUpdateWidget(covariant AdminHomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshToken != widget.refreshToken) {
+      _fetchDashboardData();
+    }
   }
 
   Future<void> _fetchDashboardData() async {
@@ -67,6 +82,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         _apiService.getAdminJobs(),
         _apiService.getUsers(),
         _apiService.getApplications(),
+        _apiService.getAwardsHomeData(),
       ]);
 
       final statsResponse = responses[0];
@@ -74,30 +90,45 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       final jobsResponse = responses[2];
       final usersResponse = responses[3];
       final pendingApplicationsResponse = responses[4];
+      final awardsHomeResponse = responses[5];
+      final awardsHomeData = awardsHomeResponse['data'];
 
       if (statsResponse['success'] != true) {
         throw Exception(statsResponse['message'] ?? 'Failed to load stats');
       }
 
+      final users = _mapRecords(usersResponse['data']);
+      final jobs = _mapRecords(jobsResponse['data']);
+      final applications = _mapRecords(pendingApplicationsResponse['data']);
+      final pendingApplications = applications
+          .where(
+            (application) =>
+                _normalizedStatus(application['status']) == 'pending',
+          )
+          .toList(growable: false);
+
       setState(() {
-        _stats = statsResponse['data'] is Map<String, dynamic>
-            ? statsResponse['data']
-            : _fallbackStats();
-        _users = _mapRecords(usersResponse['data']);
-        _jobs = _mapRecords(jobsResponse['data']);
-        _applications = _mapRecords(pendingApplicationsResponse['data']);
-        _pendingApplications = _applications
-            .where(
-              (application) =>
-                  _normalizedStatus(application['status']) == 'pending',
-            )
-            .toList(growable: false);
+        _stats = _resolveStats(
+          rawStats: statsResponse['data'],
+          users: users,
+          jobs: jobs,
+          applications: applications,
+        );
+        _users = users;
+        _jobs = jobs;
+        _applications = applications;
+        _pendingApplications = pendingApplications;
         _recentActivities = logsResponse['data'] is List
             ? _mapRecentActivities(logsResponse['data'])
             : _fallbackRecentActivities();
-        _topCompanies = _jobs.isNotEmpty
-            ? _mapTopCompanies(_jobs)
+        _topCompanies = jobs.isNotEmpty
+            ? _mapTopCompanies(jobs)
             : _fallbackTopCompanies();
+        _awardAnnouncements =
+            awardsHomeData is Map<String, dynamic> &&
+                awardsHomeData['recent_announcements'] is List
+            ? _mapRecords(awardsHomeData['recent_announcements'])
+            : const [];
         _isLoading = false;
       });
     } catch (error) {
@@ -110,6 +141,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         _jobs = const [];
         _applications = const [];
         _pendingApplications = const [];
+        _awardAnnouncements = const [];
         _isLoading = false;
         _hasError = true;
         _errorMessage = ApiService.normalizeErrorMessage(
@@ -139,6 +171,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       'total_users': 0,
       'total_students': 0,
       'total_companies': 0,
+      'total_universities': 0,
       'total_jobs': 0,
       'total_applications': 0,
       'pending_applications': 0,
@@ -146,6 +179,45 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       'rejected_applications': 0,
       'weekly_registrations': [12, 18, 15, 22, 19, 24, 20],
     };
+  }
+
+  Map<String, dynamic> _resolveStats({
+    required dynamic rawStats,
+    required List<Map<String, dynamic>> users,
+    required List<Map<String, dynamic>> jobs,
+    required List<Map<String, dynamic>> applications,
+  }) {
+    final resolved = <String, dynamic>{
+      ..._fallbackStats(),
+      if (rawStats is Map<String, dynamic>) ...rawStats,
+    };
+
+    if (users.isNotEmpty) {
+      resolved['total_users'] = users.length;
+      resolved['total_students'] = users.where((user) {
+        final role = '${user['role'] ?? ''}'.trim().toLowerCase();
+        return role == 'student' || role == 'graduate';
+      }).length;
+      resolved['total_companies'] = users.where((user) {
+        return '${user['role'] ?? ''}'.trim().toLowerCase() == 'company';
+      }).length;
+      resolved['total_universities'] = users.where((user) {
+        return '${user['role'] ?? ''}'.trim().toLowerCase() == 'university';
+      }).length;
+    }
+
+    if (jobs.isNotEmpty) {
+      resolved['total_jobs'] = jobs.length;
+    }
+
+    if (applications.isNotEmpty) {
+      resolved['total_applications'] = applications.length;
+      resolved['pending_applications'] = applications.where((application) {
+        return _normalizedStatus(application['status']) == 'pending';
+      }).length;
+    }
+
+    return resolved;
   }
 
   List<Map<String, dynamic>> _fallbackRecentActivities() {
@@ -406,6 +478,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           const SizedBox(height: 20),
           _buildNotificationPanel(),
           const SizedBox(height: 20),
+          _buildAwardAnnouncementsPanel(),
+          const SizedBox(height: 20),
           _buildStatsSection(),
           const SizedBox(height: 20),
           LayoutBuilder(
@@ -448,7 +522,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           colors: [
             _adminBrandNavy,
             AdminRoleTheme.primaryDark,
-            _adminBrandOrange.withValues(alpha: 0.92),
+            AdminRoleTheme.primaryDark,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -475,7 +549,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
             ),
             child: Image.asset(
-              'assets/images/internshiplogo.png',
+              'assets/images/splash_logo.png',
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return const Icon(
@@ -559,7 +633,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           Container(
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
-              color: _adminBrandOrange.withValues(alpha: 0.18),
+              color: Colors.white.withValues(alpha: 0.16),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, size: 14, color: Colors.white),
@@ -596,7 +670,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ? 'User updates will appear here'
             : _formatRelativeTime(latestUser['created_at']?.toString()),
         'icon': Icons.person_add_alt_1_rounded,
-        'color': Colors.blue,
+        'color': _adminBrandNavy,
         'onTap': () => widget.onNavigateToTab?.call(1),
       },
       {
@@ -608,7 +682,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ? 'Recent job activity appears here'
             : _formatRelativeTime(latestJob['created_at']?.toString()),
         'icon': Icons.campaign_rounded,
-        'color': Colors.orange,
+        'color': _adminBrandNavy,
         'onTap': null,
       },
       {
@@ -620,7 +694,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ? 'Open applications to review requests'
             : '${latestPending['user_name'] ?? latestPending['email'] ?? 'Applicant'} for ${latestPending['job_title'] ?? 'a job'}',
         'icon': Icons.pending_actions_rounded,
-        'color': Colors.redAccent,
+        'color': _adminBrandNavy,
         'onTap': () => widget.onNavigateToTab?.call(2),
       },
     ];
@@ -741,75 +815,33 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Overview of users, students, companies, and jobs.',
+          'Overview of all users, students, companies, universities, and jobs.',
           style: TextStyle(
             fontSize: 13,
             color: Colors.grey.shade600,
             fontWeight: FontWeight.w500,
           ),
         ),
+        if (_asInt(_stats['total_universities']) != 0) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Other users are university accounts: ${_asInt(_stats['total_universities'])}.',
+            style: TextStyle(
+              fontSize: 12,
+              color: _adminBrandNavy,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
         _buildStatsGrid(),
       ],
     );
   }
 
-  Widget _buildStatsGrid() {
-    final stats = [
-      {
-        'title': 'Total Users',
-        'value': _stats['total_users'] ?? 0,
-        'icon': Icons.people,
-        'color': Colors.blue,
-      },
-      {
-        'title': 'Students',
-        'value': _stats['total_students'] ?? 0,
-        'icon': Icons.school,
-        'color': Colors.green,
-      },
-      {
-        'title': 'Companies',
-        'value': _stats['total_companies'] ?? 0,
-        'icon': Icons.business,
-        'color': Colors.purple,
-      },
-      {
-        'title': 'Jobs',
-        'value': _stats['total_jobs'] ?? 0,
-        'icon': Icons.work_outline,
-        'color': Colors.orange,
-      },
-    ];
-
-    return GridView.count(
-      crossAxisCount: MediaQuery.of(context).size.width < 600 ? 2 : 4,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.2,
-      children: stats
-          .map((stat) {
-            return _buildStatCard(
-              title: stat['title'] as String,
-              value: '${stat['value']}',
-              icon: stat['icon'] as IconData,
-              color: stat['color'] as Color,
-            );
-          })
-          .toList(growable: false),
-    );
-  }
-
-  Widget _buildStatCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
+  Widget _buildAwardAnnouncementsPanel() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -822,32 +854,254 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         ],
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 28),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
+          const Text(
+            'Award Announcements',
             style: TextStyle(
-              fontSize: 24,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: color,
+              color: Color(0xFF333333),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
-            title,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            textAlign: TextAlign.center,
+            'Published student awards and public recognitions also visible to administrators.',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
+          const SizedBox(height: 16),
+          if (_awardAnnouncements.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _adminBrandSand.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                'No published award announcements yet.',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+            )
+          else
+            ..._awardAnnouncements.take(3).map((award) {
+              final title = '${award['title'] ?? 'Award announcement'}';
+              final student = '${award['student_name'] ?? 'Student'}';
+              final company = '${award['company_name'] ?? 'Company'}';
+              final createdAt = _formatRelativeTime(
+                award['award_date']?.toString() ??
+                    award['created_at']?.toString(),
+              );
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _adminBrandNavy.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _adminBrandNavy.withValues(alpha: 0.15),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _adminBrandNavy.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.emoji_events_rounded,
+                          color: _adminBrandNavy,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '$student • $company',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              createdAt,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatsGrid() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isCompact = screenWidth < 430;
+    final cardHeight = isCompact ? 124.0 : 144.0;
+    final List<Map<String, dynamic>> stats = [
+      {
+        'title': 'All Users',
+        'value': _stats['total_users'] ?? 0,
+        'icon': Icons.people,
+        'color': _adminBrandNavy,
+        'onTap': () => widget.onNavigateToTab?.call(1),
+      },
+      {
+        'title': 'Students',
+        'value': _stats['total_students'] ?? 0,
+        'icon': Icons.school,
+        'color': _adminBrandNavy,
+        'onTap': () => widget.onNavigateToTab?.call(3),
+      },
+      {
+        'title': 'Companies',
+        'value': _stats['total_companies'] ?? 0,
+        'icon': Icons.business,
+        'color': _adminBrandNavy,
+        'onTap': () => widget.onNavigateToTab?.call(
+          1,
+          userFilter: AdminUserFilter.companies,
+        ),
+      },
+      {
+        'title': 'Universities',
+        'value': _stats['total_universities'] ?? 0,
+        'icon': Icons.account_balance_rounded,
+        'color': _adminBrandNavy,
+        'onTap': () => widget.onNavigateToTab?.call(
+          1,
+          userFilter: AdminUserFilter.universities,
+        ),
+      },
+      {
+        'title': 'Pending Applications',
+        'value': _stats['pending_applications'] ?? 0,
+        'icon': Icons.pending_actions_rounded,
+        'color': _adminBrandNavy,
+        'onTap': () => widget.onNavigateToTab?.call(
+          2,
+          applicationFilter: AdminApplicationFilter.pending,
+        ),
+      },
+    ];
+
+    return GridView.builder(
+      itemCount: stats.length,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: screenWidth < 700 ? 2 : 4,
+        crossAxisSpacing: isCompact ? 10 : 12,
+        mainAxisSpacing: isCompact ? 10 : 12,
+        mainAxisExtent: cardHeight,
+      ),
+      itemBuilder: (context, index) {
+        final stat = stats[index];
+        return _buildStatCard(
+          title: stat['title'] as String,
+          value: '${stat['value']}',
+          icon: stat['icon'] as IconData,
+          color: stat['color'] as Color,
+          onTap: stat['onTap'] as VoidCallback?,
+          compact: isCompact,
+        );
+      },
+    );
+  }
+
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    VoidCallback? onTap,
+    bool compact = false,
+  }) {
+    final cardPadding = compact ? 8.0 : 10.0;
+    final iconSize = compact ? 18.0 : 22.0;
+    final valueSize = compact ? 16.0 : 20.0;
+    final titleSize = compact ? 10.0 : 12.0;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: EdgeInsets.all(cardPadding),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withValues(alpha: 0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(compact ? 6 : 8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: iconSize),
+              ),
+              SizedBox(height: compact ? 4 : 8),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: valueSize,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              SizedBox(height: compact ? 2 : 3),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: titleSize,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -906,14 +1160,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 label: 'This week',
                 value: '$weeklyTotal applications',
                 backgroundColor: _adminBrandNavy,
-                accentColor: _adminBrandOrange,
+                accentColor: Colors.white,
               ),
               _ChartStatBadge(
                 icon: Icons.local_fire_department_rounded,
                 label: 'Peak day',
                 value: _peakApplicationsLabel(weeklyData),
-                backgroundColor: _adminBrandOrange.withValues(alpha: 0.1),
-                accentColor: _adminBrandOrange,
+                backgroundColor: _adminBrandNavy.withValues(alpha: 0.08),
+                accentColor: _adminBrandNavy,
                 textColor: _adminBrandInk,
               ),
               _ChartStatBadge(
@@ -921,7 +1175,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 label: 'Highest',
                 value: '$maxValue per day',
                 backgroundColor: _adminBrandNavy.withValues(alpha: 0.08),
-                accentColor: _adminBrandSky,
+                accentColor: _adminBrandNavy,
                 textColor: _adminBrandInk,
               ),
             ],
@@ -1006,7 +1260,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             ),
                           ),
                           Text(
-                            '${company['jobs'] ?? 0} active jobs',
+                            '${company['jobs'] ?? 0} posted jobs',
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey.shade600,
@@ -1044,6 +1298,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               1,
               userFilter: AdminUserFilter.companies,
             ),
+            style: TextButton.styleFrom(foregroundColor: _adminBrandNavy),
             child: const Text('View All Companies'),
           ),
         ],
@@ -1121,17 +1376,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Color _getActivityColor(String type) {
     switch (type) {
       case 'user':
-        return Colors.blue;
+        return _adminBrandNavy;
       case 'job':
-        return Colors.green;
+        return _adminBrandOrange;
       case 'company':
-        return Colors.purple;
+        return _adminBrandSky;
       case 'application':
-        return Colors.orange;
+        return _adminBrandNavy;
       case 'error':
         return Colors.red;
       default:
-        return Colors.indigo;
+        return _adminBrandNavy;
     }
   }
 

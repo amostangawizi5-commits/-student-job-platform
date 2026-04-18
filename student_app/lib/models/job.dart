@@ -14,6 +14,11 @@ class Job {
   final String status;
   final DateTime createdAt;
   final String? logoUrl;
+  final List<String> eligiblePrograms;
+  final double? minimumGpa;
+  final int? minimumAcademicYear;
+  final String? eligibilityNotes;
+  final String eligibilityMatchMode;
   final List<Map<String, dynamic>> requiredSkills;
 
   Job({
@@ -31,6 +36,11 @@ class Job {
     required this.status,
     required this.createdAt,
     this.logoUrl,
+    required this.eligiblePrograms,
+    this.minimumGpa,
+    this.minimumAcademicYear,
+    this.eligibilityNotes,
+    required this.eligibilityMatchMode,
     required this.requiredSkills,
   });
 
@@ -42,7 +52,7 @@ class Job {
       companyId: _stringValue(json['company_id']),
       companyName: _stringValue(json['company_name'], fallback: 'Company'),
       title: _stringValue(json['title'], fallback: 'Untitled Job'),
-      type: _stringValue(json['type'], fallback: 'internship'),
+      type: _stringValue(json['type'], fallback: 'graduate_program'),
       targetCandidates: _stringList(json['target_candidates']),
       description: _stringValue(
         json['description'],
@@ -65,6 +75,18 @@ class Job {
       status: _stringValue(json['status'], fallback: 'open'),
       createdAt: _parseDateTime(json['created_at'], fallback: now) ?? now,
       logoUrl: json['logo_url'],
+      eligiblePrograms: _stringList(json['eligible_programs']),
+      minimumGpa: _parseDouble(json['minimum_gpa']),
+      minimumAcademicYear: _parseInt(json['minimum_academic_year']),
+      eligibilityNotes: _nullableStringValue(json['eligibility_notes']),
+      eligibilityMatchMode:
+          _stringValue(
+                json['eligibility_match_mode'],
+                fallback: 'all',
+              ).toLowerCase() ==
+              'any'
+          ? 'any'
+          : 'all',
       requiredSkills: _skillList(json['required_skills']),
     );
   }
@@ -73,6 +95,11 @@ class Job {
     if (value == null) return fallback;
     final normalized = '$value'.trim();
     return normalized.isEmpty ? fallback : normalized;
+  }
+
+  static String? _nullableStringValue(dynamic value) {
+    final normalized = _stringValue(value);
+    return normalized.isEmpty ? null : normalized;
   }
 
   static DateTime? _parseDateTime(dynamic value, {DateTime? fallback}) {
@@ -92,6 +119,20 @@ class Job {
         .map((item) => _stringValue(item))
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
+  }
+
+  static int? _parseInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('$value');
+  }
+
+  static double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse('$value');
   }
 
   static List<Map<String, dynamic>> _skillList(dynamic value) {

@@ -4,7 +4,9 @@ import '../../models/job.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/coordinator_workspace_service.dart';
 import '../../utils/role_theme.dart';
+import '../../utils/theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import 'browse_jobs_screen.dart';
 import 'job_details_screen.dart';
@@ -17,7 +19,6 @@ enum _StudentMoreAction { settings, language, logout }
 
 const Color _studentBrandPrimary = StudentRoleTheme.primary;
 const Color _studentBrandSurface = StudentRoleTheme.surface;
-const Color _studentBrandBorder = StudentRoleTheme.border;
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -39,6 +40,8 @@ class _StudentTabState {
 class _StudentDashboardState extends State<StudentDashboard> {
   int _currentIndex = 0;
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   int _unreadNotifications = 0;
   String _applicationsFilter = 'all';
   int _homeRefreshToken = 0;
@@ -75,6 +78,40 @@ class _StudentDashboardState extends State<StudentDashboard> {
     final weekday = weekdays[now.weekday - 1];
     final month = months[now.month - 1];
     return '$weekday, ${now.day} $month ${now.year}';
+  }
+
+  List<String> _studentInstitutionNames(Map<String, dynamic>? studentData) {
+    final values = [
+      studentData?['college_name'],
+      studentData?['institution_name'],
+      studentData?['university_name'],
+    ];
+
+    final seen = <String>{};
+    final names = <String>[];
+    for (final value in values) {
+      final name = '${value ?? ''}'.trim();
+      if (name.isEmpty) continue;
+      final normalized = name.toLowerCase();
+      if (!seen.add(normalized)) continue;
+      names.add(name);
+    }
+    return names;
+  }
+
+  List<String> _studentInstitutionIds(Map<String, dynamic>? studentData) {
+    final values = [studentData?['university_id']];
+
+    final seen = <String>{};
+    final ids = <String>[];
+    for (final value in values) {
+      final id = '${value ?? ''}'.trim();
+      if (id.isEmpty) continue;
+      final normalized = id.toLowerCase();
+      if (!seen.add(normalized)) continue;
+      ids.add(id);
+    }
+    return ids;
   }
 
   List<Widget> _buildScreens() {
@@ -169,21 +206,62 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 
   Future<void> _loadUnreadNotifications({bool forceRefresh = false}) async {
+    final currentUser = context.read<AuthProvider>().user;
+    final studentEmail = currentUser?['email']?.toString();
+    final studentData = currentUser?['student_data'] as Map<String, dynamic>?;
+    final universityId = studentData?['university_id']?.toString();
+    final universityName = studentData?['university_name']?.toString();
+    final institutionIds = _studentInstitutionIds(studentData);
+    final institutionNames = _studentInstitutionNames(studentData);
+
     try {
       final response = await _apiService.getUnreadNotificationCount(
         forceRefresh: forceRefresh,
       );
+      final localNotifications = await _workspaceService
+          .getNotificationsForRole(
+            role: 'student',
+            studentEmail: studentEmail,
+            universityId: universityId,
+            universityName: universityName,
+            institutionIds: institutionIds,
+            institutionNames: institutionNames,
+          );
+      final localUnreadCount = localNotifications
+          .where((item) => item['is_read'] != true)
+          .length;
       if (response['success'] == true) {
         final rawCount = response['data']?['count'];
         final count = rawCount is int
             ? rawCount
             : int.tryParse('$rawCount') ?? 0;
         if (mounted) {
-          setState(() => _unreadNotifications = count);
+          setState(() => _unreadNotifications = count + localUnreadCount);
         }
+      } else if (mounted) {
+        setState(() => _unreadNotifications = localUnreadCount);
       }
     } catch (e) {
-      // Ignore errors; badge can stay hidden.
+      try {
+        final localNotifications = await _workspaceService
+            .getNotificationsForRole(
+              role: 'student',
+              studentEmail: studentEmail,
+              universityId: universityId,
+              universityName: universityName,
+              institutionIds: institutionIds,
+              institutionNames: institutionNames,
+            );
+        if (mounted) {
+          setState(() {
+            _unreadNotifications = localNotifications
+                .where((item) => item['is_read'] != true)
+                .length;
+          });
+        }
+      } catch (_) {
+        // Ignore errors; badge can stay hidden.
+      }
     }
   }
 
@@ -396,10 +474,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
           titleSpacing: 8,
           title: Row(
             children: [
-              // Logo kubwa - 55x55
               Container(
-                height: 55,
-                width: 55,
+                height: 64,
+                width: 64,
                 decoration: BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
@@ -413,9 +490,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 ),
                 child: ClipOval(
                   child: Image.asset(
-                    'assets/images/internshiplogo.png',
-                    height: 55,
-                    width: 55,
+                    'assets/images/splash_logo.png',
+                    height: 64,
+                    width: 64,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
                       return const Icon(
@@ -526,22 +603,23 @@ class _StudentDashboardState extends State<StudentDashboard> {
             const SizedBox(width: 4),
           ],
         ),
-        // Second bar - Hello name na email KATIKATI
         body: Column(
           children: [
-            // Second bar - Greeting (CENTERED)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
               decoration: BoxDecoration(
-                color: _studentBrandSurface,
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey.shade200, width: 1),
-                ),
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.shadow.withValues(alpha: 0.04),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
               child: Column(
                 children: [
-                  // Hello name - katikati
                   Text(
                     language.tr('hello_name', {'name': firstName}),
                     textAlign: TextAlign.center,
@@ -552,7 +630,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  // Email - katikati
                   Text(
                     email,
                     textAlign: TextAlign.center,
@@ -567,9 +644,15 @@ class _StudentDashboardState extends State<StudentDashboard> {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: _studentBrandSurface,
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: _studentBrandBorder),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.shadow.withValues(alpha: 0.03),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -594,7 +677,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 ],
               ),
             ),
-            // Main content
             Expanded(
               child: IndexedStack(
                 index: _currentIndex,
@@ -649,12 +731,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   int _applicationsCount = 0;
-  int _interviewsCount = 0;
   int _pendingCount = 0;
   int _reviewCount = 0;
   int _profileViewsCount = 0;
   List<Job> _recentJobs = const [];
+  List<Map<String, dynamic>> _announcements = const [];
   bool _isLoadingStats = true;
 
   @override
@@ -675,26 +759,34 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoadingStats = true);
     try {
       final user = Provider.of<AuthProvider>(context, listen: false).user;
+      final studentData = user?['student_data'] as Map<String, dynamic>?;
+      final universityId = studentData?['university_id']?.toString();
+      final universityName = studentData?['university_name']?.toString();
+      final institutionIds = _studentInstitutionIds(studentData);
+      final institutionNames = _studentInstitutionNames(studentData);
       final responses = await Future.wait([
         _apiService.getMyApplications(),
         _apiService.getJobs(limit: '100'),
+        _workspaceService.getAnnouncements(
+          audience: 'student',
+          universityId: universityId,
+          universityName: universityName,
+          institutionIds: institutionIds,
+          institutionNames: institutionNames,
+        ),
       ]);
 
-      final appsResponse = responses[0];
-      final jobsResponse = responses[1];
+      final appsResponse = responses[0] as Map<String, dynamic>;
+      final jobsResponse = responses[1] as Map<String, dynamic>;
+      final announcements = responses[2] as List<Map<String, dynamic>>;
 
       int applications = 0;
-      int interviews = 0;
       int pending = 0;
       int review = 0;
 
       if (appsResponse['success'] == true && appsResponse['data'] is List) {
         final apps = appsResponse['data'] as List<dynamic>;
         applications = apps.length;
-        interviews = apps.where((app) {
-          final status = '${app['status'] ?? ''}'.toLowerCase();
-          return status == 'interview';
-        }).length;
         pending = apps.where((app) {
           final status = '${app['status'] ?? ''}'.toLowerCase();
           return status == 'pending';
@@ -716,11 +808,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _applicationsCount = applications;
-          _interviewsCount = interviews;
           _pendingCount = pending;
           _reviewCount = review;
           _profileViewsCount = profileViews;
           _recentJobs = recentJobs;
+          _announcements = announcements;
           _isLoadingStats = false;
         });
       }
@@ -775,6 +867,169 @@ class _HomeScreenState extends State<HomeScreen> {
     dashboard?._openApplicationsWithFilter(filter);
   }
 
+  Future<void> _openAnnouncements() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+  }
+
+  String _formatAnnouncementDate(String value) {
+    final parsed = DateTime.tryParse(value)?.toLocal();
+    if (parsed == null) return value;
+    final month = parsed.month.toString().padLeft(2, '0');
+    final day = parsed.day.toString().padLeft(2, '0');
+    return '$day/$month/${parsed.year}';
+  }
+
+  List<String> _studentInstitutionNames(Map<String, dynamic>? studentData) {
+    final values = [
+      studentData?['college_name'],
+      studentData?['institution_name'],
+      studentData?['university_name'],
+    ];
+
+    final seen = <String>{};
+    final names = <String>[];
+    for (final value in values) {
+      final name = '${value ?? ''}'.trim();
+      if (name.isEmpty) continue;
+      final normalized = name.toLowerCase();
+      if (!seen.add(normalized)) continue;
+      names.add(name);
+    }
+    return names;
+  }
+
+  List<String> _studentInstitutionIds(Map<String, dynamic>? studentData) {
+    final values = [studentData?['university_id']];
+
+    final seen = <String>{};
+    final ids = <String>[];
+    for (final value in values) {
+      final id = '${value ?? ''}'.trim();
+      if (id.isEmpty) continue;
+      final normalized = id.toLowerCase();
+      if (!seen.add(normalized)) continue;
+      ids.add(id);
+    }
+    return ids;
+  }
+
+  Widget _buildAnnouncementSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Announcements From Your University',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            TextButton(
+              onPressed: _openAnnouncements,
+              child: const Text('View all'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_announcements.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(color: Colors.grey.shade200, blurRadius: 8),
+              ],
+            ),
+            child: const Text(
+              'No university announcements yet.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          )
+        else
+          ..._announcements.take(3).map((announcement) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withValues(alpha: 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _studentBrandSurface,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${announcement['university_name'] ?? 'University'}',
+                            style: const TextStyle(
+                              color: _studentBrandPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          _formatAnnouncementDate(
+                            '${announcement['created_at'] ?? ''}',
+                          ),
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${announcement['title'] ?? 'Announcement'}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _studentBrandPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${announcement['message'] ?? ''}',
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -782,68 +1037,63 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Stats Cards (5 widgets)
+          const Text(
+            'Stats',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          // Stats cards
           LayoutBuilder(
             builder: (context, constraints) {
-              final cardWidth = (constraints.maxWidth - 24) / 3;
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
+              final isCompact = constraints.maxWidth < 420;
+              final spacing = isCompact ? 8.0 : 12.0;
+              final cards = [
+                _buildStatCard(
+                  Icons.assignment,
+                  isCompact ? 'Apps' : 'Applications',
+                  _isLoadingStats ? '...' : '$_applicationsCount',
+                  Colors.blue,
+                  () => _goToApplicationsFilter('all'),
+                  compact: isCompact,
+                ),
+                _buildStatCard(
+                  Icons.hourglass_empty,
+                  'Pending',
+                  _isLoadingStats ? '...' : '$_pendingCount',
+                  Colors.orange,
+                  () => _goToApplicationsFilter('pending'),
+                  compact: isCompact,
+                ),
+                _buildStatCard(
+                  Icons.rate_review_outlined,
+                  'Review',
+                  _isLoadingStats ? '...' : '$_reviewCount',
+                  Colors.indigo,
+                  () => _goToApplicationsFilter('review'),
+                  compact: isCompact,
+                ),
+                _buildStatCard(
+                  Icons.visibility,
+                  isCompact ? 'Views' : 'Profile Views',
+                  _isLoadingStats ? '...' : '$_profileViewsCount',
+                  Colors.purple,
+                  () => _goToTab(3),
+                  compact: isCompact,
+                ),
+              ];
+
+              return Row(
                 children: [
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildStatCard(
-                      Icons.assignment,
-                      'Applications',
-                      _isLoadingStats ? '...' : '$_applicationsCount',
-                      Colors.blue,
-                      () => _goToApplicationsFilter('all'),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildStatCard(
-                      Icons.calendar_today,
-                      'Interviews',
-                      _isLoadingStats ? '...' : '$_interviewsCount',
-                      Colors.green,
-                      () => _goToApplicationsFilter('interview'),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildStatCard(
-                      Icons.hourglass_empty,
-                      'Pending',
-                      _isLoadingStats ? '...' : '$_pendingCount',
-                      Colors.orange,
-                      () => _goToApplicationsFilter('pending'),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildStatCard(
-                      Icons.rate_review_outlined,
-                      'Review',
-                      _isLoadingStats ? '...' : '$_reviewCount',
-                      Colors.indigo,
-                      () => _goToApplicationsFilter('review'),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _buildStatCard(
-                      Icons.visibility,
-                      'Profile Views',
-                      _isLoadingStats ? '...' : '$_profileViewsCount',
-                      Colors.purple,
-                      () => _goToTab(3),
-                    ),
-                  ),
+                  for (int index = 0; index < cards.length; index++) ...[
+                    Expanded(child: cards[index]),
+                    if (index != cards.length - 1) SizedBox(width: spacing),
+                  ],
                 ],
               );
             },
           ),
+          const SizedBox(height: 24),
+          _buildAnnouncementSection(),
           const SizedBox(height: 24),
 
           const Text(
@@ -935,33 +1185,55 @@ class _HomeScreenState extends State<HomeScreen> {
     String label,
     String value,
     Color color,
-    VoidCallback onTap,
-  ) {
+    VoidCallback onTap, {
+    bool compact = false,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 6 : 10,
+          vertical: compact ? 8 : 10,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 8)],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppTheme.borderGrey.withValues(alpha: 0.45),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.shadow.withValues(alpha: 0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 8),
+            Icon(icon, color: color, size: compact ? 16 : 18),
+            SizedBox(height: compact ? 4 : 6),
             Text(
               value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 20,
+                fontSize: compact ? 14 : 16,
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+              maxLines: compact ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: compact ? 9 : 10,
+                color: Colors.grey.shade600,
+                height: 1.15,
+              ),
             ),
           ],
         ),
@@ -978,19 +1250,28 @@ class _HomeScreenState extends State<HomeScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 8)],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppTheme.borderGrey.withValues(alpha: 0.45),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.shadow.withValues(alpha: 0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 32),
-            const SizedBox(height: 8),
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 6),
             Text(
               title,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -1010,35 +1291,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${createdAt.day}/${createdAt.month}/${createdAt.year}';
   }
 
-  String _formatJobTypeLabel(String type) {
-    switch (type.toLowerCase()) {
-      case 'full-time':
-        return 'Full-time';
-      case 'part-time':
-        return 'Part-time';
-      case 'graduate_program':
-        return 'Graduate Program';
-      case 'internship':
-        return 'Internship';
-      default:
-        return type.isEmpty ? 'Job' : type;
-    }
-  }
+  String _formatJobTypeLabel(String type) => 'Industrial Practical Training';
 
-  IconData _recentJobIcon(String type) {
-    switch (type.toLowerCase()) {
-      case 'full-time':
-        return Icons.work;
-      case 'part-time':
-        return Icons.schedule;
-      case 'graduate_program':
-        return Icons.rocket_launch_outlined;
-      case 'internship':
-        return Icons.school_outlined;
-      default:
-        return Icons.business_center_outlined;
-    }
-  }
+  IconData _recentJobIcon(String type) => Icons.rocket_launch_outlined;
 
   Widget _buildRecentJobCard(Job job) {
     final typeLabel = _formatJobTypeLabel(job.type);
@@ -1072,99 +1327,147 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: _studentBrandPrimary, size: 28),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      job.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _studentBrandPrimary,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 380;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          icon,
+                          color: _studentBrandPrimary,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              job.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: _studentBrandPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              job.companyName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.location_on,
+                                      size: 12,
+                                      color: Colors.grey[500],
+                                    ),
+                                    const SizedBox(width: 4),
+                                    ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth: compact
+                                            ? constraints.maxWidth * 0.42
+                                            : constraints.maxWidth * 0.3,
+                                      ),
+                                      child: Text(
+                                        job.location,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[500],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Container(
+                                  width: 4,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[400],
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.access_time,
+                                      size: 12,
+                                      color: Colors.grey[500],
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      timeLabel,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        typeLabel,
+                        maxLines: compact ? 2 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.blue.shade700,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      job.companyName,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on,
-                          size: 12,
-                          color: Colors.grey[500],
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          job.location,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          width: 4,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[400],
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.access_time,
-                          size: 12,
-                          color: Colors.grey[500],
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          timeLabel,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: typeLabel == 'Full-time'
-                      ? Colors.green.shade50
-                      : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  typeLabel,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: typeLabel == 'Full-time'
-                        ? Colors.green.shade700
-                        : Colors.blue.shade700,
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
         ),
       ),

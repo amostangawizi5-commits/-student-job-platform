@@ -5,6 +5,8 @@ import '../screens/auth/login_screen.dart';
 import '../screens/student/student_dashboard.dart';
 import '../screens/company/company_dashboard.dart';
 import '../screens/admin/admin_dashboard.dart';
+import '../screens/university/university_dashboard.dart';
+import '../utils/user_role.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -40,12 +42,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
         if (authProvider.isAuthenticated && authProvider.user != null) {
-          final role = authProvider.user!['role'];
+          final role = normalizeUserRole(authProvider.user!['role']);
 
-          if (role == 'student' || role == 'graduate') {
+          if (isStudentRole(role)) {
             return const StudentDashboard();
           } else if (role == 'company') {
             return const CompanyDashboard();
+          } else if (role == 'university') {
+            return const UniversityDashboard();
           } else if (role == 'admin') {
             return const AdminDashboard();
           }

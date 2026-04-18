@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/coordinator_workspace_service.dart';
 import '../../utils/theme.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -11,6 +15,8 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   List<dynamic> _notifications = [];
   bool _isLoading = true;
 
@@ -22,25 +28,84 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _loadNotifications() async {
     setState(() => _isLoading = true);
+    final currentUser = context.read<AuthProvider>().user;
+    final studentEmail = currentUser?['email']?.toString();
+    final studentData = currentUser?['student_data'] as Map<String, dynamic>?;
+    final universityId = studentData?['university_id']?.toString();
+    final universityName = studentData?['university_name']?.toString();
+    final institutionIds = _studentInstitutionIds(studentData);
+    final institutionNames = _studentInstitutionNames(studentData);
+
     try {
       final response = await _apiService.getNotifications();
-      if (response['success']) {
-        setState(() {
-          _notifications = response['data'];
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
-      }
+      final localNotifications = await _workspaceService
+          .getNotificationsForRole(
+            role: 'student',
+            studentEmail: studentEmail,
+            universityId: universityId,
+            universityName: universityName,
+            institutionIds: institutionIds,
+            institutionNames: institutionNames,
+          );
+
+      final remoteNotifications =
+          response['success'] == true && response['data'] is List
+          ? List<Map<String, dynamic>>.from(
+              (response['data'] as List).whereType<Map>().map(
+                (item) => item.map((key, value) => MapEntry('$key', value)),
+              ),
+            )
+          : <Map<String, dynamic>>[];
+
+      final allNotifications = [
+        ...localNotifications.map((item) => {...item, 'is_local': true}),
+        ...remoteNotifications.map((item) => {...item, 'is_local': false}),
+      ];
+
+      allNotifications.sort((left, right) {
+        final leftDate =
+            DateTime.tryParse('${left['created_at'] ?? ''}') ?? DateTime(1970);
+        final rightDate =
+            DateTime.tryParse('${right['created_at'] ?? ''}') ?? DateTime(1970);
+        return rightDate.compareTo(leftDate);
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _notifications = allNotifications;
+        _isLoading = false;
+      });
     } catch (e) {
       debugPrint('Error loading notifications: $e');
-      setState(() => _isLoading = false);
+      final localNotifications = await _workspaceService
+          .getNotificationsForRole(
+            role: 'student',
+            studentEmail: studentEmail,
+            universityId: universityId,
+            universityName: universityName,
+            institutionIds: institutionIds,
+            institutionNames: institutionNames,
+          );
+      if (!mounted) return;
+      setState(() {
+        _notifications = localNotifications
+            .map((item) => {...item, 'is_local': true})
+            .toList(growable: false);
+        _isLoading = false;
+      });
     }
   }
 
-  Future<void> _markAsRead(String id) async {
+  Future<void> _markAsRead(Map<String, dynamic> notification) async {
+    final id = '${notification['notification_id'] ?? ''}';
+    if (id.isEmpty) return;
+
     try {
-      await _apiService.markNotificationRead(id);
+      if (notification['is_local'] == true) {
+        await _workspaceService.markNotificationRead(id);
+      } else {
+        await _apiService.markNotificationRead(id);
+      }
       _loadNotifications();
     } catch (e) {
       debugPrint('Error marking as read: $e');
@@ -48,8 +113,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _markAllAsRead() async {
+    final currentUser = context.read<AuthProvider>().user;
+    final studentEmail = currentUser?['email']?.toString();
+    final studentData = currentUser?['student_data'] as Map<String, dynamic>?;
+    final universityId = studentData?['university_id']?.toString();
+    final universityName = studentData?['university_name']?.toString();
+    final institutionIds = _studentInstitutionIds(studentData);
+    final institutionNames = _studentInstitutionNames(studentData);
     try {
       await _apiService.markAllNotificationsRead();
+      await _workspaceService.markAllNotificationsReadForRole(
+        role: 'student',
+        studentEmail: studentEmail,
+        universityId: universityId,
+        universityName: universityName,
+        institutionIds: institutionIds,
+        institutionNames: institutionNames,
+      );
       _loadNotifications();
     } catch (e) {
       debugPrint('Error marking all as read: $e');
@@ -61,6 +141,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (notificationId.isEmpty) return;
 
     try {
+      if (notification['is_local'] == true) {
+        await _workspaceService.deleteNotification(notificationId);
+        if (!mounted) return;
+        setState(() {
+          _notifications.removeWhere(
+            (item) => '${item['notification_id']}' == notificationId,
+          );
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Notification deleted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return;
+      }
+
       final response = await _apiService.deleteNotification(notificationId);
       if (!mounted) return;
 
@@ -101,6 +198,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   IconData _getIconForType(String type) {
     switch (type) {
+      case 'coordinator_announcement':
+        return Icons.campaign_rounded;
+      case 'student_company_confirmed':
+        return Icons.approval_rounded;
+      case 'coordinator_manual_assignment':
+        return Icons.assignment_turned_in_rounded;
+      case 'university_approval_approved':
+        return Icons.verified_rounded;
+      case 'university_approval_rejected':
+        return Icons.report_gmailerrorred_rounded;
       case 'shortlisted':
         return Icons.star;
       case 'interview':
@@ -116,6 +223,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Color _getColorForType(String type) {
     switch (type) {
+      case 'coordinator_announcement':
+        return AppTheme.primaryBlue;
+      case 'student_company_confirmed':
+        return Colors.teal;
+      case 'coordinator_manual_assignment':
+        return Colors.indigo;
+      case 'university_approval_approved':
+        return AppTheme.primaryGreen;
+      case 'university_approval_rejected':
+        return Colors.red;
       case 'shortlisted':
         return Colors.blue;
       case 'interview':
@@ -179,6 +296,40 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         .replaceAll(RegExp(r'Interview Date:\s*.+', multiLine: true), '')
         .replaceAll(RegExp(r'Interview Venue:\s*.+', multiLine: true), '')
         .trim();
+  }
+
+  List<String> _studentInstitutionNames(Map<String, dynamic>? studentData) {
+    final values = [
+      studentData?['college_name'],
+      studentData?['institution_name'],
+      studentData?['university_name'],
+    ];
+
+    final seen = <String>{};
+    final names = <String>[];
+    for (final value in values) {
+      final name = '${value ?? ''}'.trim();
+      if (name.isEmpty) continue;
+      final normalized = name.toLowerCase();
+      if (!seen.add(normalized)) continue;
+      names.add(name);
+    }
+    return names;
+  }
+
+  List<String> _studentInstitutionIds(Map<String, dynamic>? studentData) {
+    final values = [studentData?['university_id']];
+
+    final seen = <String>{};
+    final ids = <String>[];
+    for (final value in values) {
+      final id = '${value ?? ''}'.trim();
+      if (id.isEmpty) continue;
+      final normalized = id.toLowerCase();
+      if (!seen.add(normalized)) continue;
+      ids.add(id);
+    }
+    return ids;
   }
 
   @override
@@ -252,14 +403,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       color: Colors.red.shade400,
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Icon(Icons.delete_outline, color: Colors.white),
+                    child: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.white,
+                    ),
                   ),
                   confirmDismiss: (_) async {
                     await _deleteNotification(notification);
                     return false;
                   },
                   child: GestureDetector(
-                    onTap: () => _markAsRead('${notification['notification_id']}'),
+                    onTap: () => _markAsRead(
+                      Map<String, dynamic>.from(notification as Map),
+                    ),
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(

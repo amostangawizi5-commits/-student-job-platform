@@ -1,8 +1,8 @@
 class AppAssets {
   // Logos
-  static const String tanzaniaLogo = 'assets/logos/tanzania_logo.png';
-  static const String moeLogo = 'assets/logos/moe_logo.png';
-  static const String appIcon = 'assets/icons/app_icon.png';
+  static const String splashLogo = 'assets/images/splash_logo.png';
+  static const String governmentLogo = 'assets/images/gov_logo.png';
+  static const String appIcon = splashLogo;
   
   // Images
   static const String placeholder = 'assets/images/placeholder.png';

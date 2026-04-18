@@ -19,17 +19,9 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   String _selectedView = 'open';
-  String _selectedType = 'all';
   String _selectedLocation = 'all';
   final TextEditingController _searchController = TextEditingController();
 
-  final List<String> _jobTypes = [
-    'all',
-    'internship',
-    'full-time',
-    'part-time',
-    'graduate_program',
-  ];
   final List<String> _locations = [
     'all',
     'Dar es Salaam',
@@ -84,7 +76,6 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     try {
       final response = await _apiService.getJobs(
         view: _selectedView,
-        type: _selectedType == 'all' ? null : _selectedType,
         location: _selectedLocation == 'all' ? null : _selectedLocation,
         search: _searchController.text.isEmpty ? null : _searchController.text,
         forceRefresh: forceRefresh,
@@ -146,6 +137,17 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
         _errorMessage = message;
       });
     }
+  }
+
+  Future<void> _openJobDetails(Job job) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JobDetailsScreen(jobId: job.jobId),
+      ),
+    );
+    if (!mounted) return;
+    _loadJobs(forceRefresh: true);
   }
 
   Widget _buildViewToggle() {
@@ -261,46 +263,6 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     );
   }
 
-  Widget _buildTypeFilter() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: _jobTypes.map((type) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(
-                  type == 'all'
-                      ? 'All'
-                      : type == 'internship'
-                      ? 'Internship'
-                      : type == 'full-time'
-                      ? 'Full Time'
-                      : type == 'part-time'
-                      ? 'Part Time'
-                      : 'Graduate Program',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                selected: _selectedType == type,
-                onSelected: (selected) {
-                  setState(() {
-                    _selectedType = type;
-                  });
-                  _loadJobs();
-                },
-                backgroundColor: Colors.grey.shade100,
-                selectedColor: Colors.blue.shade100,
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
   Widget _buildLocationFilter() {
     return Container(
       color: Colors.white,
@@ -384,23 +346,123 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
   }
 
   Widget _buildResultsCount() {
+    final title = _selectedView == 'history' ? 'Job History' : 'Browse Jobs';
+    final subtitle = _selectedView == 'history'
+        ? 'Review previous openings and closed opportunities.'
+        : 'Explore available industrial practical training opportunities.';
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            _selectedView == 'history'
-                ? '${_jobs.length} posted jobs in history'
-                : '${_jobs.length} opportunities found',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
-          if (!_isLoading && _jobs.isEmpty)
-            TextButton(
-              onPressed: () => _loadJobs(forceRefresh: true),
-              child: const Text('Refresh'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
             ),
-        ],
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                _selectedView == 'history'
+                    ? Icons.history_rounded
+                    : Icons.work_outline_rounded,
+                color: const Color(0xFF2563EB),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F7FC),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          _selectedView == 'history'
+                              ? '${_jobs.length} posted jobs in history'
+                              : '${_jobs.length} opportunities found',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1D4ED8),
+                          ),
+                        ),
+                      ),
+                      if (_selectedLocation != 'all')
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            _selectedLocation,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF047857),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (!_isLoading && _jobs.isEmpty)
+              TextButton(
+                onPressed: () => _loadJobs(forceRefresh: true),
+                child: const Text('Refresh'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -480,7 +542,6 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
             ),
           ),
           SliverToBoxAdapter(child: _buildViewToggle()),
-          SliverToBoxAdapter(child: _buildTypeFilter()),
           SliverToBoxAdapter(child: _buildLocationFilter()),
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
           SliverToBoxAdapter(child: _buildResultsCount()),
@@ -494,24 +555,19 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
           else if (_jobs.isEmpty)
             SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState())
           else
-            SliverList.builder(
-              itemCount: _jobs.length,
-              itemBuilder: (context, index) {
-                final job = _jobs[index];
-                return JobCard(
-                  job: job,
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            JobDetailsScreen(jobId: job.jobId),
-                      ),
-                    );
-                    _loadJobs(forceRefresh: true);
-                  },
-                );
-              },
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: 24),
+              sliver: SliverList.builder(
+                itemCount: _jobs.length,
+                itemBuilder: (context, index) {
+                  final job = _jobs[index];
+                  return JobCard(
+                    job: job,
+                    onViewDetails: () => _openJobDetails(job),
+                    onApplyNow: () => _openJobDetails(job),
+                  );
+                },
+              ),
             ),
         ],
       ),

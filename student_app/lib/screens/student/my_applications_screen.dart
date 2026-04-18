@@ -4,9 +4,13 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/browser_pdf_opener.dart';
+import '../../services/coordinator_workspace_service.dart';
 import '../../services/local_file_service.dart';
 
 class MyApplicationsScreen extends StatefulWidget {
@@ -25,10 +29,19 @@ class MyApplicationsScreen extends StatefulWidget {
 
 class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   List<dynamic> _applications = [];
+  Map<String, dynamic>? _confirmedSelection;
   bool _isLoading = true;
   String _selectedFilter = 'all';
+  String? _confirmingApplicationId;
   final Set<String> _downloadingResponseLetters = <String>{};
+
+  bool _canUseDirectFallback(String? fileUrl) {
+    final trimmed = (fileUrl ?? '').trim();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  }
 
   void _log(String message) {
     if (kDebugMode) {
@@ -108,21 +121,161 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
   Future<void> _loadApplications() async {
     setState(() => _isLoading = true);
+    final currentUser = context.read<AuthProvider>().user;
+    final studentEmail = currentUser?['email']?.toString() ?? '';
     try {
       final response = await _apiService.getMyApplications();
+      final selection = await _workspaceService.getStudentSelection(
+        studentEmail,
+      );
       debugPrint('Applications: ${response['data']?.length ?? 0}');
       if (response['success']) {
         final applications = (response['data'] as List<dynamic>? ?? const []);
+        if (!mounted) return;
         setState(() {
           _applications = applications;
+          _confirmedSelection = selection;
           _isLoading = false;
         });
       } else {
-        setState(() => _isLoading = false);
+        if (!mounted) return;
+        setState(() {
+          _confirmedSelection = selection;
+          _isLoading = false;
+        });
       }
     } catch (e) {
       debugPrint('Error: $e');
-      setState(() => _isLoading = false);
+      final selection = await _workspaceService.getStudentSelection(
+        studentEmail,
+      );
+      if (!mounted) return;
+      setState(() {
+        _confirmedSelection = selection;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> get _acceptedApplications {
+    return _applications
+        .whereType<Map>()
+        .map((item) => item.map((key, value) => MapEntry('$key', value)))
+        .where((app) => '${app['status'] ?? ''}'.toLowerCase() == 'accepted')
+        .toList(growable: false);
+  }
+
+  bool _isConfirmedApplication(String applicationId) {
+    return '${_confirmedSelection?['selected_application_id'] ?? ''}' ==
+        applicationId;
+  }
+
+  Future<void> _confirmCompanySelection(Map<String, dynamic> app) async {
+    final currentUser = context.read<AuthProvider>().user;
+    final studentData = currentUser?['student_data'] as Map<String, dynamic>?;
+    final studentEmail = currentUser?['email']?.toString() ?? '';
+    final studentName = currentUser?['full_name']?.toString() ?? 'Student';
+    final universityName = studentData?['university_name']?.toString() ?? '';
+    final applicationId = '${app['application_id'] ?? ''}';
+    final companyName = '${app['company_name'] ?? 'Company'}';
+    final jobTitle = '${app['title'] ?? app['job_title'] ?? 'Placement'}';
+
+    if (studentEmail.trim().isEmpty || universityName.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Missing student or university details.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final existingApplicationId =
+        '${_confirmedSelection?['selected_application_id'] ?? ''}';
+    if (existingApplicationId.isNotEmpty &&
+        existingApplicationId != applicationId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You already confirmed ${_confirmedSelection?['selected_company_name'] ?? 'another company'}.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Confirm Company Placement'),
+        content: Text(
+          _acceptedApplications.length > 1
+              ? 'You were accepted by ${_acceptedApplications.length} companies. Confirming $companyName will notify the other companies that you chose another placement.'
+              : 'Confirm $companyName as the company you will join for this placement?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F766E),
+            ),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _confirmingApplicationId = applicationId);
+    try {
+      await _workspaceService.confirmStudentCompanySelection(
+        studentName: studentName,
+        studentEmail: studentEmail,
+        universityName: universityName,
+        chosenApplicationId: applicationId,
+        chosenCompanyName: companyName,
+        chosenJobTitle: jobTitle,
+        reportingStartDate: app['reporting_start_date']?.toString(),
+        reportingEndDate: app['reporting_end_date']?.toString(),
+        acceptedApplications: _acceptedApplications,
+      );
+      final selection = await _workspaceService.getStudentSelection(
+        studentEmail,
+      );
+      if (!mounted) return;
+      setState(() => _confirmedSelection = selection);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You confirmed $companyName successfully. The coordinator has been notified.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } on StateError catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.orange),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to confirm company: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _confirmingApplicationId = null);
+      }
     }
   }
 
@@ -315,6 +468,16 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           failureMessage: failureMessage,
         );
       } catch (error) {
+        if (_canUseDirectFallback(fileUrl)) {
+          await _openFile(
+            fileUrl,
+            fileName: fileName,
+            invalidMessage: invalidMessage,
+            failureMessage: failureMessage,
+          );
+          return;
+        }
+
         final message = ApiService.normalizeErrorMessage(
           error,
           fallback: failureMessage,
@@ -380,6 +543,18 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
             failureMessage: failureMessage,
           );
         } catch (error) {
+          if (_canUseDirectFallback(fileUrl)) {
+            await _downloadFile(
+              fileUrl,
+              fileName: fileName,
+              invalidMessage: invalidMessage,
+              failureMessage: failureMessage,
+              successLabel: successLabel,
+              saveToDownloadsOnAndroid: saveToDownloadsOnAndroid,
+            );
+            return;
+          }
+
           final message = ApiService.normalizeErrorMessage(
             error,
             fallback: failureMessage,
@@ -426,6 +601,18 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         ),
       );
     } on DioException catch (e) {
+      if (authenticatedUrl != null && _canUseDirectFallback(fileUrl)) {
+        await _downloadFile(
+          fileUrl,
+          fileName: fileName,
+          invalidMessage: invalidMessage,
+          failureMessage: failureMessage,
+          successLabel: successLabel,
+          saveToDownloadsOnAndroid: saveToDownloadsOnAndroid,
+        );
+        return;
+      }
+
       final responseData = e.response?.data;
       final message = ApiService.normalizeErrorMessage(
         responseData is Map<String, dynamic>
@@ -441,6 +628,18 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         ),
       );
     } catch (e) {
+      if (authenticatedUrl != null && _canUseDirectFallback(fileUrl)) {
+        await _downloadFile(
+          fileUrl,
+          fileName: fileName,
+          invalidMessage: invalidMessage,
+          failureMessage: failureMessage,
+          successLabel: successLabel,
+          saveToDownloadsOnAndroid: saveToDownloadsOnAndroid,
+        );
+        return;
+      }
+
       final message = ApiService.normalizeErrorMessage(
         e,
         fallback: failureMessage,
@@ -474,6 +673,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   @override
   Widget build(BuildContext context) {
     final filteredApplications = _getFilteredApplications();
+    final acceptedApplications = _acceptedApplications;
     final title = _selectedFilter == 'all'
         ? 'My Applications'
         : 'My Applications (${_filterTitle()})';
@@ -572,6 +772,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         itemBuilder: (context, index) {
           final app = filteredApplications[index];
           final status = app['status'] ?? 'pending';
+          final applicationId = '${app['application_id'] ?? ''}';
           final statusColor = _getStatusColor(status);
           final statusText = _getStatusText(status);
           final statusIcon = _getStatusIcon(status);
@@ -608,6 +809,13 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           final displayReviewColor = hasSupportiveDocument
               ? reviewColor
               : Colors.blueGrey;
+          final hasConfirmedSelection = _confirmedSelection != null;
+          final isConfirmedThisApplication = _isConfirmedApplication(
+            applicationId,
+          );
+          final confirmedCompanyName =
+              '${_confirmedSelection?['selected_company_name'] ?? ''}';
+          final isConfirming = _confirmingApplicationId == applicationId;
 
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
@@ -837,6 +1045,93 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                       ),
                     ],
                   ),
+                  if (status == 'accepted') ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isConfirmedThisApplication
+                            ? const Color(0xFFEAF7F2)
+                            : hasConfirmedSelection
+                            ? const Color(0xFFFFF4EC)
+                            : const Color(0xFFF5F9FF),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isConfirmedThisApplication
+                              ? const Color(0xFF0F766E)
+                              : hasConfirmedSelection
+                              ? const Color(0xFFD97706)
+                              : const Color(0xFFBFDBFE),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isConfirmedThisApplication
+                                ? 'Confirmed placement'
+                                : hasConfirmedSelection
+                                ? 'Placement already confirmed elsewhere'
+                                : acceptedApplications.length > 1
+                                ? 'Choose one company'
+                                : 'Confirm this company',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isConfirmedThisApplication
+                                  ? const Color(0xFF0F766E)
+                                  : hasConfirmedSelection
+                                  ? const Color(0xFFD97706)
+                                  : const Color(0xFF1D4ED8),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            isConfirmedThisApplication
+                                ? 'You selected ${app['company_name'] ?? 'this company'}. The university coordinator can now review this placement.'
+                                : hasConfirmedSelection
+                                ? 'You already confirmed $confirmedCompanyName, so this offer is no longer active.'
+                                : acceptedApplications.length > 1
+                                ? 'You have ${acceptedApplications.length} accepted offers. Confirm the company you will join so the other companies can be notified.'
+                                : 'Confirm this accepted offer to continue with university review.',
+                            style: const TextStyle(
+                              height: 1.45,
+                              color: Color(0xFF36495E),
+                            ),
+                          ),
+                          if (!hasConfirmedSelection) ...[
+                            const SizedBox(height: 10),
+                            ElevatedButton.icon(
+                              onPressed: isConfirming
+                                  ? null
+                                  : () => _confirmCompanySelection(
+                                      Map<String, dynamic>.from(app),
+                                    ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0F766E),
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: isConfirming
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.check_circle_outline),
+                              label: Text(
+                                isConfirming
+                                    ? 'Confirming...'
+                                    : 'Confirm This Company',
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                   if (companyFeedback != null &&
                       companyFeedback.isNotEmpty) ...[
                     const SizedBox(height: 12),

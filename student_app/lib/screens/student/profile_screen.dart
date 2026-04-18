@@ -27,8 +27,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<dynamic> _projects = [];
   bool _isLoading = true;
   bool _isDownloadingResume = false;
+  bool _isDownloadingIdentificationCard = false;
   bool _isUploadingProfileImage = false;
   bool _isDeletingProfileImage = false;
+  int _profileImageVersion = 0;
+  Uint8List? _profileImagePreviewBytes;
+  bool _hasProfileImageOverride = false;
+  String? _profileImageUrlOverride;
   String? _selectedResumePath;
   Uint8List? _selectedResumeBytes;
   String? _selectedResumeName;
@@ -129,21 +134,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return null;
   }
 
+  Map<String, dynamic>? _mergeUserData(
+    Map<String, dynamic>? primary,
+    Map<String, dynamic>? fallback,
+  ) {
+    if (primary == null && fallback == null) return null;
+
+    final merged = <String, dynamic>{
+      if (fallback != null) ...fallback,
+      if (primary != null) ...primary,
+    };
+
+    for (final nestedKey in const [
+      'student_data',
+      'company_data',
+      'university_data',
+    ]) {
+      final primaryNested = primary?[nestedKey];
+      final fallbackNested = fallback?[nestedKey];
+      if (primaryNested is Map<String, dynamic> ||
+          fallbackNested is Map<String, dynamic>) {
+        merged[nestedKey] = {
+          ...?(fallbackNested is Map<String, dynamic> ? fallbackNested : null),
+          ...?(primaryNested is Map<String, dynamic> ? primaryNested : null),
+        };
+      }
+    }
+
+    if (_hasProfileImageOverride) {
+      merged['profile_image_url'] = _profileImageUrlOverride;
+    }
+
+    return merged;
+  }
+
   @override
   void initState() {
     super.initState();
     _loadData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final provider = Provider.of<AuthProvider>(context, listen: false);
-      final profileResponse = await _apiService.getProfile();
+      final profileResponse = await _apiService.getProfile(
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
       final freshUser = _extractUserFromProfileResponse(profileResponse);
-      final user = freshUser ?? provider.user;
+      final user = _mergeUserData(
+        freshUser,
+        _mergeUserData(provider.user, _user),
+      );
 
       final projectsResponse = await _apiService.getStudentProjects();
+      if (!mounted) return;
 
       setState(() {
         _user = user;
@@ -157,6 +204,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
     } catch (e) {
       _log('Error loading profile data: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
@@ -167,7 +215,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'doc', 'docx'],
-        withData: kIsWeb,
+        withData: true,
       );
 
       if (result != null) {
@@ -290,13 +338,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return url.split('/').last;
   }
 
-  String _resolveFileUrl(String path) {
+  String _resolveFileUrl(String path, {int? cacheBust}) {
     final trimmed = path.trim();
+    if (trimmed.isEmpty) return trimmed;
+
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return trimmed;
+      if (cacheBust == null) return trimmed;
+      final separator = trimmed.contains('?') ? '&' : '?';
+      return '$trimmed${separator}v=$cacheBust';
     }
     final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
-    return '${_apiService.baseUrl}$normalized';
+    final resolvedUrl = '${_apiService.baseUrl}$normalized';
+    if (cacheBust == null) {
+      return resolvedUrl;
+    }
+    final separator = resolvedUrl.contains('?') ? '&' : '?';
+    return '$resolvedUrl${separator}v=$cacheBust';
   }
 
   Future<void> _pickOrUploadResume() async {
@@ -311,6 +368,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return _resolveFileUrl(resumePath);
   }
 
+  String _resolveIdentificationCardUrl(String filePath) {
+    return _resolveFileUrl(filePath);
+  }
+
+  int? _deriveAcademicYear(Map<String, dynamic>? studentData, bool isGraduate) {
+    if (isGraduate) {
+      return 4;
+    }
+
+    final expectedYear = int.tryParse(
+      '${studentData?['expected_graduation_year'] ?? ''}',
+    );
+    if (expectedYear == null) return null;
+
+    final currentYear = DateTime.now().year;
+    final remainingYears = expectedYear - currentYear;
+    if (remainingYears <= 0) return 3;
+    if (remainingYears == 1) return 2;
+    return 1;
+  }
+
+  String _academicYearLabel(
+    Map<String, dynamic>? studentData,
+    bool isGraduate,
+  ) {
+    final academicYear = _deriveAcademicYear(studentData, isGraduate);
+    if (academicYear == null) {
+      return 'Not specified';
+    }
+
+    if (isGraduate) {
+      return 'Graduate';
+    }
+
+    return academicYear >= 3 ? 'Year 3+' : 'Year $academicYear';
+  }
+
+  String _gpaLabel(Map<String, dynamic>? studentData) {
+    final value = '${studentData?['gpa'] ?? ''}'.trim();
+    if (value.isEmpty || value == 'null') {
+      return 'Not specified';
+    }
+
+    return value;
+  }
+
   bool _isValidHttpUrl(String value) {
     final uri = Uri.tryParse(value.trim());
     return uri != null &&
@@ -323,8 +426,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['jpg', 'jpeg', 'png'],
-        withData: kIsWeb,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
       );
 
       if (!mounted || result == null) return;
@@ -361,8 +464,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
 
       if (_isSuccessResponse(response)) {
+        final uploadedImageUrl =
+            response['data']?['profile_image_url']?.toString() ??
+            response['profile_image_url']?.toString();
+        if (uploadedImageUrl != null && uploadedImageUrl.trim().isNotEmpty) {
+          final refreshedAt = DateTime.now().millisecondsSinceEpoch;
+          setState(() {
+            _user = {...?_user, 'profile_image_url': uploadedImageUrl.trim()};
+            _hasProfileImageOverride = true;
+            _profileImageUrlOverride = uploadedImageUrl.trim();
+            _profileImagePreviewBytes = fileBytes;
+            _profileImageVersion = refreshedAt;
+          });
+        }
         await context.read<AuthProvider>().loadProfile();
-        await _loadData();
+        await _loadData(forceRefresh: true);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -421,8 +537,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
 
       if (_isSuccessResponse(response)) {
+        final refreshedAt = DateTime.now().millisecondsSinceEpoch;
+        setState(() {
+          _user = {...?_user, 'profile_image_url': null};
+          _hasProfileImageOverride = true;
+          _profileImageUrlOverride = null;
+          _profileImagePreviewBytes = null;
+          _profileImageVersion = refreshedAt;
+        });
         await context.read<AuthProvider>().loadProfile();
-        await _loadData();
+        await _loadData(forceRefresh: true);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -508,6 +632,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Unable to open CV'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openIdentificationCard(String filePath) async {
+    final fullUrl = _resolveIdentificationCardUrl(filePath);
+    final uri = Uri.tryParse(fullUrl);
+    if (uri == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid identification card link'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to open identification card'),
           backgroundColor: Colors.red,
         ),
       );
@@ -604,6 +752,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       if (mounted) {
         setState(() => _isDownloadingResume = false);
+      }
+    }
+  }
+
+  Future<void> _downloadIdentificationCard(String filePath) async {
+    if (_isDownloadingIdentificationCard) return;
+
+    if (kIsWeb) {
+      await _openIdentificationCard(filePath);
+      return;
+    }
+
+    setState(() => _isDownloadingIdentificationCard = true);
+
+    try {
+      final fullUrl = _resolveIdentificationCardUrl(filePath);
+      final token = await _apiService.getToken();
+      final rawFileName = _fileNameFromUrl(filePath).isNotEmpty
+          ? _fileNameFromUrl(filePath)
+          : 'identification_card_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final safeFileName = rawFileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final directories = <Directory>[];
+      final preferredDirectory = await _getDownloadDirectory();
+      directories.add(preferredDirectory);
+      final appDirectory = await getApplicationDocumentsDirectory();
+      if (!directories.any(
+        (directory) => directory.path == appDirectory.path,
+      )) {
+        directories.add(appDirectory);
+      }
+
+      final headers = <String, dynamic>{};
+      if (token != null &&
+          token.isNotEmpty &&
+          fullUrl.startsWith(_apiService.baseUrl)) {
+        headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
+      }
+
+      String? savePath;
+      Object? lastError;
+
+      for (final directory in directories) {
+        final candidatePath = '${directory.path}/$safeFileName';
+
+        try {
+          if (!await directory.exists()) {
+            await directory.create(recursive: true);
+          }
+
+          await Dio().download(
+            fullUrl,
+            candidatePath,
+            options: Options(
+              headers: headers.isEmpty ? null : headers,
+              receiveTimeout: const Duration(seconds: 60),
+              sendTimeout: const Duration(seconds: 60),
+              followRedirects: true,
+            ),
+            deleteOnError: true,
+          );
+          savePath = candidatePath;
+          break;
+        } catch (error) {
+          lastError = error;
+          _log(
+            'Identification card download failed for $candidatePath: $error',
+          );
+        }
+      }
+
+      if (savePath == null) {
+        throw lastError ?? Exception('Unable to save identification card');
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Identification card downloaded to: $savePath'),
+          backgroundColor: AppTheme.primaryGreen,
+        ),
+      );
+    } catch (e) {
+      final message = ApiService.normalizeErrorMessage(
+        e,
+        fallback: 'Failed to download identification card',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to download identification card: $message'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloadingIdentificationCard = false);
       }
     }
   }
@@ -899,7 +1143,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildProfileAvatar(String? profileImageUrl) {
     final resolvedUrl = (profileImageUrl ?? '').trim().isEmpty
         ? null
-        : _resolveFileUrl(profileImageUrl!);
+        : _resolveFileUrl(
+            profileImageUrl!,
+            cacheBust: _profileImageVersion > 0 ? _profileImageVersion : null,
+          );
     final initials = _user?['full_name']?.toString().trim().isNotEmpty == true
         ? _user!['full_name'].toString().trim()[0].toUpperCase()
         : 'U';
@@ -912,7 +1159,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         color: AppTheme.primaryBlue.withValues(alpha: 0.1),
       ),
       clipBehavior: Clip.antiAlias,
-      child: resolvedUrl == null
+      child: _profileImagePreviewBytes != null
+          ? Image.memory(
+              _profileImagePreviewBytes!,
+              key: ValueKey('memory-$_profileImageVersion'),
+              fit: BoxFit.cover,
+            )
+          : resolvedUrl == null
           ? Center(
               child: Text(
                 initials,
@@ -924,6 +1177,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             )
           : Image.network(
+              key: ValueKey('$resolvedUrl-$_profileImageVersion'),
               resolvedUrl,
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) => Center(
@@ -953,12 +1207,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final uploadedResumeUrl = studentData?['resume_url']?.toString() ?? '';
     final hasResume = uploadedResumeUrl.isNotEmpty;
     final uploadedResumeName = _fileNameFromUrl(uploadedResumeUrl);
+    final identificationCardUrl =
+        studentData?['identification_card_url']?.toString() ?? '';
+    final hasIdentificationCard = identificationCardUrl.isNotEmpty;
+    final identificationCardName =
+        studentData?['identification_card_name']?.toString().trim() ?? '';
+    final displayedIdentificationCardName = identificationCardName.isNotEmpty
+        ? identificationCardName
+        : _fileNameFromUrl(identificationCardUrl);
 
     final program = studentData?['program'] ?? 'Program not specified';
     final university =
         studentData?['university_name'] ?? 'University not specified';
     final expectedYear = studentData?['expected_graduation_year'];
     final graduationYear = studentData?['graduation_year'];
+    final gpa = _gpaLabel(studentData);
+    final academicYear = _academicYearLabel(studentData, isGraduate);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
@@ -1077,19 +1341,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: isGraduate
-                                ? AppTheme.accentOrange.withValues(alpha: 0.1)
-                                : AppTheme.primaryBlue.withValues(alpha: 0.1),
+                            color: AppTheme.primaryBlue.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            isGraduate ? 'Graduate' : 'Current Student',
+                            isGraduate
+                                ? 'Industrial Practical Training'
+                                : 'Current Student',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              color: isGraduate
-                                  ? AppTheme.accentOrange
-                                  : AppTheme.primaryBlue,
+                              color: AppTheme.primaryBlue,
                             ),
                           ),
                         ),
@@ -1196,6 +1458,124 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 20),
 
+              Container(
+                constraints: const BoxConstraints(maxWidth: 1300),
+                child: Card(
+                  elevation: 6,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.picture_as_pdf_outlined,
+                                size: 24,
+                                color: Colors.red,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            const Text(
+                              'Identification Card',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: hasIdentificationCard
+                              ? Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.badge_outlined,
+                                      size: 20,
+                                      color: AppTheme.primaryBlue,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: InkWell(
+                                        onTap: () => _openIdentificationCard(
+                                          identificationCardUrl,
+                                        ),
+                                        child: Text(
+                                          displayedIdentificationCardName
+                                                  .isNotEmpty
+                                              ? 'Uploaded ID: $displayedIdentificationCardName (tap to open)'
+                                              : 'Identification card uploaded successfully',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppTheme.primaryBlue,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Open ID',
+                                      onPressed: () => _openIdentificationCard(
+                                        identificationCardUrl,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.open_in_new,
+                                        color: AppTheme.primaryBlue,
+                                        size: 20,
+                                      ),
+                                    ),
+                                    _isDownloadingIdentificationCard
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : IconButton(
+                                            tooltip: 'Download ID',
+                                            onPressed: () =>
+                                                _downloadIdentificationCard(
+                                                  identificationCardUrl,
+                                                ),
+                                            icon: const Icon(
+                                              Icons.download,
+                                              color: AppTheme.primaryBlue,
+                                              size: 20,
+                                            ),
+                                          ),
+                                  ],
+                                )
+                              : Text(
+                                  'Your uploaded identification card will appear here after registration.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
               // Education Section Card
               Container(
                 constraints: const BoxConstraints(maxWidth: 1300),
@@ -1238,16 +1618,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 20),
                         _buildInfoRow('University', university),
                         _buildInfoRow('Program', program),
-                        if (!isGraduate && expectedYear != null)
-                          _buildInfoRow(
-                            'Expected Graduation',
-                            expectedYear.toString(),
-                          ),
-                        if (isGraduate && graduationYear != null)
-                          _buildInfoRow(
-                            'Graduation Year',
-                            graduationYear.toString(),
-                          ),
+                        _buildInfoRow('GPA', gpa),
+                        _buildInfoRow('Academic Year', academicYear),
+                        _buildInfoRow(
+                          isGraduate
+                              ? 'Graduation Year'
+                              : 'Expected Graduation',
+                          isGraduate
+                              ? (graduationYear?.toString() ?? 'Not specified')
+                              : (expectedYear?.toString() ?? 'Not specified'),
+                        ),
                       ],
                     ),
                   ),

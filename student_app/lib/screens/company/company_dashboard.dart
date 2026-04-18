@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -6,10 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../data/tanzania_locations.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/browser_pdf_opener.dart';
+import '../../services/coordinator_workspace_service.dart';
+import '../../services/export_file_saver.dart';
 import '../../services/local_file_service.dart';
 import '../../utils/role_theme.dart';
 import '../../widgets/change_pin_dialog.dart';
@@ -27,6 +32,7 @@ const Color _companyStudentPrimaryDark = CompanyRoleTheme.primaryDark;
 const Color _companyStudentSurface = CompanyRoleTheme.surface;
 const Color _companyStudentBorder = CompanyRoleTheme.border;
 const Color _companyStudentSurfaceSoft = CompanyRoleTheme.surfaceSoft;
+const Color _companySidebarMilk = Color(0xFFF8FAFC);
 
 class CompanyDashboard extends StatefulWidget {
   final int initialIndex;
@@ -51,6 +57,7 @@ typedef _AcceptanceInputBuilder =
       String? hint,
       TextInputType keyboardType,
       int maxLines,
+      bool readOnly,
       String? Function(String?)? validator,
     });
 
@@ -65,6 +72,16 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
 
   String _formatToday(BuildContext context) {
     return MaterialLocalizations.of(context).formatFullDate(DateTime.now());
+  }
+
+  List<String> _getCompanyLogoUrls() {
+    final user = context.read<AuthProvider>().user;
+    final company = user?['company_data'] as Map<String, dynamic>?;
+    final rawUrl = company?['logo_url']?.toString().trim() ?? '';
+    if (rawUrl.isEmpty) {
+      return const [];
+    }
+    return _apiService.resolveAssetUrlCandidates(rawUrl);
   }
 
   @override
@@ -149,6 +166,38 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
     }
   }
 
+  bool _isDesktopWidth(double width) => width >= 1100;
+
+  String _tabLabel(LanguageProvider language, int index) {
+    switch (index) {
+      case 0:
+        return language.tr('dashboard');
+      case 1:
+        return language.tr('my_jobs');
+      case 2:
+        return language.tr('applications');
+      case 3:
+        return language.tr('profile');
+      default:
+        return language.tr('dashboard');
+    }
+  }
+
+  IconData _tabIcon(int index) {
+    switch (index) {
+      case 0:
+        return Icons.dashboard_rounded;
+      case 1:
+        return Icons.work_rounded;
+      case 2:
+        return Icons.groups_rounded;
+      case 3:
+        return Icons.business_rounded;
+      default:
+        return Icons.dashboard_rounded;
+    }
+  }
+
   List<Widget> _buildScreens() {
     return [
       const CompanyHomeScreen(),
@@ -179,7 +228,10 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _companyStudentPrimary,
+              foregroundColor: Colors.white,
+            ),
             child: Text(language.tr('logout')),
           ),
         ],
@@ -317,7 +369,12 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
+    final user = context.watch<AuthProvider>().user;
+    final companyData = user?['company_data'] as Map<String, dynamic>?;
+    final companyName =
+        '${companyData?['company_name'] ?? language.tr('company')}'.trim();
     final today = _formatToday(context);
+    final screens = _buildScreens();
 
     return PopScope(
       canPop: _tabHistory.length <= 1 && _currentIndex == 0,
@@ -329,48 +386,12 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
           Navigator.of(context).pop(result);
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: _companyStudentSurface,
-          elevation: 0,
-          titleSpacing: 8,
-          foregroundColor: _companyStudentPrimary,
-          title: Row(
-            children: [
-              Container(
-                height: 55,
-                width: 55,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.2),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ClipOval(
-                  child: Image.asset(
-                    'assets/images/internshiplogo.png',
-                    height: 55,
-                    width: 55,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.verified,
-                        size: 35,
-                        color: _companyStudentPrimary,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isDesktop = _isDesktopWidth(constraints.maxWidth);
+
+          Widget buildNotificationButton() {
+            return IconButton(
               tooltip: language.tr('notifications'),
               onPressed: _openNotifications,
               icon: Stack(
@@ -413,8 +434,11 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                     ),
                 ],
               ),
-            ),
-            PopupMenuButton<_CompanyMoreAction>(
+            );
+          }
+
+          Widget buildMoreMenu() {
+            return PopupMenuButton<_CompanyMoreAction>(
               tooltip: language.tr('more_actions'),
               onSelected: _handleMoreAction,
               itemBuilder: (context) => [
@@ -454,80 +478,379 @@ class _CompanyDashboardState extends State<CompanyDashboard> {
                 Icons.more_vert_rounded,
                 color: _companyStudentPrimary,
               ),
-            ),
-            const SizedBox(width: 4),
-          ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(42),
-            child: Container(
+            );
+          }
+
+          Widget buildDashboardHeader() {
+            return Container(
               width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              alignment: Alignment.center,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 7,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: _companyStudentBorder, width: 1),
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _companyStudentBorder),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.calendar_today_rounded,
-                      size: 14,
-                      color: _companyStudentPrimary,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    height: 64,
+                    width: 64,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _companyStudentBorder),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      today,
-                      style: const TextStyle(
-                        color: _companyStudentPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                    child: ClipOval(
+                      child: Builder(
+                        builder: (context) {
+                          final companyLogoUrls = _getCompanyLogoUrls();
+                          return companyLogoUrls.isNotEmpty
+                              ? _DashboardImageWithFallbacks(
+                                  imageUrls: companyLogoUrls,
+                                  fit: BoxFit.cover,
+                                  emptyChild: Image.asset(
+                                    'assets/images/splash_logo.png',
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const Icon(
+                                        Icons.verified,
+                                        size: 32,
+                                        color: _companyStudentPrimary,
+                                      );
+                                    },
+                                  ),
+                                )
+                              : Image.asset(
+                                  'assets/images/splash_logo.png',
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return const Icon(
+                                      Icons.verified,
+                                      size: 32,
+                                      color: _companyStudentPrimary,
+                                    );
+                                  },
+                                );
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          companyName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _companyStudentPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.calendar_today_rounded,
+                              size: 14,
+                              color: _companyStudentPrimary,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                today,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: _companyStudentPrimary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  buildNotificationButton(),
+                  buildMoreMenu(),
+                ],
+              ),
+            );
+          }
+
+          if (!isDesktop) {
+            return Scaffold(
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    buildDashboardHeader(),
+                    Expanded(
+                      child: IndexedStack(
+                        index: _currentIndex,
+                        children: screens,
                       ),
                     ),
                   ],
                 ),
               ),
+              bottomNavigationBar: BottomNavigationBar(
+                type: BottomNavigationBarType.fixed,
+                currentIndex: _currentIndex,
+                onTap: (index) {
+                  navigateToTab(index);
+                  _loadUnreadNotificationCount();
+                },
+                selectedItemColor: _companyStudentPrimary,
+                unselectedItemColor: Colors.grey.shade600,
+                items: [
+                  BottomNavigationBarItem(
+                    icon: const Icon(Icons.dashboard_outlined),
+                    activeIcon: const Icon(Icons.dashboard),
+                    label: language.tr('dashboard'),
+                  ),
+                  BottomNavigationBarItem(
+                    icon: const Icon(Icons.work_outline),
+                    activeIcon: const Icon(Icons.work),
+                    label: language.tr('my_jobs'),
+                  ),
+                  BottomNavigationBarItem(
+                    icon: const Icon(Icons.people_outline),
+                    activeIcon: const Icon(Icons.people),
+                    label: language.tr('applications'),
+                  ),
+                  BottomNavigationBarItem(
+                    icon: const Icon(Icons.business_outlined),
+                    activeIcon: const Icon(Icons.business),
+                    label: language.tr('profile'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return Scaffold(
+            backgroundColor: const Color(0xFFF5F7F2),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  buildDashboardHeader(),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 288,
+                          margin: const EdgeInsets.all(18),
+                          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                          decoration: BoxDecoration(
+                            color: _companySidebarMilk,
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                              color: _companyStudentBorder.withValues(
+                                alpha: 0.9,
+                              ),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.05),
+                                blurRadius: 22,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (var index = 0; index < 4; index++) ...[
+                                _CompanySidebarNavItem(
+                                  label: _tabLabel(language, index),
+                                  icon: _tabIcon(index),
+                                  selected: _currentIndex == index,
+                                  onTap: () {
+                                    navigateToTab(index);
+                                    _loadUnreadNotificationCount();
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                              ],
+                              const Spacer(),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 18, 18, 18),
+                            child: Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(32),
+                                border: Border.all(
+                                  color: _companyStudentBorder.withValues(
+                                    alpha: 0.8,
+                                  ),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 28,
+                                    offset: const Offset(0, 12),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(32),
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 1320,
+                                    ),
+                                    child: IndexedStack(
+                                      index: _currentIndex,
+                                      children: screens,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DashboardImageWithFallbacks extends StatefulWidget {
+  final List<String> imageUrls;
+  final BoxFit fit;
+  final Widget emptyChild;
+
+  const _DashboardImageWithFallbacks({
+    required this.imageUrls,
+    required this.fit,
+    required this.emptyChild,
+  });
+
+  @override
+  State<_DashboardImageWithFallbacks> createState() =>
+      _DashboardImageWithFallbacksState();
+}
+
+class _DashboardImageWithFallbacksState
+    extends State<_DashboardImageWithFallbacks> {
+  int _imageIndex = 0;
+
+  @override
+  void didUpdateWidget(covariant _DashboardImageWithFallbacks oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrls.join('|') != widget.imageUrls.join('|')) {
+      _imageIndex = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.imageUrls.isEmpty || _imageIndex >= widget.imageUrls.length) {
+      return widget.emptyChild;
+    }
+
+    final currentUrl = widget.imageUrls[_imageIndex];
+    return Image.network(
+      currentUrl,
+      key: ValueKey('$currentUrl-$_imageIndex'),
+      fit: widget.fit,
+      errorBuilder: (context, error, stackTrace) {
+        if (_imageIndex < widget.imageUrls.length - 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _imageIndex += 1);
+          });
+          return const SizedBox.expand();
+        }
+        return widget.emptyChild;
+      },
+    );
+  }
+}
+
+class _CompanySidebarNavItem extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CompanySidebarNavItem({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color: selected ? _companyStudentSurface : Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected
+                  ? _companyStudentBorder
+                  : _companyStudentBorder.withValues(alpha: 0.9),
             ),
           ),
-        ),
-        body: IndexedStack(index: _currentIndex, children: _buildScreens()),
-        bottomNavigationBar: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            navigateToTab(index);
-            _loadUnreadNotificationCount();
-          },
-          selectedItemColor: _companyStudentPrimary,
-          unselectedItemColor: Colors.grey.shade600,
-          items: [
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.dashboard_outlined),
-              activeIcon: const Icon(Icons.dashboard),
-              label: language.tr('dashboard'),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.work_outline),
-              activeIcon: const Icon(Icons.work),
-              label: language.tr('my_jobs'),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.people_outline),
-              activeIcon: const Icon(Icons.people),
-              label: language.tr('applications'),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.business_outlined),
-              activeIcon: const Icon(Icons.business),
-              label: language.tr('profile'),
-            ),
-          ],
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: selected
+                    ? _companyStudentPrimary
+                    : _companyStudentPrimaryDark,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: selected
+                        ? _companyStudentPrimary
+                        : _companyStudentPrimaryDark,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -579,19 +902,111 @@ String formatCompanyStatus(String status, LanguageProvider language) {
 
 String formatTargetAudience(String target, LanguageProvider language) {
   switch (target) {
-    case 'current_students':
-      return language.tr('current_students');
-    case 'fresh_graduates':
-      return language.tr('fresh_graduates');
-    case '1-2_years':
-      return language.tr('experience_1_2_years_short');
-    case '2-3_years':
-      return language.tr('experience_2_3_years_short');
-    case '3+_years':
-      return language.tr('experience_3_plus_years_short');
+    case 'first_year':
+      return language.tr('first_year');
+    case 'second_year':
+      return language.tr('second_year');
+    case 'third_year':
+    case 'third_year_plus':
+      return language.tr('third_year_plus');
     default:
       return target;
   }
+}
+
+bool jobHasApplicantConditions(Map<String, dynamic> job) {
+  final targetCandidates = (job['target_candidates'] as List? ?? const [])
+      .map((item) => '$item'.trim().toLowerCase())
+      .where((item) => item.isNotEmpty)
+      .toSet();
+  final unrestrictedTargets =
+      targetCandidates.contains('first_year') &&
+      targetCandidates.contains('second_year') &&
+      (targetCandidates.contains('third_year_plus') ||
+          targetCandidates.contains('third_year'));
+
+  final eligiblePrograms = (job['eligible_programs'] as List? ?? const [])
+      .whereType<Object>()
+      .toList();
+  final requiredSkills = (job['required_skills'] as List? ?? const [])
+      .whereType<Object>()
+      .toList();
+  final minimumGpa = '${job['minimum_gpa'] ?? ''}'.trim();
+  final minimumAcademicYear = '${job['minimum_academic_year'] ?? ''}'.trim();
+  final eligibilityNotes = '${job['eligibility_notes'] ?? ''}'.trim();
+
+  return !unrestrictedTargets ||
+      eligiblePrograms.isNotEmpty ||
+      requiredSkills.isNotEmpty ||
+      minimumGpa.isNotEmpty && minimumGpa != 'null' ||
+      minimumAcademicYear.isNotEmpty && minimumAcademicYear != 'null' ||
+      eligibilityNotes.isNotEmpty && eligibilityNotes != 'null';
+}
+
+String formatApplicantConditionMode(Map<String, dynamic> job) {
+  final mode = '${job['eligibility_match_mode'] ?? 'all'}'.trim().toLowerCase();
+  return mode == 'any' ? 'Match any condition' : 'Match all conditions';
+}
+
+List<String> buildApplicantConditionLabels(
+  Map<String, dynamic> job,
+  LanguageProvider language,
+) {
+  final labels = <String>[];
+  final targets = (job['target_candidates'] as List? ?? const [])
+      .map((item) => '$item')
+      .toList(growable: false);
+  final unrestrictedTargets = targets
+      .map((item) => item.trim().toLowerCase())
+      .toSet();
+  final isAllYears =
+      unrestrictedTargets.contains('first_year') &&
+      unrestrictedTargets.contains('second_year') &&
+      (unrestrictedTargets.contains('third_year_plus') ||
+          unrestrictedTargets.contains('third_year'));
+
+  if (targets.isNotEmpty && !isAllYears) {
+    labels.add(
+      'Years: ${targets.map((target) => formatTargetAudience(target, language)).join(', ')}',
+    );
+  }
+
+  final minimumAcademicYear = int.tryParse(
+    '${job['minimum_academic_year'] ?? ''}',
+  );
+  if (minimumAcademicYear != null) {
+    labels.add('Minimum year: $minimumAcademicYear+');
+  }
+
+  final programs = (job['eligible_programs'] as List? ?? const [])
+      .map((item) => '$item'.trim())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+  if (programs.isNotEmpty) {
+    labels.add('Programs: ${programs.join(', ')}');
+  }
+
+  final minimumGpa = '${job['minimum_gpa'] ?? ''}'.trim();
+  if (minimumGpa.isNotEmpty && minimumGpa != 'null') {
+    labels.add('Minimum GPA: $minimumGpa');
+  }
+
+  final skills = (job['required_skills'] as List? ?? const [])
+      .map(
+        (item) => item is Map ? '${item['name'] ?? ''}'.trim() : '$item'.trim(),
+      )
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+  if (skills.isNotEmpty) {
+    labels.add('Skills: ${skills.join(', ')}');
+  }
+
+  final notes = '${job['eligibility_notes'] ?? ''}'.trim();
+  if (notes.isNotEmpty && notes != 'null') {
+    labels.add('Notes: $notes');
+  }
+
+  return labels;
 }
 
 String formatApplicationStatus(String status, LanguageProvider language) {
@@ -620,7 +1035,10 @@ class CompanyHomeScreen extends StatefulWidget {
 
 class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   List<dynamic> _jobs = [];
+  List<Map<String, dynamic>> _announcements = const [];
   bool _isLoading = true;
 
   @override
@@ -632,19 +1050,33 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
   Future<void> _loadData({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
     try {
-      final jobsResponse = await _apiService.getCompanyJobs(
-        forceRefresh: forceRefresh,
-      );
+      final responses = await Future.wait([
+        _apiService.getCompanyJobs(forceRefresh: forceRefresh),
+        _workspaceService.getAnnouncements(audience: 'company'),
+      ]);
+      final jobsResponse = responses[0] as Map<String, dynamic>;
+      final announcements = responses[1] as List<Map<String, dynamic>>;
       if (jobsResponse['success']) {
         setState(() {
           _jobs = jobsResponse['data'];
+          _announcements = announcements;
           _isLoading = false;
         });
       } else {
-        setState(() => _isLoading = false);
+        setState(() {
+          _announcements = announcements;
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      final announcements = await _workspaceService.getAnnouncements(
+        audience: 'company',
+      );
+      if (!mounted) return;
+      setState(() {
+        _announcements = announcements;
+        _isLoading = false;
+      });
     }
   }
 
@@ -656,6 +1088,20 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
   void _goToApplicationsTab() {
     final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
     dashboard?.navigateToTab(2);
+  }
+
+  Future<void> _openAnnouncementFeed() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CompanyNotificationsScreen()),
+    );
+  }
+
+  String _formatAnnouncementDate(String value) {
+    final parsed = DateTime.tryParse(value)?.toLocal();
+    if (parsed == null) return value;
+    final month = parsed.month.toString().padLeft(2, '0');
+    final day = parsed.day.toString().padLeft(2, '0');
+    return '$day/$month/${parsed.year}';
   }
 
   void _showJobDetailsDialog(BuildContext context, dynamic job) {
@@ -750,12 +1196,6 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
               ),
               const SizedBox(height: 8),
               _buildDetailRow(
-                Icons.attach_money,
-                language.tr('salary'),
-                job['salary_range'] ?? language.tr('not_provided'),
-              ),
-              const SizedBox(height: 8),
-              _buildDetailRow(
                 Icons.work,
                 language.tr('job_type'),
                 job['type'] ?? language.tr('not_provided'),
@@ -825,6 +1265,53 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                   );
                 }).toList(),
               ),
+              if (jobHasApplicantConditions(
+                Map<String, dynamic>.from(job),
+              )) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Applicant Conditions',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  formatApplicantConditionMode(Map<String, dynamic>.from(job)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.blueGrey.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      buildApplicantConditionLabels(
+                        Map<String, dynamic>.from(job),
+                        language,
+                      ).map((label) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFD9E2EC)),
+                          ),
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                ),
+              ],
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
@@ -973,9 +1460,152 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
     );
   }
 
+  Widget _buildAnnouncementSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'University Announcements',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            TextButton(
+              onPressed: _openAnnouncementFeed,
+              child: const Text('View all'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_announcements.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _companyStudentBorder),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.campaign_outlined,
+                  size: 42,
+                  color: Colors.grey.shade500,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'No university announcements yet',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF17324D),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Announcements posted by coordinators for companies will appear here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          )
+        else
+          Column(
+            children: _announcements
+                .take(3)
+                .map((announcement) {
+                  final universityName =
+                      '${announcement['university_name'] ?? 'University'}';
+                  final title = '${announcement['title'] ?? 'Announcement'}';
+                  final message = '${announcement['message'] ?? ''}';
+                  final date = _formatAnnouncementDate(
+                    '${announcement['created_at'] ?? ''}',
+                  );
+
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: _companyStudentBorder),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _companyStudentPrimary.withValues(alpha: 0.06),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _companyStudentSurface,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                universityName,
+                                style: const TextStyle(
+                                  color: _companyStudentPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              date,
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF17324D),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          message,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            height: 1.45,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                })
+                .toList(growable: false),
+          ),
+      ],
+    );
+  }
+
   Widget _buildCompanyHeaderCard({
     required String companyName,
-    required int activeJobs,
+    required int totalJobs,
     required int totalApplicants,
   }) {
     final language = context.read<LanguageProvider>();
@@ -1054,7 +1684,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                     child: Column(
                       children: [
                         Text(
-                          activeJobs.toString(),
+                          totalJobs.toString(),
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -1062,7 +1692,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                           ),
                         ),
                         Text(
-                          language.tr('active_jobs'),
+                          language.tr('total_jobs'),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.white.withValues(alpha: 0.8),
@@ -1120,10 +1750,9 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
         user?['company_data']?['company_name'] ?? language.tr('company');
 
     int totalApplicants = 0;
-    int activeJobs = 0;
+    final totalJobs = _jobs.length;
 
     for (var job in _jobs) {
-      if (job['status'] == 'open') activeJobs++;
       totalApplicants += getApplicantsCount(job['applications_count']);
     }
 
@@ -1141,7 +1770,7 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: _buildCompanyHeaderCard(
               companyName: companyName,
-              activeJobs: activeJobs,
+              totalJobs: totalJobs,
               totalApplicants: totalApplicants,
             ),
           ),
@@ -1158,68 +1787,80 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _buildActionCard(
-                        icon: Icons.add_circle_outline,
-                        title: language.tr('post_job'),
-                        color: Colors.blue,
-                        onTap: () async {
-                          final result = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const PostJobScreen(),
-                            ),
-                          );
-                          if (!context.mounted) return;
-                          final dashboard = context
-                              .findAncestorStateOfType<
-                                _CompanyDashboardState
-                              >();
-                          dashboard?._handleRouteNavigationResult(result);
-                          _loadData(forceRefresh: true);
-                        },
-                      ),
-                      _buildActionCard(
-                        icon: Icons.people_outline,
-                        title: language.tr('view_jobs'),
-                        color: Colors.green,
-                        onTap: () {
-                          final dashboard = context
-                              .findAncestorStateOfType<
-                                _CompanyDashboardState
-                              >();
-                          dashboard?.navigateToTab(1);
-                        },
-                      ),
-                      _buildActionCard(
-                        icon: Icons.search,
-                        title: language.tr('find_talent'),
-                        color: Colors.orange,
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                language.tr('find_talent_coming_soon'),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final actions = [
+                        (
+                          icon: Icons.add_circle_outline,
+                          title: language.tr('post_job'),
+                          color: Colors.blue,
+                          onTap: () async {
+                            final result = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const PostJobScreen(),
                               ),
-                              backgroundColor: Colors.orange,
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                      ),
-                      _buildActionCard(
-                        icon: Icons.analytics,
-                        title: language.tr('statistics'),
-                        color: Colors.purple,
-                        onTap: () {
-                          _showStatsDialog(context);
-                        },
-                      ),
-                    ],
+                            );
+                            if (!context.mounted) return;
+                            final dashboard = context
+                                .findAncestorStateOfType<
+                                  _CompanyDashboardState
+                                >();
+                            dashboard?._handleRouteNavigationResult(result);
+                            _loadData(forceRefresh: true);
+                          },
+                        ),
+                        (
+                          icon: Icons.people_outline,
+                          title: language.tr('view_jobs'),
+                          color: Colors.green,
+                          onTap: () {
+                            final dashboard = context
+                                .findAncestorStateOfType<
+                                  _CompanyDashboardState
+                                >();
+                            dashboard?.navigateToTab(1);
+                          },
+                        ),
+                        (
+                          icon: Icons.analytics,
+                          title: language.tr('statistics'),
+                          color: Colors.purple,
+                          onTap: () {
+                            _showStatsDialog(context);
+                          },
+                        ),
+                      ];
+                      final columns = constraints.maxWidth >= 780
+                          ? 3
+                          : constraints.maxWidth >= 360
+                          ? 2
+                          : 1;
+                      final cardWidth =
+                          (constraints.maxWidth - ((columns - 1) * 12)) /
+                          columns;
+
+                      return Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: actions
+                            .map(
+                              (action) => SizedBox(
+                                width: cardWidth,
+                                child: _buildActionCard(
+                                  icon: action.icon,
+                                  title: action.title,
+                                  color: action.color,
+                                  onTap: action.onTap,
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                      );
+                    },
                   ),
+                  const SizedBox(height: 28),
+                  _buildAnnouncementSection(),
                   const SizedBox(height: 28),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1286,14 +1927,10 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
     required Color color,
     required VoidCallback onTap,
   }) {
-    final cardWidth = ((MediaQuery.of(context).size.width - 44) / 2)
-        .clamp(120.0, 220.0)
-        .toDouble();
-
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: cardWidth,
+        constraints: const BoxConstraints(minHeight: 112),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1318,14 +1955,21 @@ class _CompanyHomeScreenState extends State<CompanyHomeScreen> {
               child: Icon(icon, color: color, size: 24),
             ),
             const SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
+            SizedBox(
+              height: 34,
+              child: Center(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade800,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
-              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -1550,6 +2194,31 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
   String? _error;
   List<dynamic> _jobs = [];
 
+  bool _isOpenJob(dynamic job) {
+    return '${job['status'] ?? ''}'.toLowerCase() == 'open';
+  }
+
+  DateTime _parseSortableDate(dynamic value) {
+    return DateTime.tryParse('${value ?? ''}') ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  List<dynamic> get _visibleJobs {
+    final jobs = List<dynamic>.from(_jobs);
+    jobs.sort((a, b) {
+      final aOpen = _isOpenJob(a);
+      final bOpen = _isOpenJob(b);
+      if (aOpen != bOpen) {
+        return aOpen ? -1 : 1;
+      }
+
+      final aCreated = _parseSortableDate(a['created_at']);
+      final bCreated = _parseSortableDate(b['created_at']);
+      return bCreated.compareTo(aCreated);
+    });
+    return jobs;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1710,7 +2379,8 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
 
   Widget _buildJobsList() {
     final language = context.read<LanguageProvider>();
-    if (_jobs.isEmpty) {
+    final visibleJobs = _visibleJobs;
+    if (visibleJobs.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -1746,73 +2416,195 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
       onRefresh: () => _loadJobs(forceRefresh: true),
       child: ListView.builder(
         padding: const EdgeInsets.only(bottom: 16),
-        itemCount: _jobs.length + 1,
+        itemCount: visibleJobs.length,
         itemBuilder: (context, index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _openPostJob(),
-                      icon: const Icon(Icons.add_circle_outline, size: 18),
-                      label: Text(language.tr('post_job')),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _loadJobs(forceRefresh: true),
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: Text(language.tr('refresh_unread_count')),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final job = _jobs[index - 1];
+          final job = visibleJobs[index];
           final title = '${job['title'] ?? language.tr('untitled_job')}';
           final jobId = '${job['job_id']}';
           final applicants = getApplicantsCount(job['applications_count']);
           final requiredApplicants = getApplicantsCount(
             job['required_applicants'],
           );
+          final deadlineText = getDaysLeft(
+            job['application_deadline'],
+            language,
+          );
+          final deadlineLabel = formatDeadlineDateTime(
+            job['application_deadline'],
+            language,
+          );
 
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _companyStudentBorder),
+              boxShadow: [
+                BoxShadow(
+                  color: _companyStudentPrimary.withValues(alpha: 0.05),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _companyStudentPrimaryDark,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${job['location'] ?? language.tr('location_not_specified')}',
+                              style: TextStyle(
+                                color: Colors.blueGrey.shade700,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _companyStudentSurfaceSoft,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: _companyStudentBorder,
+                                ),
+                              ),
+                              child: Text(
+                                '$deadlineLabel • $deadlineText',
+                                style: const TextStyle(
+                                  color: _companyStudentPrimaryDark,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      const SizedBox(width: 12),
                       _buildStatusChip('${job['status'] ?? 'closed'}'),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${job['location'] ?? language.tr('location_not_specified')}',
-                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
-                  ),
-                  const SizedBox(height: 10),
+                  if (jobHasApplicantConditions(
+                    Map<String, dynamic>.from(job),
+                  )) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF4FF),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            'Applicant Conditions',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.blue.shade700,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF4FF),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            'Applicant Conditions',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.blue.shade700,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            formatApplicantConditionMode(
+                              Map<String, dynamic>.from(job),
+                            ),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade800,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children:
+                          buildApplicantConditionLabels(
+                            Map<String, dynamic>.from(job),
+                            language,
+                          ).take(3).map((label) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -1839,46 +2631,61 @@ class _CompanyJobsScreenState extends State<CompanyJobsScreen> {
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    runSpacing: 10,
-                    spacing: 10,
-                    children: [
-                      ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.of(context).size.width * 0.42,
-                        ),
-                        child: Text(
-                          '${language.tr('applicants_count', {'count': '$applicants'})} • ${language.tr('needed_count', {'count': '$requiredApplicants'})}',
-                          style: TextStyle(
-                            color: Colors.blue.shade700,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      Wrap(
+                  const SizedBox(height: 14),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 620;
+                      final itemWidth = compact
+                          ? (constraints.maxWidth - 8) / 2
+                          : (constraints.maxWidth - 24) / 4;
+
+                      return Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          OutlinedButton(
-                            onPressed: () => _openPostJob(job: job),
-                            child: Text(language.tr('edit_job')),
-                          ),
-                          ElevatedButton(
-                            onPressed: () => widget.selectJob(jobId, title),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _companyStudentPrimary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _CompanyJobMetaActionCard(
+                              icon: Icons.groups_rounded,
+                              label: language.tr('applicants_count', {
+                                'count': '$applicants',
+                              }),
+                              tint: _companyStudentPrimary,
                             ),
-                            child: Text(language.tr('applications')),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _CompanyJobMetaActionCard(
+                              icon: Icons.person_add_alt_1_rounded,
+                              label: language.tr('needed_count', {
+                                'count': '$requiredApplicants',
+                              }),
+                              tint: const Color(0xFFAF7A0F),
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _CompanyJobMetaActionCard(
+                              icon: Icons.edit_outlined,
+                              label: language.tr('edit_job'),
+                              tint: _companyStudentPrimaryDark,
+                              isAction: true,
+                              onTap: () => _openPostJob(job: job),
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _CompanyJobMetaActionCard(
+                              icon: Icons.assignment_turned_in_outlined,
+                              label: language.tr('applications'),
+                              tint: _companyStudentPrimary,
+                              isAction: true,
+                              onTap: () => widget.selectJob(jobId, title),
+                            ),
                           ),
                         ],
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ],
               ),
@@ -1946,11 +2753,83 @@ class CompanyApplicationsTab extends StatefulWidget {
   State<CompanyApplicationsTab> createState() => _CompanyApplicationsTabState();
 }
 
+class _CompanyJobMetaActionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color tint;
+  final bool isAction;
+  final VoidCallback? onTap;
+
+  const _CompanyJobMetaActionCard({
+    required this.icon,
+    required this.label,
+    required this.tint,
+    this.isAction = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: isAction ? 0.1 : 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: tint.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.88),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 18, color: tint),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tint,
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+                height: 1.2,
+              ),
+            ),
+          ),
+          if (isAction)
+            Icon(Icons.chevron_right_rounded, color: tint, size: 18),
+        ],
+      ),
+    );
+
+    if (!isAction || onTap == null) return card;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: card,
+      ),
+    );
+  }
+}
+
 class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   bool _isLoading = false;
+  bool _isExportingAcceptedApplicants = false;
+  bool _showAcceptedApplicantsOnly = false;
   String? _error;
   List<dynamic> _applications = [];
+  Map<String, Map<String, dynamic>> _studentSelectionsByEmail = const {};
   final Set<String> _downloadingResponseLetters = <String>{};
 
   String _formatErrorMessage(Object error) {
@@ -1973,6 +2852,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
 
     final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
     return '${_apiService.baseUrl}$normalized';
+  }
+
+  bool _canUseDirectFileFallback(String? fileUrl) {
+    final trimmed = (fileUrl ?? '').trim();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
   }
 
   Future<void> _openFileUrl(
@@ -2088,6 +2972,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   Future<void> _downloadResponseLetter({
     required String applicationId,
     required String fileName,
+    String? directFileUrl,
   }) async {
     final endpointPath = '/api/applications/$applicationId/response-letter';
 
@@ -2099,6 +2984,15 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           failureMessage: 'Unable to open response letter.',
         );
       } catch (error) {
+        if (_canUseDirectFileFallback(directFileUrl)) {
+          await _openFileUrl(
+            directFileUrl,
+            invalidMessage: 'Response letter link is invalid.',
+            failureMessage: 'Failed to download response letter',
+          );
+          return;
+        }
+
         final message = ApiService.normalizeErrorMessage(
           error,
           fallback: 'Failed to download response letter',
@@ -2138,6 +3032,29 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         ),
       );
     } on DioException catch (error) {
+      if (_canUseDirectFileFallback(directFileUrl)) {
+        final safeFileName = _sanitizeFileName(fileName);
+        final savePath = await _downloadToAvailableDirectory(
+          directFileUrl!,
+          fileName: safeFileName,
+        );
+        final finalPath = Platform.isAndroid
+            ? await LocalFileService.copyFileToDownloads(
+                savePath,
+                fileName: safeFileName,
+              )
+            : savePath;
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Response letter downloaded to: $finalPath'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return;
+      }
+
       final responseData = error.response?.data;
       final message = ApiService.normalizeErrorMessage(
         responseData is Map<String, dynamic>
@@ -2155,6 +3072,29 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         ),
       );
     } catch (error) {
+      if (_canUseDirectFileFallback(directFileUrl)) {
+        final safeFileName = _sanitizeFileName(fileName);
+        final savePath = await _downloadToAvailableDirectory(
+          directFileUrl!,
+          fileName: safeFileName,
+        );
+        final finalPath = Platform.isAndroid
+            ? await LocalFileService.copyFileToDownloads(
+                savePath,
+                fileName: safeFileName,
+              )
+            : savePath;
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Response letter downloaded to: $finalPath'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        return;
+      }
+
       final message = ApiService.normalizeErrorMessage(
         error,
         fallback: 'Failed to download response letter',
@@ -2176,6 +3116,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   Future<void> _openSupportiveDocument({
     required String applicationId,
     required String fileName,
+    String? directFileUrl,
   }) async {
     final endpointPath = '/api/applications/$applicationId/supportive-document';
 
@@ -2187,6 +3128,15 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           failureMessage: 'Unable to open supportive document.',
         );
       } catch (error) {
+        if (_canUseDirectFileFallback(directFileUrl)) {
+          await _openFileUrl(
+            directFileUrl,
+            invalidMessage: 'Supportive document link is invalid.',
+            failureMessage: 'Unable to open supportive document.',
+          );
+          return;
+        }
+
         final message = ApiService.normalizeErrorMessage(
           error,
           fallback: 'Failed to open supportive document',
@@ -2222,6 +3172,15 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         ),
       );
     } catch (error) {
+      if (_canUseDirectFileFallback(directFileUrl)) {
+        await _openFileUrl(
+          directFileUrl,
+          invalidMessage: 'Supportive document link is invalid.',
+          failureMessage: 'Unable to open supportive document.',
+        );
+        return;
+      }
+
       final message = ApiService.normalizeErrorMessage(
         error,
         fallback: 'Failed to open supportive document',
@@ -2247,6 +3206,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.jobId != widget.jobId ||
         oldWidget.jobTitle != widget.jobTitle) {
+      _showAcceptedApplicantsOnly = false;
       _loadApplications();
     }
   }
@@ -2257,6 +3217,12 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     return _applications
         .where((app) => '${app['status'] ?? 'pending'}' == status)
         .length;
+  }
+
+  List<dynamic> get _acceptedApplications {
+    return _applications
+        .where((app) => '${app['status'] ?? 'pending'}' == 'accepted')
+        .toList(growable: false);
   }
 
   Future<void> _loadApplications() async {
@@ -2270,10 +3236,20 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       final response = _showAllApplications
           ? await _apiService.getCompanyApplications()
           : await _apiService.getJobApplications(widget.jobId!);
+      final selections = await _workspaceService.getStudentSelections();
+      final selectionsByEmail = <String, Map<String, dynamic>>{};
+      for (final selection in selections) {
+        final email = '${selection['student_email'] ?? ''}'
+            .trim()
+            .toLowerCase();
+        if (email.isEmpty) continue;
+        selectionsByEmail[email] = selection;
+      }
 
       if (response['success'] == true) {
         setState(() {
           _applications = response['data'] ?? [];
+          _studentSelectionsByEmail = selectionsByEmail;
           _isLoading = false;
         });
       } else {
@@ -2281,6 +3257,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           _error =
               response['message']?.toString() ??
               language.tr('failed_to_load_applications');
+          _studentSelectionsByEmail = selectionsByEmail;
           _isLoading = false;
         });
       }
@@ -2292,43 +3269,10 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     }
   }
 
-  Future<DateTime?> _pickInterviewDateTime() async {
-    final now = DateTime.now();
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: now.add(const Duration(days: 1)),
-      firstDate: now,
-      lastDate: DateTime(now.year + 3),
-    );
-    if (pickedDate == null) return null;
-    if (!mounted) return null;
-
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
-    );
-    if (pickedTime == null) return null;
-
-    return DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
-  }
-
   String _formatDateOnly(DateTime date) {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
     return '${date.year}-$month-$day';
-  }
-
-  Future<String?> _promptForVenue() async {
-    return showDialog<String>(
-      context: context,
-      builder: (_) => const _InterviewVenueDialog(),
-    );
   }
 
   Future<Map<String, String>?> _collectReportingDates() async {
@@ -2364,12 +3308,14 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     String? hint,
     TextInputType keyboardType = TextInputType.text,
     int maxLines = 1,
+    bool readOnly = false,
     String? Function(String?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: controller,
+        readOnly: readOnly,
         keyboardType: keyboardType,
         maxLines: maxLines,
         scrollPadding: const EdgeInsets.only(bottom: 140),
@@ -2384,6 +3330,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
+          suffixIcon: readOnly
+              ? const Icon(Icons.check_circle_outline_rounded, size: 18)
+              : null,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 14,
@@ -2405,20 +3354,45 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final companyAssets =
         context.read<AuthProvider>().user?['company_data']
             as Map<String, dynamic>?;
-    final hasDigitalStamp = '${companyAssets?['stamp_url'] ?? ''}'
-        .trim()
-        .isNotEmpty;
-    final hasDigitalSignature = '${companyAssets?['signature_url'] ?? ''}'
-        .trim()
-        .isNotEmpty;
+    final companyName =
+        application['company_name']?.toString() ??
+        companyAssets?['company_name']?.toString() ??
+        '';
+    final registrationNumber =
+        application['student_registration_number']?.toString() ??
+        application['registration_number']?.toString() ??
+        '';
+    final hasPrefilledRegistrationNumber = registrationNumber.trim().isNotEmpty;
+    final collegeName =
+        application['college_name']?.toString() ??
+        application['university_name']?.toString() ??
+        '';
+    final companyLocation =
+        companyAssets?['location']?.toString() ??
+        application['company_location']?.toString() ??
+        '';
+    final inferredLocation = _inferLocationDefaults(companyLocation);
+    final hasDigitalStamp =
+        '${application['stamp_url'] ?? companyAssets?['stamp_url'] ?? ''}'
+            .trim()
+            .isNotEmpty;
+    final hasDigitalSignature =
+        '${application['signature_url'] ?? companyAssets?['signature_url'] ?? ''}'
+            .trim()
+            .isNotEmpty;
     return showModalBottomSheet<Map<String, String>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _AcceptanceLetterDialog(
-        initialOrganizationName: application['company_name']?.toString() ?? '',
-        collegeNamePlaceholder: 'College of Informatics and Virtual Education',
+        initialOrganizationName: companyName,
+        initialRegistrationNumber: registrationNumber,
+        hasPrefilledRegistrationNumber: hasPrefilledRegistrationNumber,
+        initialCollegeName: collegeName,
+        initialOfficerRegion: inferredLocation['region'] ?? '',
+        initialOfficerDistrict: inferredLocation['district'] ?? '',
+        initialOfficerArea: inferredLocation['area'] ?? '',
         initialLetterDate: _formatDateOnly(DateTime.now()),
         studentName: studentName,
         jobTitle: jobTitle,
@@ -2426,19 +3400,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         hasDigitalSignature: hasDigitalSignature,
         buildInput: _buildAcceptanceLetterInput,
       ),
-    );
-  }
-
-  Future<void> _scheduleInterview(String applicationId) async {
-    final selectedDateTime = await _pickInterviewDateTime();
-    if (selectedDateTime == null || !mounted) return;
-    final interviewVenue = await _promptForVenue();
-    if (interviewVenue == null || interviewVenue.isEmpty) return;
-    await _updateStatus(
-      applicationId,
-      'interview',
-      interviewDate: selectedDateTime.toIso8601String(),
-      interviewVenue: interviewVenue,
     );
   }
 
@@ -2453,13 +3414,142 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     );
     if (acceptanceLetterData == null) return;
 
-    await _updateStatus(
+    final updated = await _updateStatus(
       applicationId,
       'accepted',
       reportingStartDate: reportingDates['reporting_start_date'],
       reportingEndDate: reportingDates['reporting_end_date'],
       acceptanceLetterData: acceptanceLetterData,
     );
+
+    if (!updated) return;
+  }
+
+  Future<void> _showReportStudentDialog(
+    Map<String, dynamic> application,
+  ) async {
+    final descriptionController = TextEditingController();
+    var issueType = 'absent';
+
+    try {
+      final payload = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: const Text('Report Student to University'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Report this issue to ${application['university_name'] ?? 'the university'} coordinator for follow-up.',
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: issueType,
+                    decoration: InputDecoration(
+                      labelText: 'Issue type',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'absent',
+                        child: Text('Student is not attending'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'left_without_permission',
+                        child: Text('Left workplace without permission'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() => issueType = value);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descriptionController,
+                    minLines: 4,
+                    maxLines: 5,
+                    decoration: InputDecoration(
+                      labelText: 'Description',
+                      hintText:
+                          'Explain what happened so the university can act quickly.',
+                      alignLabelWithHint: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final description = descriptionController.text.trim();
+                  if (description.isEmpty) {
+                    return;
+                  }
+
+                  Navigator.pop(context, {
+                    'issue_type': issueType,
+                    'description': description,
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFB42318),
+                ),
+                child: const Text('Send report'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (!mounted || payload == null) return;
+
+      final currentUser = context.read<AuthProvider>().user;
+      final companyData = currentUser?['company_data'] as Map<String, dynamic>?;
+      final companyName =
+          application['company_name']?.toString() ??
+          companyData?['company_name']?.toString() ??
+          'Company';
+
+      await _workspaceService.submitCompanyReport(
+        applicationId: '${application['application_id'] ?? ''}',
+        studentName:
+            application['full_name']?.toString() ??
+            application['student_name']?.toString() ??
+            'Student',
+        studentEmail: application['email']?.toString() ?? '',
+        universityName: application['university_name']?.toString() ?? '',
+        companyName: companyName,
+        jobTitle: application['job_title']?.toString() ?? 'Placement',
+        issueType: payload['issue_type'] ?? 'absent',
+        description: payload['description'] ?? '',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Report sent to the university successfully.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } finally {
+      descriptionController.dispose();
+    }
   }
 
   Future<void> _rejectApplicant(String applicationId) async {
@@ -2567,7 +3657,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     }
   }
 
-  Future<void> _updateStatus(
+  Future<bool> _updateStatus(
     String applicationId,
     String status, {
     String? feedback,
@@ -2591,7 +3681,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       );
 
       if (response['success'] == true) {
-        if (!mounted) return;
+        if (!mounted) return false;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -2603,6 +3693,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
           ),
         );
         _loadApplications();
+        return true;
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2613,16 +3704,20 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
             backgroundColor: Colors.red,
           ),
         );
+        return false;
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_formatErrorMessage(e)),
           backgroundColor: Colors.red,
         ),
       );
+      return false;
     }
+
+    return false;
   }
 
   Color _statusColor(String status) {
@@ -2700,61 +3795,115 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     );
   }
 
-  void _showApplicationsSummary() {
-    final language = context.read<LanguageProvider>();
-    final total = _applications.length;
-    final shortlisted = _countByStatus('shortlisted');
-    final interviewed = _countByStatus('interview');
-    final accepted = _countByStatus('accepted');
-    final rejected = _countByStatus('rejected');
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(language.tr('applications_summary')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildSummaryLine(language.tr('total'), total.toString()),
-            _buildSummaryLine(
-              language.tr('shortlisted'),
-              shortlisted.toString(),
-            ),
-            _buildSummaryLine(
-              language.tr('interviewed'),
-              interviewed.toString(),
-            ),
-            _buildSummaryLine(language.tr('accepted'), accepted.toString()),
-            _buildSummaryLine(language.tr('rejected'), rejected.toString()),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(language.tr('close')),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryLine(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(color: Colors.grey.shade700)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
   void _showAllApplicationsFromTop() {
     final dashboard = context.findAncestorStateOfType<_CompanyDashboardState>();
     dashboard?.navigateToTab(2);
+  }
+
+  String _escapeCsvCell(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  String _buildAcceptedApplicantsCsv(List<dynamic> applications) {
+    final headers = [
+      'Applicant Name',
+      'Email',
+      'University',
+      'Job Title',
+      'Status',
+      'Company Confirmed',
+      'Reporting Start',
+      'Reporting End',
+    ];
+
+    final rows = applications
+        .map((app) {
+          final email = '${app['email'] ?? ''}'.trim().toLowerCase();
+          final selection = _studentSelectionsByEmail[email];
+          final selectedApplicationId =
+              '${selection?['selected_application_id'] ?? ''}'.trim();
+          final isConfirmed =
+              selectedApplicationId == '${app['application_id']}';
+          return [
+            '${app['full_name'] ?? ''}',
+            '${app['email'] ?? ''}',
+            '${app['university_name'] ?? ''}',
+            '${app['job_title'] ?? ''}',
+            '${app['status'] ?? ''}',
+            isConfirmed ? 'Yes' : 'No',
+            '${app['reporting_start_date'] ?? ''}',
+            '${app['reporting_end_date'] ?? ''}',
+          ];
+        })
+        .toList(growable: false);
+
+    final buffer = StringBuffer()
+      ..writeln(headers.map(_escapeCsvCell).join(','));
+
+    for (final row in rows) {
+      buffer.writeln(row.map((cell) => _escapeCsvCell(cell)).join(','));
+    }
+
+    return buffer.toString();
+  }
+
+  Future<void> _exportAcceptedApplicants() async {
+    final acceptedApplicants = _acceptedApplications;
+
+    if (acceptedApplicants.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No accepted applicants available yet.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isExportingAcceptedApplicants = true);
+
+    try {
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      final csv = _buildAcceptedApplicantsCsv(acceptedApplicants);
+      final savedPath = await saveExportFile(
+        fileName: 'accepted_applicants_$timestamp.csv',
+        bytes: Uint8List.fromList(utf8.encode(csv)),
+        mimeType: 'text/csv',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Accepted applicants exported to $savedPath'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to export accepted applicants: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExportingAcceptedApplicants = false);
+      }
+    }
+  }
+
+  void _showAcceptedApplicants() {
+    setState(() => _showAcceptedApplicantsOnly = true);
+  }
+
+  void _showAllApplicationsList() {
+    setState(() => _showAcceptedApplicantsOnly = false);
   }
 
   Widget _buildTopNavigationBar() {
@@ -2838,18 +3987,182 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     );
   }
 
+  Widget _buildAcceptedApplicantsList() {
+    final acceptedApplicants = _acceptedApplications;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _companyStudentBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Accepted students',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _companyStudentPrimaryDark,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${acceptedApplicants.length} student(s) accepted.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _showAllApplicationsList,
+                icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                label: const Text('All applications'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isExportingAcceptedApplicants
+                  ? null
+                  : _exportAcceptedApplicants,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _companyStudentPrimary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: _isExportingAcceptedApplicants
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.download_rounded, size: 18),
+              label: Text(
+                _isExportingAcceptedApplicants
+                    ? 'Exporting...'
+                    : 'Download accepted students',
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (acceptedApplicants.isEmpty)
+            Text(
+              'No accepted students yet.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            )
+          else
+            ...acceptedApplicants.map((app) {
+              final fullName = '${app['full_name'] ?? 'Applicant'}';
+              final universityName = '${app['university_name'] ?? 'N/A'}';
+              final email = '${app['email'] ?? 'N/A'}';
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: _companyStudentSurfaceSoft,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _companyStudentBorder),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 38,
+                      width: 38,
+                      decoration: BoxDecoration(
+                        color: _companyStudentSurface,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                          color: _companyStudentPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            fullName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            universityName,
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            email,
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSummaryCard({
     required String label,
     required String value,
     required IconData icon,
     required Color color,
+    bool isSelected = false,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final card = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isSelected ? color.withValues(alpha: 0.08) : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        border: Border.all(
+          color: isSelected
+              ? color.withValues(alpha: 0.55)
+              : color.withValues(alpha: 0.18),
+          width: isSelected ? 1.4 : 1,
+        ),
       ),
       child: Row(
         children: [
@@ -2881,6 +4194,19 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         ],
       ),
     );
+
+    if (onTap == null) {
+      return card;
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: card,
+      ),
+    );
   }
 
   Widget _buildApplicationCard(dynamic app) {
@@ -2888,6 +4214,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final fullName = '${app['full_name'] ?? language.tr('unknown_applicant')}';
     final email = '${app['email'] ?? language.tr('no_email')}';
     final status = '${app['status'] ?? 'pending'}';
+    final selection = _studentSelectionsByEmail[email.trim().toLowerCase()];
     final statusColor = _statusColor(status);
     final applicationId = '${app['application_id']}';
     final jobTitle =
@@ -2913,9 +4240,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
     final isDocumentAuthentic = app['supportive_document_verified'] == true;
     final canShortlist =
         status == 'pending' && (!hasSupportiveDocument || isDocumentAuthentic);
-    final canInterview =
-        status == 'shortlisted' &&
-        (!hasSupportiveDocument || isDocumentAuthentic);
     final canAccept =
         (status == 'shortlisted' || status == 'interview') &&
         (!hasSupportiveDocument || isDocumentAuthentic);
@@ -2924,6 +4248,15 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
             status == 'shortlisted' ||
             status == 'interview') &&
         (!hasSupportiveDocument || documentReviewed);
+    final selectedApplicationId =
+        '${selection?['selected_application_id'] ?? ''}'.trim();
+    final selectedCompanyName = '${selection?['selected_company_name'] ?? ''}'
+        .trim();
+    final hasConfirmedCompany = selectedApplicationId.isNotEmpty;
+    final hasConfirmedThisCompany =
+        hasConfirmedCompany && selectedApplicationId == applicationId;
+    final hasConfirmedAnotherCompany =
+        hasConfirmedCompany && !hasConfirmedThisCompany;
     final reviewLabel = !hasSupportiveDocument
         ? 'Cover letter only'
         : !documentReviewed
@@ -2938,7 +4271,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
         : isDocumentAuthentic
         ? const Color(0xFF2E7D32)
         : const Color(0xFFC62828);
-
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -3101,6 +4433,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                           onPressed: () => _openSupportiveDocument(
                             applicationId: applicationId,
                             fileName: supportiveDocumentName,
+                            directFileUrl: supportiveDocumentUrl,
                           ),
                           icon: const Icon(Icons.open_in_new, size: 16),
                           label: Text(
@@ -3161,6 +4494,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                           : () => _downloadResponseLetter(
                               applicationId: applicationId,
                               fileName: responseLetterName,
+                              directFileUrl: responseLetterUrl,
                             ),
                       child: Text(
                         isDownloadingResponseLetter
@@ -3169,6 +4503,35 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ],
+            if (status == 'accepted' && hasConfirmedCompany) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: hasConfirmedThisCompany
+                      ? const Color(0xFFEAF7F2)
+                      : const Color(0xFFFFF4EC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: hasConfirmedThisCompany
+                        ? const Color(0xFF0F766E)
+                        : const Color(0xFFD97706),
+                  ),
+                ),
+                child: Text(
+                  hasConfirmedThisCompany
+                      ? '$fullName has confirmed your company and is waiting for university review.'
+                      : '$fullName already confirmed placement with $selectedCompanyName.',
+                  style: TextStyle(
+                    color: hasConfirmedThisCompany
+                        ? const Color(0xFF0F766E)
+                        : const Color(0xFF9A3412),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -3185,13 +4548,6 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   onPressed: () => _updateStatus(applicationId, 'shortlisted'),
                 ),
                 _buildActionButton(
-                  label: language.tr('interview'),
-                  color: Colors.purple,
-                  isActive: _hasReachedStatus(status, 'interview'),
-                  isEnabled: canInterview,
-                  onPressed: () => _scheduleInterview(applicationId),
-                ),
-                _buildActionButton(
                   label: language.tr('accept'),
                   color: Colors.green,
                   isActive: status == 'accepted',
@@ -3205,6 +4561,20 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   isEnabled: canReject,
                   onPressed: () => _rejectApplicant(applicationId),
                 ),
+                if (status == 'accepted')
+                  OutlinedButton.icon(
+                    onPressed: hasConfirmedAnotherCompany
+                        ? null
+                        : () => _showReportStudentDialog(
+                            Map<String, dynamic>.from(app as Map),
+                          ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFB42318),
+                      side: const BorderSide(color: Color(0xFFB42318)),
+                    ),
+                    icon: const Icon(Icons.report_problem_outlined, size: 18),
+                    label: const Text('Report to University'),
+                  ),
               ],
             ),
           ],
@@ -3216,6 +4586,9 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
+    final visibleApplications = _showAcceptedApplicantsOnly
+        ? _acceptedApplications
+        : _applications;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -3246,66 +4619,7 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: _companyStudentSurface,
-              border: Border.all(color: _companyStudentBorder),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.assignment_ind, color: _companyStudentPrimary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _showAllApplications
-                        ? language.tr('all_company_applications')
-                        : language.tr('applications_for_job', {
-                            'job':
-                                widget.jobTitle ?? language.tr('selected_job'),
-                          }),
-                    style: const TextStyle(
-                      color: _companyStudentPrimary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _loadApplications,
-                  icon: const Icon(
-                    Icons.refresh,
-                    color: _companyStudentPrimary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
           _buildTopNavigationBar(),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _showApplicationsSummary,
-                  icon: const Icon(
-                    Icons.insert_chart_outlined_rounded,
-                    size: 18,
-                  ),
-                  label: Text(language.tr('statistics')),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _loadApplications,
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: Text(language.tr('refresh_unread_count')),
-                ),
-              ),
-            ],
-          ),
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -3316,18 +4630,22 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                   value: '${_applications.length}',
                   icon: Icons.groups_2_outlined,
                   color: _companyStudentPrimary,
+                  isSelected: !_showAcceptedApplicantsOnly,
+                  onTap: _showAllApplicationsList,
                 ),
                 _buildSummaryCard(
-                  label: language.tr('interviewed'),
-                  value: '${_countByStatus('interview')}',
-                  icon: Icons.event_available_outlined,
-                  color: Colors.purple,
+                  label: language.tr('shortlisted'),
+                  value: '${_countByStatus('shortlisted')}',
+                  icon: Icons.playlist_add_check_circle_outlined,
+                  color: Colors.blue,
                 ),
                 _buildSummaryCard(
                   label: language.tr('accepted'),
                   value: '${_countByStatus('accepted')}',
                   icon: Icons.check_circle_outline,
                   color: Colors.green,
+                  isSelected: _showAcceptedApplicantsOnly,
+                  onTap: _showAcceptedApplicants,
                 ),
               ];
 
@@ -3353,7 +4671,11 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
             },
           ),
           const SizedBox(height: 14),
-          if (_applications.isEmpty)
+          if (_showAcceptedApplicantsOnly) ...[
+            _buildAcceptedApplicantsList(),
+            const SizedBox(height: 14),
+          ],
+          if (!_showAcceptedApplicantsOnly && visibleApplications.isEmpty)
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
@@ -3383,16 +4705,64 @@ class _CompanyApplicationsTabState extends State<CompanyApplicationsTab> {
                 ],
               ),
             ),
-          ..._applications.map(_buildApplicationCard),
+          if (!_showAcceptedApplicantsOnly)
+            ...visibleApplications.map(_buildApplicationCard),
         ],
       ),
     );
+  }
+
+  Map<String, String> _inferLocationDefaults(String rawLocation) {
+    final location = rawLocation.trim();
+    if (location.isEmpty) {
+      return const {'area': '', 'district': '', 'region': ''};
+    }
+
+    final parts = location
+        .split(',')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+
+    String region = '';
+    String district = '';
+
+    String? matchingRegion;
+    for (final part in parts.reversed) {
+      if (tanzaniaRegionDistricts.containsKey(part)) {
+        matchingRegion = part;
+        break;
+      }
+    }
+
+    if (matchingRegion != null) {
+      region = matchingRegion;
+      final districts = tanzaniaRegionDistricts[region] ?? const <String>[];
+      for (final part in parts) {
+        if (districts.contains(part)) {
+          district = part;
+          break;
+        }
+      }
+    } else if (parts.length == 1) {
+      region = parts.first;
+    } else if (parts.length >= 2) {
+      district = parts.first;
+      region = parts.last;
+    }
+
+    return {'area': location, 'district': district, 'region': region};
   }
 }
 
 class _AcceptanceLetterDialog extends StatefulWidget {
   final String initialOrganizationName;
-  final String collegeNamePlaceholder;
+  final String initialRegistrationNumber;
+  final bool hasPrefilledRegistrationNumber;
+  final String initialCollegeName;
+  final String initialOfficerRegion;
+  final String initialOfficerDistrict;
+  final String initialOfficerArea;
   final String initialLetterDate;
   final String studentName;
   final String jobTitle;
@@ -3402,7 +4772,12 @@ class _AcceptanceLetterDialog extends StatefulWidget {
 
   const _AcceptanceLetterDialog({
     required this.initialOrganizationName,
-    required this.collegeNamePlaceholder,
+    required this.initialRegistrationNumber,
+    required this.hasPrefilledRegistrationNumber,
+    required this.initialCollegeName,
+    required this.initialOfficerRegion,
+    required this.initialOfficerDistrict,
+    required this.initialOfficerArea,
     required this.initialLetterDate,
     required this.studentName,
     required this.jobTitle,
@@ -3430,6 +4805,8 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
   late final TextEditingController _officerDistrictController;
   late final TextEditingController _officerAreaController;
   late final TextEditingController _letterDateController;
+  String? _selectedOfficerRegion;
+  String? _selectedOfficerDistrict;
 
   DateTime _formatSeedDate(DateTime date) {
     return DateTime(date.year, date.month, date.day);
@@ -3490,19 +4867,38 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
     _organizationNameController = TextEditingController(
       text: widget.initialOrganizationName,
     );
-    _registrationNumberController = TextEditingController();
-    _collegeNameController = TextEditingController();
+    _registrationNumberController = TextEditingController(
+      text: widget.initialRegistrationNumber,
+    );
+    _collegeNameController = TextEditingController(
+      text: widget.initialCollegeName,
+    );
     _sectionDepartmentController = TextEditingController();
     _officerNameController = TextEditingController();
     _officerDesignationController = TextEditingController();
     _officerPhoneController = TextEditingController();
     _officerEmailController = TextEditingController();
-    _officerRegionController = TextEditingController();
-    _officerDistrictController = TextEditingController();
-    _officerAreaController = TextEditingController();
+    _officerRegionController = TextEditingController(
+      text: widget.initialOfficerRegion,
+    );
+    _officerDistrictController = TextEditingController(
+      text: widget.initialOfficerDistrict,
+    );
+    _officerAreaController = TextEditingController(
+      text: widget.initialOfficerArea,
+    );
     _letterDateController = TextEditingController(
       text: widget.initialLetterDate,
     );
+    if (tanzaniaRegionDistricts.containsKey(_officerRegionController.text)) {
+      _selectedOfficerRegion = _officerRegionController.text;
+    }
+    final currentDistricts = _selectedOfficerRegion == null
+        ? const <String>[]
+        : (tanzaniaRegionDistricts[_selectedOfficerRegion] ?? const <String>[]);
+    if (currentDistricts.contains(_officerDistrictController.text)) {
+      _selectedOfficerDistrict = _officerDistrictController.text;
+    }
   }
 
   @override
@@ -3618,6 +5014,78 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
     );
   }
 
+  Widget _buildRegionDropdown() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        initialValue: _selectedOfficerRegion,
+        decoration: InputDecoration(
+          labelText: 'Region',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
+        ),
+        items: tanzaniaRegionDistricts.keys
+            .map((region) {
+              return DropdownMenuItem<String>(
+                value: region,
+                child: Text(region),
+              );
+            })
+            .toList(growable: false),
+        onChanged: (value) {
+          setState(() {
+            _selectedOfficerRegion = value;
+            _officerRegionController.text = value ?? '';
+            _selectedOfficerDistrict = null;
+            _officerDistrictController.clear();
+          });
+        },
+        validator: (value) => _validateRequired(value, 'Region'),
+      ),
+    );
+  }
+
+  Widget _buildDistrictDropdown() {
+    final districts = _selectedOfficerRegion == null
+        ? const <String>[]
+        : (tanzaniaRegionDistricts[_selectedOfficerRegion] ?? const <String>[]);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        initialValue: _selectedOfficerDistrict,
+        decoration: InputDecoration(
+          labelText: 'District',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
+        ),
+        items: districts
+            .map((district) {
+              return DropdownMenuItem<String>(
+                value: district,
+                child: Text(district),
+              );
+            })
+            .toList(growable: false),
+        onChanged: _selectedOfficerRegion == null
+            ? null
+            : (value) {
+                setState(() {
+                  _selectedOfficerDistrict = value;
+                  _officerDistrictController.text = value ?? '';
+                });
+              },
+        validator: (value) => _validateRequired(value, 'District'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
@@ -3715,6 +5183,8 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                                       controller: _registrationNumberController,
                                       label: 'Student Registration Number',
                                       hint: 'Example: UDOM/2023/12345',
+                                      readOnly:
+                                          widget.hasPrefilledRegistrationNumber,
                                     ),
                                   ),
                                   _buildResponsiveRow(
@@ -3722,7 +5192,7 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                                     first: buildInput(
                                       controller: _collegeNameController,
                                       label: 'College Name',
-                                      hint: widget.collegeNamePlaceholder,
+                                      hint: 'Example: College of Informatics',
                                     ),
                                     second: buildInput(
                                       controller: _sectionDepartmentController,
@@ -3758,14 +5228,8 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                                   ),
                                   _buildResponsiveRow(
                                     compact: compact,
-                                    first: buildInput(
-                                      controller: _officerRegionController,
-                                      label: 'Region',
-                                    ),
-                                    second: buildInput(
-                                      controller: _officerDistrictController,
-                                      label: 'District',
-                                    ),
+                                    first: _buildRegionDropdown(),
+                                    second: _buildDistrictDropdown(),
                                   ),
                                   buildInput(
                                     controller: _officerAreaController,
@@ -3807,73 +5271,6 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _InterviewVenueDialog extends StatefulWidget {
-  const _InterviewVenueDialog();
-
-  @override
-  State<_InterviewVenueDialog> createState() => _InterviewVenueDialogState();
-}
-
-class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
-  final TextEditingController _controller = TextEditingController();
-  String? _errorText;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final language = context.read<LanguageProvider>();
-    final venue = _controller.text.trim();
-    if (venue.isEmpty) {
-      setState(() {
-        _errorText = language.tr('venue_required');
-      });
-      return;
-    }
-
-    Navigator.of(context).pop(venue);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final language = context.watch<LanguageProvider>();
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      scrollable: true,
-      title: Text(language.tr('interview_venue')),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: TextField(
-          controller: _controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          textInputAction: TextInputAction.done,
-          maxLines: 2,
-          onSubmitted: (_) => _submit(),
-          decoration: InputDecoration(
-            labelText: language.tr('venue_hall'),
-            hintText: language.tr('venue_hint'),
-            errorText: _errorText,
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(language.tr('cancel')),
-        ),
-        ElevatedButton(
-          onPressed: _submit,
-          child: Text(language.tr('continue')),
-        ),
-      ],
     );
   }
 }
@@ -3927,11 +5324,9 @@ class CompanyProfileScreen extends StatelessWidget {
     final company = user?['company_data'] ?? {};
     final companyName = '${company['company_name'] ?? language.tr('company')}';
     final rawLogoUrl = company['logo_url']?.toString();
-    final logoUrl = rawLogoUrl == null || rawLogoUrl.isEmpty
-        ? null
-        : (rawLogoUrl.startsWith('http://') || rawLogoUrl.startsWith('https://')
-              ? rawLogoUrl
-              : '${ApiService().baseUrl}$rawLogoUrl');
+    final logoUrls = rawLogoUrl == null || rawLogoUrl.isEmpty
+        ? const <String>[]
+        : ApiService().resolveAssetUrlCandidates(rawLogoUrl);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -3957,10 +5352,7 @@ class CompanyProfileScreen extends StatelessWidget {
                 CircleAvatar(
                   radius: 38,
                   backgroundColor: _companyStudentSurface,
-                  backgroundImage: logoUrl != null && logoUrl.isNotEmpty
-                      ? NetworkImage(logoUrl)
-                      : null,
-                  child: logoUrl == null || logoUrl.isEmpty
+                  child: logoUrls.isEmpty
                       ? Text(
                           companyName.isNotEmpty
                               ? companyName[0].toUpperCase()
@@ -3971,7 +5363,26 @@ class CompanyProfileScreen extends StatelessWidget {
                             color: _companyStudentPrimary,
                           ),
                         )
-                      : null,
+                      : ClipOval(
+                          child: _DashboardImageWithFallbacks(
+                            imageUrls: logoUrls,
+                            fit: BoxFit.cover,
+                            emptyChild: Container(
+                              color: _companyStudentSurface,
+                              alignment: Alignment.center,
+                              child: Text(
+                                companyName.isNotEmpty
+                                    ? companyName[0].toUpperCase()
+                                    : 'C',
+                                style: const TextStyle(
+                                  color: _companyStudentPrimary,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -3987,72 +5398,122 @@ class CompanyProfileScreen extends StatelessWidget {
                   style: TextStyle(color: Colors.grey.shade700),
                 ),
                 const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final result = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const EditCompanyProfileScreen(),
-                        ),
-                      );
-                      if (!context.mounted) return;
-                      final dashboard = context
-                          .findAncestorStateOfType<_CompanyDashboardState>();
-                      dashboard?._handleRouteNavigationResult(result);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _companyStudentPrimary,
-                    ),
-                    icon: const Icon(Icons.edit),
-                    label: Text(language.tr('edit_profile')),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final changed = await showChangePinDialog(context);
-                      if (!context.mounted || changed != true) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            language.tr('pin_updated_successfully'),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final buttonTextStyle = const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    );
+
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              final result = await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      const EditCompanyProfileScreen(),
+                                ),
+                              );
+                              if (!context.mounted) return;
+                              final dashboard = context
+                                  .findAncestorStateOfType<
+                                    _CompanyDashboardState
+                                  >();
+                              dashboard?._handleRouteNavigationResult(result);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _companyStudentPrimary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 12,
+                              ),
+                            ),
+                            icon: const Icon(Icons.edit, size: 18),
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                language.tr('edit_profile'),
+                                style: buttonTextStyle,
+                              ),
+                            ),
                           ),
-                          backgroundColor: Colors.green,
                         ),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _companyStudentPrimary,
-                      side: const BorderSide(color: _companyStudentPrimary),
-                    ),
-                    icon: const Icon(Icons.pin_outlined),
-                    label: Text(language.tr('change_pin')),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final email = user?['email']?.toString() ?? '';
-                      if (email.isEmpty) return;
-                      final changed = await showResetPinDialog(
-                        context,
-                        email: email,
-                      );
-                      if (!context.mounted || changed != true) return;
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.orange.shade800,
-                      side: BorderSide(color: Colors.orange.shade400),
-                    ),
-                    icon: const Icon(Icons.lock_reset_rounded),
-                    label: Text(language.tr('reset_pin')),
-                  ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final changed = await showChangePinDialog(
+                                context,
+                              );
+                              if (!context.mounted || changed != true) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    language.tr('pin_updated_successfully'),
+                                  ),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _companyStudentPrimary,
+                              side: const BorderSide(
+                                color: _companyStudentPrimary,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 12,
+                              ),
+                            ),
+                            icon: const Icon(Icons.pin_outlined, size: 18),
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                language.tr('change_pin'),
+                                style: buttonTextStyle,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final email = user?['email']?.toString() ?? '';
+                              if (email.isEmpty) return;
+                              final changed = await showResetPinDialog(
+                                context,
+                                email: email,
+                              );
+                              if (!context.mounted || changed != true) return;
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.orange.shade800,
+                              side: BorderSide(color: Colors.orange.shade400),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 12,
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.lock_reset_rounded,
+                              size: 18,
+                            ),
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                language.tr('reset_pin'),
+                                style: buttonTextStyle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),

@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
-import '../widgets/auth_wrapper.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/auth_provider.dart';
+import '../utils/user_role.dart';
+import '../utils/assets.dart';
+import '../utils/theme.dart';
+import 'admin/admin_dashboard.dart';
+import 'auth/login_screen.dart';
+import 'company/company_dashboard.dart';
+import 'student/student_dashboard.dart';
+import 'university/university_dashboard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -8,154 +18,212 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
-  bool _showApp = false;
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _logoAnimationController;
+  late Animation<double> _logoScaleAnimation;
+  late Animation<double> _logoFadeAnimation;
+  late Animation<Offset> _logoSlideAnimation;
+  bool _hasStartedAnimation = false;
 
   @override
   void initState() {
     super.initState();
-    _showAppAfterDelay();
+
+    _logoAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1400),
+      vsync: this,
+    );
+
+    final parent = CurvedAnimation(
+      parent: _logoAnimationController,
+      curve: Curves.easeOutCubic,
+    );
+
+    _logoScaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 0.32,
+          end: 1.16,
+        ).chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 68,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 1.16,
+          end: 1,
+        ).chain(CurveTween(curve: Curves.easeOut)),
+        weight: 32,
+      ),
+    ]).animate(parent);
+
+    _logoFadeAnimation = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(
+        parent: _logoAnimationController,
+        curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
+      ),
+    );
+
+    _logoSlideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.22), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _logoAnimationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _hasStartedAnimation) return;
+      _hasStartedAnimation = true;
+      _logoAnimationController.forward(from: 0);
+    });
+
+    _bootstrapApp();
   }
 
-  Future<void> _showAppAfterDelay() async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-
+  Future<void> _bootstrapApp() async {
+    final nextScreen = await _resolveNextScreen();
     if (!mounted) return;
-    setState(() => _showApp = true);
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => nextScreen),
+    );
+  }
+
+  Future<Widget> _resolveNextScreen() async {
+    final authProvider = context.read<AuthProvider>();
+
+    await Future.wait([
+      Future<void>.delayed(const Duration(milliseconds: 2200)),
+      authProvider.checkAuthStatus(),
+    ]);
+
+    if (authProvider.isAuthenticated && authProvider.user != null) {
+      final role = normalizeUserRole(authProvider.user!['role']);
+
+      if (isStudentRole(role)) {
+        return const StudentDashboard();
+      }
+      if (role == 'company') {
+        return const CompanyDashboard();
+      }
+      if (role == 'university') {
+        return const UniversityDashboard();
+      }
+      if (role == 'admin') {
+        return const AdminDashboard();
+      }
+    }
+
+    return const LoginScreen();
+  }
+
+  @override
+  void dispose() {
+    _logoAnimationController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_showApp) {
-      return const AuthWrapper();
-    }
-
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [const Color(0xFF0E3A5D), const Color(0xFF1C5A88)],
+            colors: const [Color(0xFF0B2C47), Color(0xFF1C5A88)],
           ),
         ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                height: 196,
-                width: 196,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      height: 196,
-                      width: 196,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            Colors.white.withValues(alpha: 0.22),
-                            Colors.white.withValues(alpha: 0.03),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      height: 188,
-                      width: 188,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 5,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.white,
-                        ),
-                        backgroundColor: Colors.white.withValues(alpha: 0.18),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(14),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -90,
+              right: -50,
+              child: Container(
+                width: 220,
+                height: 220,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.07),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -120,
+              left: -40,
+              child: Container(
+                width: 260,
+                height: 260,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.accentGold.withValues(alpha: 0.09),
+                ),
+              ),
+            ),
+            Center(
+              child: FadeTransition(
+                opacity: _logoFadeAnimation,
+                child: SlideTransition(
+                  position: _logoSlideAnimation,
+                  child: ScaleTransition(
+                    scale: _logoScaleAnimation,
+                    child: Container(
+                      width: 190,
+                      height: 190,
+                      padding: const EdgeInsets.all(26),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.14),
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          width: 1.2,
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.18),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
+                            blurRadius: 28,
+                            offset: const Offset(0, 18),
                           ),
                         ],
                       ),
                       child: Container(
-                        height: 138,
-                        width: 138,
-                        padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.65),
-                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 14,
-                              offset: const Offset(0, 4),
+                              color: AppTheme.primaryDark.withValues(
+                                alpha: 0.1,
+                              ),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
                             ),
                           ],
                         ),
-                        child: Image.asset(
-                          'assets/images/internshiplogo.png',
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.high,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(
-                              Icons.work_outline_rounded,
-                              size: 96,
-                              color: Color(0xFF0E3A5D),
+                        padding: const EdgeInsets.all(22),
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0.94, end: 1),
+                          duration: const Duration(milliseconds: 720),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, value, child) {
+                            return Transform.scale(
+                              scale: value,
+                              child: child,
                             );
                           },
+                          child: Image.asset(
+                            AppAssets.splashLogo,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 22),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: const Text(
-                  'Internship System',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: 0.6,
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                'Loading...',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white.withValues(alpha: 0.82),
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

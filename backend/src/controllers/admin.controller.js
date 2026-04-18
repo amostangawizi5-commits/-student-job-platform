@@ -172,7 +172,7 @@ const updateUserRole = async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        const allowedRoles = new Set(['student', 'graduate', 'company', 'admin']);
+        const allowedRoles = new Set(['student', 'company', 'university', 'admin']);
 
         if (!allowedRoles.has(role)) {
             return res.status(400).json({
@@ -226,13 +226,13 @@ const updateUserRole = async (req, res) => {
             );
         }
 
-        if (role === 'student' || role === 'graduate') {
+        if (role === 'student') {
             await client.query(
                 `INSERT INTO students (student_id, student_type)
                  VALUES ($1, $2)
                  ON CONFLICT (student_id) DO UPDATE
                  SET student_type = EXCLUDED.student_type`,
-                [updatedUser.user_id, role === 'graduate' ? 'graduate' : 'current']
+                [updatedUser.user_id, 'current']
             );
         }
 
@@ -551,12 +551,12 @@ const resetUserPassword = async (req, res) => {
         }
 
         const user = userResult.rows[0];
-        const allowedRoles = new Set(['student', 'graduate', 'company']);
+        const allowedRoles = new Set(['student', 'graduate', 'company', 'university']);
 
         if (!allowedRoles.has(user.role)) {
             return res.status(403).json({
                 success: false,
-                message: 'Password reset is allowed only for student and company accounts'
+                message: 'Password reset is allowed only for student, company, and university accounts'
             });
         }
 
@@ -641,18 +641,115 @@ const resetUserPassword = async (req, res) => {
 
 // Get all jobs (for admin)
 const getAllJobs = async (req, res) => {
-    try {
-        const result = await query(`
-            SELECT j.*, c.company_name
-            FROM jobs j
-            JOIN companies c ON j.company_id = c.company_id
-            ORDER BY j.created_at DESC
-        `);
-        res.json({ success: true, data: result.rows });
-    } catch (error) {
-        console.error('Get jobs error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
+  try {
+    const result = await query(`
+      SELECT j.*, c.company_name
+      FROM jobs j
+      JOIN companies c ON j.company_id = c.company_id
+      ORDER BY j.created_at DESC
+    `);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get jobs error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ===== NEW STUDENT ENDPOINTS =====
+
+// Get all students for admin
+const getAllAdminStudents = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT u.user_id, u.email, u.role, u.full_name, u.phone, 
+             u.is_verified, u.is_active, u.created_at,
+             s.program, s.university_id, u2.name as university_name,
+             s.gpa, s.expected_graduation_year
+      FROM users u
+      JOIN students s ON u.user_id = s.student_id
+      LEFT JOIN universities u2 ON s.university_id = u2.university_id
+      WHERE u.role IN ('student', 'graduate')
+      ORDER BY u.created_at DESC
+    `);
+    
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get students error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Students with university (chuo)
+const getStudentsWithUniversity = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT u.user_id, u.email, u.role, u.full_name, u.phone, 
+             u.is_verified, u.is_active, u.created_at,
+             s.program, s.university_id, u2.name as university_name,
+             s.gpa, s.expected_graduation_year
+      FROM users u
+      JOIN students s ON u.user_id = s.student_id
+      JOIN universities u2 ON s.university_id = u2.university_id
+      WHERE u.role IN ('student', 'graduate')
+      ORDER BY u.created_at DESC
+    `);
+    
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get students with university error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Students with awards (zawadi) - via approved applications
+const getStudentsWithAwards = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT DISTINCT u.user_id, u.email, u.role, u.full_name, u.phone, 
+             u.is_verified, u.is_active, u.created_at,
+             s.program, s.university_id, u2.name as university_name,
+             s.gpa, s.expected_graduation_year
+      FROM users u
+      JOIN students s ON u.user_id = s.student_id
+      LEFT JOIN universities u2 ON s.university_id = u2.university_id
+      JOIN applications a ON a.student_id = u.user_id
+      WHERE u.role IN ('student', 'graduate')
+        AND a.status IN ('shortlisted', 'interview', 'accepted')
+      ORDER BY u.created_at DESC
+    `);
+    
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get students with awards error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Students without field (no approved placement)
+const getStudentsNoField = async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT u.user_id, u.email, u.role, u.full_name, u.phone, 
+             u.is_verified, u.is_active, u.created_at,
+             s.program, s.university_id, u2.name as university_name,
+             s.gpa, s.expected_graduation_year
+      FROM users u
+      JOIN students s ON u.user_id = s.student_id
+      LEFT JOIN universities u2 ON s.university_id = u2.university_id
+      WHERE u.role IN ('student', 'graduate')
+        AND NOT EXISTS (
+          SELECT 1 FROM applications a 
+          WHERE a.student_id = u.user_id 
+            AND a.status IN ('shortlisted', 'interview', 'accepted')
+        )
+      ORDER BY u.created_at DESC
+    `);
+    
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get students no field error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 // Delete job (admin)
@@ -673,6 +770,7 @@ const getStats = async (req, res) => {
         const totalUsers = await query('SELECT COUNT(*) FROM users WHERE role != \'admin\'');
         const totalStudents = await query('SELECT COUNT(*) FROM users WHERE role = \'student\' OR role = \'graduate\'');
         const totalCompanies = await query('SELECT COUNT(*) FROM users WHERE role = \'company\'');
+        const totalUniversities = await query('SELECT COUNT(*) FROM users WHERE role = \'university\'');
         const totalJobs = await query('SELECT COUNT(*) FROM jobs');
         const totalApplications = await query('SELECT COUNT(*) FROM applications');
         const pendingApplications = await query('SELECT COUNT(*) FROM applications WHERE status = \'pending\'');
@@ -688,6 +786,7 @@ const getStats = async (req, res) => {
                 total_users: parseInt(totalUsers.rows[0].count),
                 total_students: parseInt(totalStudents.rows[0].count),
                 total_companies: parseInt(totalCompanies.rows[0].count),
+                total_universities: parseInt(totalUniversities.rows[0].count),
                 total_jobs: parseInt(totalJobs.rows[0].count),
                 total_applications: parseInt(totalApplications.rows[0].count),
                 pending_applications: parseInt(pendingApplications.rows[0].count),
@@ -723,6 +822,10 @@ module.exports = {
     getAllApplications,
     updateAdminApplicationStatus,
     getAllJobs,
+    getAllAdminStudents,
+    getStudentsWithUniversity,
+    getStudentsWithAwards,
+    getStudentsNoField,
     deleteJob,
     getStats,
     getLogs

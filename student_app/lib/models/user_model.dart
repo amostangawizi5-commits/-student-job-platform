@@ -1,4 +1,6 @@
 // lib/models/user_model.dart
+import '../utils/user_role.dart';
+
 class UserModel {
   final String userId;
   final String email;
@@ -11,6 +13,7 @@ class UserModel {
   final DateTime createdAt;
   final Map<String, dynamic>? studentData;
   final Map<String, dynamic>? companyData;
+  final Map<String, dynamic>? universityData;
 
   UserModel({
     required this.userId,
@@ -24,6 +27,7 @@ class UserModel {
     required this.createdAt,
     this.studentData,
     this.companyData,
+    this.universityData,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -36,11 +40,12 @@ class UserModel {
       profileImageUrl: json['profile_image_url'],
       isVerified: json['is_verified'] ?? false,
       isActive: json['is_active'] ?? true,
-      createdAt: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
           : DateTime.now(),
       studentData: json['student_data'],
       companyData: json['company_data'],
+      universityData: json['university_data'],
     );
   }
 
@@ -57,12 +62,15 @@ class UserModel {
       'created_at': createdAt.toIso8601String(),
       'student_data': studentData,
       'company_data': companyData,
+      'university_data': universityData,
     };
   }
 
-  bool get isStudent => role == 'student' || role == 'graduate';
-  bool get isCompany => role == 'company';
-  bool get isAdmin => role == 'admin';
-  
-  String get displayName => fullName.isNotEmpty ? fullName : email.split('@').first;
+  bool get isStudent => isStudentRole(role);
+  bool get isCompany => isCompanyRole(role);
+  bool get isUniversity => isUniversityRole(role);
+  bool get isAdmin => isAdminRole(role);
+
+  String get displayName =>
+      fullName.isNotEmpty ? fullName : email.split('@').first;
 }

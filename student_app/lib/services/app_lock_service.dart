@@ -1,11 +1,12 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../utils/user_role.dart';
 
 String? buildAppLockAccountScope(Map<String, dynamic>? user) {
   if (user == null) return null;
 
   final rawUserId = '${user['user_id'] ?? user['id'] ?? ''}'.trim();
   final rawEmail = '${user['email'] ?? ''}'.trim().toLowerCase();
-  final rawRole = '${user['role'] ?? ''}'.trim().toLowerCase();
+  final rawRole = normalizeUserRole(user['role']);
 
   final identifier = rawUserId.isNotEmpty ? rawUserId : rawEmail;
   if (identifier.isEmpty) {

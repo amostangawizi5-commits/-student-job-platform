@@ -74,15 +74,11 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     String applicationId,
     String status, {
     String? feedback,
-    String? interviewDate,
-    String? interviewVenue,
     String? reportingStartDate,
     String? reportingEndDate,
   }) async {
     try {
       final payload = <String, dynamic>{'status': status, 'feedback': feedback};
-      if (interviewDate != null) payload['interview_date'] = interviewDate;
-      if (interviewVenue != null) payload['interview_venue'] = interviewVenue;
       if (reportingStartDate != null) {
         payload['reporting_start_date'] = reportingStartDate;
       }
@@ -128,13 +124,6 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
     return '${date.year}-$month-$day';
-  }
-
-  Future<String?> _promptForVenue() async {
-    return showDialog<String>(
-      context: context,
-      builder: (_) => const _InterviewVenueDialog(),
-    );
   }
 
   Future<Map<String, String>?> _collectReportingDates() async {
@@ -320,7 +309,6 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
               'Shortlisted',
               '${_countByStatus('shortlisted')}',
             ),
-            _buildSummaryLine('Interviewed', '${_countByStatus('interview')}'),
             _buildSummaryLine('Accepted', '${_countByStatus('accepted')}'),
             _buildSummaryLine('Rejected', '${_countByStatus('rejected')}'),
           ],
@@ -485,45 +473,6 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     );
   }
 
-  Future<DateTime?> _pickInterviewDateTime() async {
-    final now = DateTime.now();
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: now.add(const Duration(days: 1)),
-      firstDate: now,
-      lastDate: DateTime(now.year + 3),
-    );
-    if (pickedDate == null) return null;
-    if (!mounted) return null;
-
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
-    );
-    if (pickedTime == null) return null;
-
-    return DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
-  }
-
-  Future<void> _scheduleInterview(String applicationId) async {
-    final interviewDate = await _pickInterviewDateTime();
-    if (interviewDate == null || !mounted) return;
-    final interviewVenue = await _promptForVenue();
-    if (interviewVenue == null || interviewVenue.isEmpty) return;
-    await _updateStatus(
-      applicationId,
-      'interview',
-      interviewDate: interviewDate.toIso8601String(),
-      interviewVenue: interviewVenue,
-    );
-  }
-
   Future<void> _acceptApplicant(String applicationId) async {
     final reportingDates = await _collectReportingDates();
     if (reportingDates == null) return;
@@ -600,10 +549,10 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                         color: const Color(0xFF2C3E50),
                       ),
                       _buildSummaryCard(
-                        label: 'Interviewed',
-                        value: '${_countByStatus('interview')}',
-                        icon: Icons.event_available_outlined,
-                        color: Colors.purple,
+                        label: 'Shortlisted',
+                        value: '${_countByStatus('shortlisted')}',
+                        icon: Icons.playlist_add_check_circle_outlined,
+                        color: Colors.blue,
                       ),
                       _buildSummaryCard(
                         label: 'Accepted',
@@ -666,8 +615,8 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                       final status = app['status'] ?? 'pending';
                       final statusColor = _getStatusColor(status);
                       final canShortlist = status == 'pending';
-                      final canInterview = status == 'shortlisted';
-                      final canAccept = status == 'interview';
+                      final canAccept =
+                          status == 'shortlisted' || status == 'interview';
                       final canReject =
                           status == 'pending' ||
                           status == 'shortlisted' ||
@@ -807,18 +756,6 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                                     ),
                                   ),
                                   _buildActionButton(
-                                    label: 'Interview',
-                                    color: Colors.purple,
-                                    isActive: _hasReachedStatus(
-                                      status,
-                                      'interview',
-                                    ),
-                                    isEnabled: canInterview,
-                                    onPressed: () => _scheduleInterview(
-                                      app['application_id'],
-                                    ),
-                                  ),
-                                  _buildActionButton(
                                     label: 'Accept',
                                     color: Colors.green,
                                     isActive: status == 'accepted',
@@ -876,67 +813,6 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                 ],
               ],
             ),
-    );
-  }
-}
-
-class _InterviewVenueDialog extends StatefulWidget {
-  const _InterviewVenueDialog();
-
-  @override
-  State<_InterviewVenueDialog> createState() => _InterviewVenueDialogState();
-}
-
-class _InterviewVenueDialogState extends State<_InterviewVenueDialog> {
-  final TextEditingController _controller = TextEditingController();
-  String? _errorText;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final venue = _controller.text.trim();
-    if (venue.isEmpty) {
-      setState(() {
-        _errorText = 'Venue is required';
-      });
-      return;
-    }
-
-    Navigator.of(context).pop(venue);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      title: const Text('Interview Venue'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: TextField(
-          controller: _controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          textInputAction: TextInputAction.done,
-          maxLines: 2,
-          onSubmitted: (_) => _submit(),
-          decoration: InputDecoration(
-            labelText: 'Venue / Hall',
-            hintText: 'Example: Main Hall, Room 4',
-            errorText: _errorText,
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(onPressed: _submit, child: const Text('Continue')),
-      ],
     );
   }
 }

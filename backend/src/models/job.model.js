@@ -22,17 +22,39 @@ class JobModel {
             salary_range,
             required_applicants,
             application_deadline,
+            eligible_programs,
+            minimum_gpa,
+            minimum_academic_year,
+            eligibility_notes,
+            eligibility_match_mode = 'all',
             status = 'open'
         } = jobData;
 
         const result = await query(
             `INSERT INTO jobs (
                 company_id, title, type, target_candidates, description, 
-                location, salary_range, required_applicants, application_deadline, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                location, salary_range, required_applicants, application_deadline,
+                eligible_programs, minimum_gpa, minimum_academic_year, eligibility_notes,
+                eligibility_match_mode, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING job_id, title, type, status, created_at, required_applicants, application_deadline`,
-            [company_id, title, type, target_candidates, description, 
-             location, salary_range, required_applicants, application_deadline, status]
+            [
+                company_id,
+                title,
+                type,
+                target_candidates,
+                description,
+                location,
+                salary_range,
+                required_applicants,
+                application_deadline,
+                eligible_programs,
+                minimum_gpa,
+                minimum_academic_year,
+                eligibility_notes,
+                eligibility_match_mode,
+                status
+            ]
         );
         
         return result.rows[0];
@@ -135,10 +157,18 @@ class JobModel {
             `SELECT 
                 j.*,
                 (
+                    SELECT json_agg(json_build_object('skill_id', s.skill_id, 'name', s.name))
+                    FROM job_skills js
+                    JOIN skills s ON js.skill_id = s.skill_id
+                    WHERE js.job_id = j.job_id
+                ) as required_skills,
+                (
                     SELECT COUNT(*) FROM applications WHERE job_id = j.job_id
                 ) as applications_count
             FROM jobs j
             WHERE j.company_id = $1
+              AND j.status = 'open'
+              AND j.application_deadline >= CURRENT_TIMESTAMP
             ORDER BY j.created_at DESC`,
             [companyId]
         );
@@ -194,6 +224,14 @@ class JobModel {
             'DELETE FROM job_skills WHERE job_id = $1 AND skill_id = $2',
             [jobId, skillId]
         );
+    }
+
+    static async replaceJobSkills(jobId, skillIds = []) {
+        await query('DELETE FROM job_skills WHERE job_id = $1', [jobId]);
+
+        for (const skillId of skillIds) {
+            await this.addJobSkill(jobId, skillId);
+        }
     }
 }
 

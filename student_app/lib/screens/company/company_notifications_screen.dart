@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/coordinator_workspace_service.dart';
 
 class CompanyNotificationsScreen extends StatefulWidget {
   const CompanyNotificationsScreen({super.key});
@@ -12,6 +16,8 @@ class CompanyNotificationsScreen extends StatefulWidget {
 class _CompanyNotificationsScreenState
     extends State<CompanyNotificationsScreen> {
   final ApiService _apiService = ApiService();
+  final CoordinatorWorkspaceService _workspaceService =
+      CoordinatorWorkspaceService();
   List<dynamic> _notifications = [];
   bool _isLoading = true;
 
@@ -23,37 +29,95 @@ class _CompanyNotificationsScreenState
 
   Future<void> _loadNotifications() async {
     setState(() => _isLoading = true);
+    final currentUser = context.read<AuthProvider>().user;
+    final companyData = currentUser?['company_data'] as Map<String, dynamic>?;
+    final companyName = companyData?['company_name']?.toString();
+
     try {
       final response = await _apiService.getNotifications();
-      if (response['success'] == true) {
-        setState(() {
-          _notifications = response['data'] ?? [];
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
-      }
+      final localNotifications = await _workspaceService
+          .getNotificationsForRole(role: 'company', companyName: companyName);
+
+      final remoteNotifications =
+          response['success'] == true && response['data'] is List
+          ? List<Map<String, dynamic>>.from(
+              (response['data'] as List).whereType<Map>().map(
+                (item) => item.map((key, value) => MapEntry('$key', value)),
+              ),
+            )
+          : <Map<String, dynamic>>[];
+
+      final allNotifications = [
+        ...localNotifications.map((item) => {...item, 'is_local': true}),
+        ...remoteNotifications.map((item) => {...item, 'is_local': false}),
+      ];
+
+      allNotifications.sort((left, right) {
+        final leftDate =
+            DateTime.tryParse('${left['created_at'] ?? ''}') ?? DateTime(1970);
+        final rightDate =
+            DateTime.tryParse('${right['created_at'] ?? ''}') ?? DateTime(1970);
+        return rightDate.compareTo(leftDate);
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _notifications = allNotifications;
+        _isLoading = false;
+      });
     } catch (_) {
-      setState(() => _isLoading = false);
+      final localNotifications = await _workspaceService
+          .getNotificationsForRole(role: 'company', companyName: companyName);
+      if (!mounted) return;
+      setState(() {
+        _notifications = localNotifications
+            .map((item) => {...item, 'is_local': true})
+            .toList(growable: false);
+        _isLoading = false;
+      });
     }
   }
 
-  Future<void> _markAsRead(String id) async {
+  Future<void> _markAsRead(Map<String, dynamic> notification) async {
+    final id = '${notification['notification_id'] ?? ''}';
+    if (id.isEmpty) return;
+
     try {
-      await _apiService.markNotificationRead(id);
+      if (notification['is_local'] == true) {
+        await _workspaceService.markNotificationRead(id);
+      } else {
+        await _apiService.markNotificationRead(id);
+      }
       _loadNotifications();
     } catch (_) {}
   }
 
   Future<void> _markAllAsRead() async {
+    final currentUser = context.read<AuthProvider>().user;
+    final companyData = currentUser?['company_data'] as Map<String, dynamic>?;
+    final companyName = companyData?['company_name']?.toString();
     try {
       await _apiService.markAllNotificationsRead();
+      await _workspaceService.markAllNotificationsReadForRole(
+        role: 'company',
+        companyName: companyName,
+      );
       _loadNotifications();
     } catch (_) {}
   }
 
   IconData _typeIcon(String type) {
     switch (type) {
+      case 'coordinator_announcement':
+        return Icons.campaign_rounded;
+      case 'student_company_confirmed':
+        return Icons.approval_rounded;
+      case 'student_confirmed_other_company':
+        return Icons.person_off_outlined;
+      case 'university_approval_approved':
+        return Icons.verified_rounded;
+      case 'university_approval_rejected':
+        return Icons.report_gmailerrorred_rounded;
       case 'application':
         return Icons.person_add_alt_1;
       case 'shortlisted':
@@ -71,6 +135,16 @@ class _CompanyNotificationsScreenState
 
   Color _typeColor(String type) {
     switch (type) {
+      case 'coordinator_announcement':
+        return const Color(0xFF103B63);
+      case 'student_company_confirmed':
+        return Colors.teal;
+      case 'student_confirmed_other_company':
+        return const Color(0xFFB42318);
+      case 'university_approval_approved':
+        return Colors.green;
+      case 'university_approval_rejected':
+        return Colors.red;
       case 'application':
         return Colors.blue;
       case 'shortlisted':
@@ -145,7 +219,7 @@ class _CompanyNotificationsScreenState
                 );
 
                 return GestureDetector(
-                  onTap: () => _markAsRead('${n['notification_id']}'),
+                  onTap: () => _markAsRead(Map<String, dynamic>.from(n as Map)),
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.all(14),

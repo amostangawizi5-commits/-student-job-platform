@@ -2,6 +2,7 @@
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
 import '../services/app_lock_service.dart';
+import '../utils/user_role.dart';
 
 class AuthProvider extends ChangeNotifier {
   static bool _launchSessionCleared = false;
@@ -25,6 +26,34 @@ class AuthProvider extends ChangeNotifier {
     if (kDebugMode) {
       debugPrint(message);
     }
+  }
+
+  Map<String, dynamic> _mergeUserData(
+    Map<String, dynamic>? fallback,
+    Map<String, dynamic> primary,
+  ) {
+    final merged = <String, dynamic>{
+      if (fallback != null) ...fallback,
+      ...primary,
+    };
+
+    for (final nestedKey in const [
+      'student_data',
+      'company_data',
+      'university_data',
+    ]) {
+      final fallbackNested = fallback?[nestedKey];
+      final primaryNested = primary[nestedKey];
+      if (fallbackNested is Map<String, dynamic> ||
+          primaryNested is Map<String, dynamic>) {
+        merged[nestedKey] = {
+          ...?(fallbackNested is Map<String, dynamic> ? fallbackNested : null),
+          ...?(primaryNested is Map<String, dynamic> ? primaryNested : null),
+        };
+      }
+    }
+
+    return merged;
   }
 
   String _normalizeAuthError(Object? error) {
@@ -51,7 +80,8 @@ class AuthProvider extends ChangeNotifier {
 
     if (lowerMessage.contains('blocked') ||
         lowerMessage.contains('deactivated') ||
-        (lowerMessage.contains('contact') && lowerMessage.contains('support'))) {
+        (lowerMessage.contains('contact') &&
+            lowerMessage.contains('support'))) {
       return 'User blocked. Please contact IT support.';
     }
 
@@ -102,13 +132,29 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // Register user
-  Future<bool> register(Map<String, dynamic> userData) async {
+  Future<bool> register(
+    Map<String, dynamic> userData, {
+    String? identificationCardFilePath,
+    Uint8List? identificationCardFileBytes,
+    String? identificationCardFileName,
+    String? collegeLogoFilePath,
+    Uint8List? collegeLogoFileBytes,
+    String? collegeLogoFileName,
+  }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final response = await _apiService.register(userData);
+      final response = await _apiService.register(
+        userData,
+        identificationCardFilePath: identificationCardFilePath,
+        identificationCardFileBytes: identificationCardFileBytes,
+        identificationCardFileName: identificationCardFileName,
+        collegeLogoFilePath: collegeLogoFilePath,
+        collegeLogoFileBytes: collegeLogoFileBytes,
+        collegeLogoFileName: collegeLogoFileName,
+      );
 
       if (response['success'] == true) {
         // Extract user data from response
@@ -123,15 +169,19 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       }
-      _errorMessage = _normalizeAuthError(
-        response['message']?.toString() ?? 'Registration failed',
+      _errorMessage = ApiService.sanitizeUserMessage(
+        response['message']?.toString(),
+        fallback: 'Registration failed',
       );
       _isLoading = false;
       notifyListeners();
       return false;
     } catch (e) {
       _log('Register error: $e');
-      _errorMessage = _normalizeAuthError(e);
+      _errorMessage = ApiService.normalizeErrorMessage(
+        e,
+        fallback: 'Registration failed',
+      );
       _isLoading = false;
       notifyListeners();
       return false;
@@ -187,7 +237,7 @@ class AuthProvider extends ChangeNotifier {
         if (userDataMap == null) {
           throw Exception('Invalid profile response format');
         }
-        _user = userDataMap;
+        _user = _mergeUserData(_user, userDataMap);
         _isAuthenticated = true;
         _requiresPinSetup = false;
         notifyListeners();
@@ -229,7 +279,7 @@ class AuthProvider extends ChangeNotifier {
                     : responseData)
               : null;
           if (updatedUser == null) return false;
-          _user = updatedUser;
+          _user = _mergeUserData(_user, updatedUser);
           notifyListeners();
         }
         return true;
@@ -242,15 +292,17 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // Get user role
-  String get userRole => _user?['role'] ?? '';
+  String get userRole => normalizeUserRole(_user?['role']);
 
   // Check if user is student
-  bool get isStudent =>
-      _user?['role'] == 'student' || _user?['role'] == 'graduate';
+  bool get isStudent => isStudentRole(_user?['role']);
 
   // Check if user is company
-  bool get isCompany => _user?['role'] == 'company';
+  bool get isCompany => isCompanyRole(_user?['role']);
+
+  // Check if user is university
+  bool get isUniversity => isUniversityRole(_user?['role']);
 
   // Check if user is admin
-  bool get isAdmin => _user?['role'] == 'admin';
+  bool get isAdmin => isAdminRole(_user?['role']);
 }

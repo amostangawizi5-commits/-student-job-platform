@@ -24,7 +24,9 @@ const studentRoutes = require('./src/routes/student.routes');
 const notificationRoutes = require('./src/routes/notification.routes');
 const companyRoutes = require('./src/routes/company.routes');
 const adminRoutes = require('./src/routes/admin.routes');
+const universityRoutes = require('./src/routes/university.routes');
 const projectRoutes = require('./src/routes/project.routes');  // ADDED
+const awardRoutes = require('./src/routes/award.routes');
 
 // Import resume routes
 const resumeRoutes = require('./simple-resume.js');
@@ -51,9 +53,7 @@ const isAllowedOrigin = (origin) => {
     return allowedOrigins.includes(normalizeOrigin(origin));
 };
 
-// ============ MIDDLEWARE ============
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use(cors({
+const corsOptions = {
     origin: (origin, callback) => {
         if (isAllowedOrigin(origin)) {
             return callback(null, true);
@@ -64,7 +64,11 @@ app.use(cors({
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+// ============ MIDDLEWARE ============
+app.use('/uploads', cors(corsOptions), express.static(path.join(__dirname, 'uploads')));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -85,41 +89,47 @@ app.get('/health', (req, res) => {
 });
 
 // ============ REGISTER ROUTES ============
-console.log('📋 Registering routes...');
+console.log(' Registering routes...');
 
 // Register RESUME routes FIRST
-console.log('  ✅ Registering /api/resume...');
+console.log('   Registering /api/resume...');
 app.use('/api/resume', resumeRoutes);
 
 // Register other routes
-console.log('  ✅ Registering /api/auth...');
+console.log('  Registering /api/auth...');
 app.use('/api/auth', authRoutes);
 
-console.log('  ✅ Registering /api/jobs...');
+console.log('   Registering /api/jobs...');
 app.use('/api/jobs', jobRoutes);
 
-console.log('  ✅ Registering /api/skills...');
+console.log('  Registering /api/skills...');
 app.use('/api/skills', skillRoutes);
 
-console.log('  ✅ Registering /api/applications...');
+console.log('  Registering /api/applications...');
 app.use('/api/applications', applicationRoutes);
 
-console.log('  ✅ Registering /api/student...');
+console.log('  Registering /api/student...');
 app.use('/api/student', studentRoutes);
 
-console.log('  ✅ Registering /api/notifications...');
+console.log('   Registering /api/notifications...');
 app.use('/api/notifications', notificationRoutes);
 
-console.log('  ✅ Registering /api/company...');
+console.log('   Registering /api/company...');
 app.use('/api/company', companyRoutes);
 
-console.log('  ✅ Registering /api/admin...');
+console.log('  Registering /api/university...');
+app.use('/api/university', universityRoutes);
+
+console.log('  Registering /api/admin...');
 app.use('/api/admin', adminRoutes);
 
-console.log('  ✅ Registering /api/projects...');  // ADDED
+console.log('  Registering /api/awards...');
+app.use('/api/awards', awardRoutes);
+
+console.log('   Registering /api/projects...');  // ADDED
 app.use('/api/projects', projectRoutes);  // ADDED
 
-console.log('📋 All routes registered successfully!');
+console.log(' All routes registered successfully!');
 
 // ============ ERROR HANDLING MIDDLEWARE ============
 app.use((err, req, res, next) => {
@@ -157,25 +167,25 @@ const startServer = async () => {
         await connectDB();
         
         app.listen(PORT, HOST, () => {
-            console.log(`\n🚀 Server is running on port ${PORT}`);
-            console.log(`📝 API URL: http://localhost:${PORT}`);
+            console.log(`\n Server is running on port ${PORT}`);
+            console.log(` API URL: http://localhost:${PORT}`);
             if (publicApiUrl) {
-                console.log(`🌍 Public API URL: ${publicApiUrl}`);
+                console.log(`Public API URL: ${publicApiUrl}`);
             }
             if (isEmailConfigured()) {
                 console.log(
-                    `📧 Email providers configured: ${getConfiguredEmailProviders().join(', ')}`
+                    ` Email providers configured: ${getConfiguredEmailProviders().join(', ')}`
                 );
             } else {
                 console.warn(
-                    '📧 Email is not configured. Password reset emails will not be delivered.'
+                    'Email is not configured. Password reset emails will not be delivered.'
                 );
             }
             const lanUrls = getLanUrls();
             if (lanUrls.length > 0) {
                 console.log(`📱 Access from mobile devices: ${lanUrls.join(', ')}`);
             }
-            console.log('\n✨ Ready to accept requests!\n');
+            console.log('\nReady to accept requests!\n');
         });
     } catch (error) {
         console.error('Failed to start server:', error);

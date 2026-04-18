@@ -4,4 +4,5 @@ enum AdminUserFilter {
   blocked,
   registeredUsers,
   companies,
+  universities,
 }

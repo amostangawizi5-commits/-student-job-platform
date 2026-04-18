@@ -13,6 +13,7 @@ import 'admin_applications_screen.dart';
 import 'admin_home_screen.dart';
 import 'admin_logs_screen.dart';
 import 'admin_notifications_screen.dart';
+import 'admin_students_screen.dart';
 import 'admin_user_filter.dart';
 import 'admin_users_screen.dart';
 
@@ -20,6 +21,9 @@ enum _AdminMoreAction { settings, language, logout }
 
 const Color _adminBrandNavy = AdminRoleTheme.primary;
 const Color _adminBrandOrange = AdminRoleTheme.accent;
+const Color _adminSidebarSurface = Color(0xFFF8FAFC);
+const Color _adminSidebarBorder = Color(0xFFD8E2EF);
+const Color _adminSidebarText = Color(0xFF44566C);
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -31,10 +35,13 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   int _currentIndex = 0;
   int _unreadNotifications = 0;
+  int _homeRefreshToken = 0;
   AdminUserFilter _selectedUserFilter = AdminUserFilter.all;
   AdminApplicationFilter _selectedApplicationFilter =
       AdminApplicationFilter.all;
   final ApiService _apiService = ApiService();
+
+  bool _isDesktopWidth(double width) => width >= 1100;
 
   String _formatToday(BuildContext context) {
     return MaterialLocalizations.of(context).formatFullDate(DateTime.now());
@@ -42,26 +49,43 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   List<Widget> _buildScreens() {
     return [
-      AdminHomeScreen(adminName: _adminName, onNavigateToTab: _navigateToTab),
-      AdminUsersScreen(selectedFilter: _selectedUserFilter),
+      AdminHomeScreen(
+        adminName: _adminName,
+        onNavigateToTab: _navigateToTab,
+        refreshToken: _homeRefreshToken,
+      ),
+      AdminUsersScreen(
+        selectedFilter: _selectedUserFilter,
+        onUserDataChanged: _refreshHomeStats,
+      ),
       AdminApplicationsScreen(selectedFilter: _selectedApplicationFilter),
+      const AdminStudentsScreen(),
       const AdminLogsScreen(),
     ];
   }
 
-  List<String> _titles(LanguageProvider language) {
+  List<_AdminNavigationItem> _navigationItems() {
     return [
-      language.tr('dashboard'),
-      language.tr('users'),
-      language.tr('applications'),
-      language.tr('report'),
+      const _AdminNavigationItem(
+        label: 'Dashboard',
+        icon: Icons.dashboard_rounded,
+      ),
+      const _AdminNavigationItem(label: 'Users', icon: Icons.people_rounded),
+      const _AdminNavigationItem(
+        label: 'Applications',
+        icon: Icons.assignment_rounded,
+      ),
+      const _AdminNavigationItem(label: 'Students', icon: Icons.school_rounded),
+      const _AdminNavigationItem(
+        label: 'Reports',
+        icon: Icons.receipt_long_rounded,
+      ),
     ];
   }
 
   String get _adminName {
     final auth = context.read<AuthProvider>();
-    final language = context.read<LanguageProvider>();
-    return '${auth.user?['full_name'] ?? auth.user?['email'] ?? language.tr('admin')}'
+    return '${auth.user?['full_name'] ?? auth.user?['email'] ?? 'Admin'}'
         .trim();
   }
 
@@ -129,116 +153,118 @@ class _AdminDashboardState extends State<AdminDashboard> {
     await context.read<LanguageProvider>().setLocaleCode(selectedLanguage);
     if (!mounted) return;
 
-    final updatedLanguage = context.read<LanguageProvider>();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          updatedLanguage.tr('language_changed_to', {
-            'language': updatedLanguage.nativeLanguageName(selectedLanguage),
-          }),
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Language changed successfully.')));
   }
 
   Future<void> _showSettingsSheet() async {
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
         final language = sheetContext.watch<LanguageProvider>();
+        final maxHeight = MediaQuery.of(sheetContext).size.height * 0.82;
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  language.tr('admin_settings'),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.account_circle_outlined),
-                  title: Text(language.tr('admin_profile')),
-                  subtitle: Text(_adminName),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.pin_outlined),
-                  title: Text(language.tr('change_pin')),
-                  subtitle: Text(language.tr('update_4_digit_app_pin')),
-                  onTap: () async {
-                    Navigator.of(sheetContext).pop();
-                    final changed = await showChangePinDialog(context);
-                    if (!mounted || changed != true) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(language.tr('pin_updated_successfully')),
-                        backgroundColor: Colors.green,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Admin Settings',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.account_circle_outlined),
+                      title: const Text('Admin Profile'),
+                      subtitle: Text(_adminName),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.pin_outlined),
+                      title: const Text('Change PIN'),
+                      subtitle: const Text('Update your 4-digit app PIN.'),
+                      onTap: () async {
+                        Navigator.of(sheetContext).pop();
+                        final changed = await showChangePinDialog(context);
+                        if (!mounted || changed != true) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('PIN updated successfully.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      },
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.lock_reset_rounded),
+                      title: const Text('Reset PIN'),
+                      subtitle: const Text(
+                        'Verify with your password and create a new PIN.',
+                      ),
+                      onTap: () async {
+                        final email =
+                            context
+                                .read<AuthProvider>()
+                                .user?['email']
+                                ?.toString() ??
+                            '';
+                        Navigator.of(sheetContext).pop();
+                        if (email.isEmpty) return;
+                        final changed = await showResetPinDialog(
+                          context,
+                          email: email,
+                        );
+                        if (!mounted || changed != true) return;
+                      },
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.language_outlined),
+                      title: const Text('Language'),
+                      subtitle: Text(language.selectedLanguageName),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _showLanguageDialog();
+                      },
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.notifications_outlined),
+                      title: const Text('Notifications'),
+                      subtitle: const Text('Open admin notifications.'),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _openNotifications();
+                      },
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.refresh_rounded),
+                      title: const Text('Refresh Counters'),
+                      subtitle: const Text(
+                        'Sync the latest notification badge.',
+                      ),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _loadUnreadNotifications(forceRefresh: true);
+                      },
+                    ),
+                  ],
                 ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.lock_reset_rounded),
-                  title: Text(language.tr('reset_pin')),
-                  subtitle: Text(
-                    language.tr('verify_with_password_create_new_pin'),
-                  ),
-                  onTap: () async {
-                    final email =
-                        context
-                            .read<AuthProvider>()
-                            .user?['email']
-                            ?.toString() ??
-                        '';
-                    Navigator.of(sheetContext).pop();
-                    if (email.isEmpty) return;
-                    final changed = await showResetPinDialog(
-                      context,
-                      email: email,
-                    );
-                    if (!mounted || changed != true) return;
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.language_outlined),
-                  title: Text(language.tr('language')),
-                  subtitle: Text(language.selectedLanguageName),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _showLanguageDialog();
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.notifications_outlined),
-                  title: Text(language.tr('notifications')),
-                  subtitle: Text(language.tr('open_admin_notifications')),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openNotifications();
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.refresh_rounded),
-                  title: Text(language.tr('refresh_counters')),
-                  subtitle: Text(language.tr('sync_latest_notification_badge')),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _loadUnreadNotifications(forceRefresh: true);
-                  },
-                ),
-              ],
+              ),
             ),
           ),
         );
@@ -258,6 +284,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
         await _logout();
         break;
     }
+  }
+
+  void _refreshHomeStats() {
+    setState(() => _homeRefreshToken++);
   }
 
   void _switchTab(int index) {
@@ -280,18 +310,121 @@ class _AdminDashboardState extends State<AdminDashboard> {
     });
   }
 
+  Widget _buildDesktopSidebar(List<_AdminNavigationItem> items) {
+    return Container(
+      width: 256,
+      margin: const EdgeInsets.fromLTRB(16, 0, 0, 16),
+      decoration: BoxDecoration(
+        color: _adminSidebarSurface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _adminSidebarBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'ADMIN PANEL',
+                  style: TextStyle(
+                    color: _adminBrandOrange,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Management Navigation',
+                  style: TextStyle(
+                    color: _adminBrandNavy,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(14),
+              itemCount: items.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final isSelected = index == _currentIndex;
+                return InkWell(
+                  onTap: () => _switchTab(index),
+                  borderRadius: BorderRadius.circular(18),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected ? _adminBrandNavy : Colors.transparent,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isSelected
+                            ? _adminBrandNavy
+                            : _adminSidebarBorder.withValues(alpha: 0.65),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.white.withValues(alpha: 0.16)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            item.icon,
+                            size: 20,
+                            color: isSelected ? Colors.white : _adminBrandNavy,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            item.label,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.white
+                                  : _adminSidebarText,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final language = context.watch<LanguageProvider>();
+    final isDesktop = _isDesktopWidth(MediaQuery.sizeOf(context).width);
     final adminName =
-        '${auth.user?['full_name'] ?? auth.user?['email'] ?? language.tr('admin')}'
-            .trim();
+        '${auth.user?['full_name'] ?? auth.user?['email'] ?? 'Admin'}'.trim();
     final adminEmail = '${auth.user?['email'] ?? 'admin@example.com'}';
-    final firstName = adminName.isEmpty
-        ? language.tr('admin')
-        : adminName.split(' ').first;
-    final titles = _titles(language);
+    final firstName = adminName.isEmpty ? 'Admin' : adminName.split(' ').first;
+    final navigationItems = _navigationItems();
     final today = _formatToday(context);
 
     return Scaffold(
@@ -300,8 +433,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         backgroundColor: _adminBrandNavy,
         surfaceTintColor: _adminBrandNavy,
         elevation: 0,
-        toolbarHeight: 92,
-        titleSpacing: 8,
+        toolbarHeight: 104,
+        titleSpacing: 12,
         iconTheme: const IconThemeData(color: Colors.white),
         flexibleSpace: const DecoratedBox(
           decoration: BoxDecoration(color: _adminBrandNavy),
@@ -309,8 +442,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         title: Row(
           children: [
             Container(
-              height: 58,
-              width: 58,
+              height: 56,
+              width: 56,
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
@@ -324,9 +457,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
               ),
               child: ClipOval(
                 child: Image.asset(
-                  'assets/images/internshiplogo.png',
-                  height: 55,
-                  width: 55,
+                  'assets/images/splash_logo.png',
+                  height: 64,
+                  width: 64,
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) {
                     return const Icon(
@@ -338,11 +471,91 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ),
               ),
             ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Welcome back, $firstName',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    adminEmail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Text(
+                          navigationItems[_currentIndex].label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (isDesktop)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Text(
+                            today,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
         actions: [
           IconButton(
-            tooltip: language.tr('notifications'),
+            tooltip: 'Notifications',
             onPressed: _openNotifications,
             icon: Stack(
               clipBehavior: Clip.none,
@@ -386,35 +599,38 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           ),
           PopupMenuButton<_AdminMoreAction>(
-            tooltip: language.tr('more_actions'),
+            tooltip: 'More actions',
             onSelected: _handleMoreAction,
             itemBuilder: (context) => [
               PopupMenuItem(
                 value: _AdminMoreAction.settings,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.settings_outlined),
-                  title: Text(language.tr('settings')),
+                child: Row(
+                  children: const [
+                    Icon(Icons.settings_outlined, size: 18),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Settings')),
+                  ],
                 ),
               ),
               PopupMenuItem(
                 value: _AdminMoreAction.language,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.language_outlined),
-                  title: Text(language.tr('language')),
+                child: Row(
+                  children: const [
+                    Icon(Icons.language_outlined, size: 18),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Language')),
+                  ],
                 ),
               ),
               const PopupMenuDivider(),
               PopupMenuItem(
                 value: _AdminMoreAction.logout,
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.logout_rounded),
-                  title: Text(language.tr('logout')),
+                child: Row(
+                  children: const [
+                    Icon(Icons.logout_rounded, size: 18),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Logout')),
+                  ],
                 ),
               ),
             ],
@@ -423,156 +639,57 @@ class _AdminDashboardState extends State<AdminDashboard> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
-            decoration: const BoxDecoration(color: AdminRoleTheme.warmSurface),
-            child: Center(
-              child: Container(
-                width: double.infinity,
-                constraints: const BoxConstraints(maxWidth: 540),
-                padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(26),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0x120E3A5D),
-                      blurRadius: 22,
-                      offset: const Offset(0, 8),
+      body: isDesktop
+          ? Row(
+              children: [
+                _buildDesktopSidebar(navigationItems),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: IndexedStack(
+                      index: _currentIndex,
+                      children: _buildScreens(),
                     ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      blurRadius: 10,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
+                  ),
                 ),
-                child: Column(
-                  children: [
-                    Text(
-                      language.tr('welcome_back_name', {'name': firstName}),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: _adminBrandNavy,
+              ],
+            )
+          : IndexedStack(index: _currentIndex, children: _buildScreens()),
+      bottomNavigationBar: isDesktop
+          ? null
+          : BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              currentIndex: _currentIndex,
+              onTap: _switchTab,
+              selectedItemColor: _adminBrandOrange,
+              unselectedItemColor: Colors.grey.shade600,
+              items: navigationItems
+                  .map(
+                    (item) => BottomNavigationBarItem(
+                      icon: Icon(
+                        item.icon == Icons.dashboard_rounded
+                            ? Icons.dashboard_outlined
+                            : item.icon == Icons.people_rounded
+                            ? Icons.people_outline_rounded
+                            : item.icon == Icons.assignment_rounded
+                            ? Icons.assignment_outlined
+                            : item.icon == Icons.school_rounded
+                            ? Icons.school_outlined
+                            : Icons.receipt_long_outlined,
                       ),
+                      activeIcon: Icon(item.icon),
+                      label: item.label,
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      adminEmail,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 12,
-                      runSpacing: 10,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 11,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AdminRoleTheme.chipSurface,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: AdminRoleTheme.chipBorder,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.calendar_today_rounded,
-                                size: 15,
-                                color: _adminBrandOrange,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                today,
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: _adminBrandNavy,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 11,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _adminBrandNavy,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            titles[_currentIndex],
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+                  )
+                  .toList(growable: false),
             ),
-          ),
-          Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: _buildScreens(),
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _currentIndex,
-        onTap: _switchTab,
-        selectedItemColor: _adminBrandOrange,
-        unselectedItemColor: Colors.grey.shade600,
-        items: [
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.dashboard_outlined),
-            activeIcon: const Icon(Icons.dashboard_rounded),
-            label: language.tr('dashboard'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.people_outline_rounded),
-            activeIcon: const Icon(Icons.people_rounded),
-            label: language.tr('users'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.assignment_outlined),
-            activeIcon: const Icon(Icons.assignment_rounded),
-            label: language.tr('applications'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.receipt_long_outlined),
-            activeIcon: const Icon(Icons.receipt_long_rounded),
-            label: language.tr('report'),
-          ),
-        ],
-      ),
     );
   }
+}
+
+class _AdminNavigationItem {
+  const _AdminNavigationItem({required this.label, required this.icon});
+
+  final String label;
+  final IconData icon;
 }

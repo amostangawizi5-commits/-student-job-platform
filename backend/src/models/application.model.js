@@ -55,11 +55,34 @@ class ApplicationModel {
     // Get applications by student
     static async getByStudent(student_id) {
         const result = await query(
-            `SELECT a.*, j.title, j.location, j.type, c.company_name, s.resume_url
+            `SELECT
+                a.*,
+                j.title,
+                j.location,
+                j.type,
+                c.company_name,
+                s.resume_url,
+                aw.award_id,
+                aw.title AS award_title,
+                aw.award_type AS award_award_type,
+                aw.category AS award_category,
+                aw.description AS award_description,
+                aw.reason AS award_reason,
+                aw.highlights AS award_highlights,
+                aw.prize_type AS award_prize_type,
+                aw.prize_value AS award_prize_value,
+                aw.prize_description AS award_prize_description,
+                aw.rating AS award_rating,
+                aw.award_date AS award_date,
+                aw.award_status AS award_status,
+                aw.announce_on_homepage AS award_announce_on_homepage,
+                aw.is_student_of_month AS award_is_student_of_month,
+                aw.certificate_name AS award_certificate_name
              FROM applications a
              JOIN jobs j ON a.job_id = j.job_id
              JOIN students s ON a.student_id = s.student_id
              JOIN companies c ON j.company_id = c.company_id
+             LEFT JOIN awards aw ON aw.application_id = a.application_id
              WHERE a.student_id = $1
              ORDER BY a.applied_date DESC`,
             [student_id]
@@ -124,13 +147,44 @@ class ApplicationModel {
     // Get applications for a job (company view)
     static async getByJob(job_id) {
         const result = await query(
-            `SELECT a.*, u.full_name, u.email, s.program, s.university_id, u2.name as university_name,
-                    j.title as job_title, s.resume_url
+            `SELECT
+                    a.*,
+                    u.full_name,
+                    u.email,
+                    s.program,
+                    s.registration_number AS student_registration_number,
+                    s.university_id,
+                    u2.name as university_name,
+                    u2.name as college_name,
+                    j.title as job_title,
+                    c.company_name,
+                    c.location AS company_location,
+                    c.stamp_url,
+                    c.signature_url,
+                    s.resume_url,
+                    aw.award_id,
+                    aw.title AS award_title,
+                    aw.award_type AS award_award_type,
+                    aw.category AS award_category,
+                    aw.description AS award_description,
+                    aw.reason AS award_reason,
+                    aw.highlights AS award_highlights,
+                    aw.prize_type AS award_prize_type,
+                    aw.prize_value AS award_prize_value,
+                    aw.prize_description AS award_prize_description,
+                    aw.rating AS award_rating,
+                    aw.award_date AS award_date,
+                    aw.award_status AS award_status,
+                    aw.announce_on_homepage AS award_announce_on_homepage,
+                    aw.is_student_of_month AS award_is_student_of_month,
+                    aw.certificate_name AS award_certificate_name
              FROM applications a
              JOIN jobs j ON a.job_id = j.job_id
+             JOIN companies c ON j.company_id = c.company_id
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON s.student_id = u.user_id
              LEFT JOIN universities u2 ON s.university_id = u2.university_id
+             LEFT JOIN awards aw ON aw.application_id = a.application_id
              WHERE a.job_id = $1
              ORDER BY a.applied_date DESC`,
             [job_id]
@@ -141,13 +195,44 @@ class ApplicationModel {
     // Get all applications for a company across all jobs
     static async getByCompany(company_id) {
         const result = await query(
-            `SELECT a.*, u.full_name, u.email, s.program, s.university_id, u2.name as university_name,
-                    j.title as job_title, s.resume_url
+            `SELECT
+                    a.*,
+                    u.full_name,
+                    u.email,
+                    s.program,
+                    s.registration_number AS student_registration_number,
+                    s.university_id,
+                    u2.name as university_name,
+                    u2.name as college_name,
+                    j.title as job_title,
+                    c.company_name,
+                    c.location AS company_location,
+                    c.stamp_url,
+                    c.signature_url,
+                    s.resume_url,
+                    aw.award_id,
+                    aw.title AS award_title,
+                    aw.award_type AS award_award_type,
+                    aw.category AS award_category,
+                    aw.description AS award_description,
+                    aw.reason AS award_reason,
+                    aw.highlights AS award_highlights,
+                    aw.prize_type AS award_prize_type,
+                    aw.prize_value AS award_prize_value,
+                    aw.prize_description AS award_prize_description,
+                    aw.rating AS award_rating,
+                    aw.award_date AS award_date,
+                    aw.award_status AS award_status,
+                    aw.announce_on_homepage AS award_announce_on_homepage,
+                    aw.is_student_of_month AS award_is_student_of_month,
+                    aw.certificate_name AS award_certificate_name
              FROM applications a
              JOIN jobs j ON a.job_id = j.job_id
+             JOIN companies c ON j.company_id = c.company_id
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON s.student_id = u.user_id
              LEFT JOIN universities u2 ON s.university_id = u2.university_id
+             LEFT JOIN awards aw ON aw.application_id = a.application_id
              WHERE j.company_id = $1
              ORDER BY a.applied_date DESC`,
             [company_id]

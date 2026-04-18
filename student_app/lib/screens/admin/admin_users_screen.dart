@@ -5,10 +5,12 @@ import 'admin_user_filter.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   final AdminUserFilter selectedFilter;
+  final VoidCallback? onUserDataChanged;
 
   const AdminUsersScreen({
     super.key,
     this.selectedFilter = AdminUserFilter.all,
+    this.onUserDataChanged,
   });
 
   @override
@@ -76,6 +78,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         return role == 'student' || role == 'graduate';
       case AdminUserFilter.companies:
         return '${user['role'] ?? ''}' == 'company';
+      case AdminUserFilter.universities:
+        return '${user['role'] ?? ''}' == 'university';
       case AdminUserFilter.all:
         return true;
     }
@@ -108,6 +112,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         return 'User';
       case 'company':
         return 'Company';
+      case 'university':
+        return 'University';
       case 'admin':
         return 'Admin';
       default:
@@ -119,6 +125,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     switch (role) {
       case 'company':
         return const Color(0xFF2563EB);
+      case 'university':
+        return const Color(0xFF0E3A5D);
       case 'admin':
         return const Color(0xFF7C3AED);
       default:
@@ -190,6 +198,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     if (response['success'] == true) {
       await _fetchUsers();
+      widget.onUserDataChanged?.call();
       _showMessage(
         response['message']?.toString() ?? 'Role updated successfully',
         backgroundColor: Colors.green,
@@ -211,6 +220,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     if (response['success'] == true) {
       await _fetchUsers();
+      widget.onUserDataChanged?.call();
       _showMessage(
         currentStatus
             ? 'User blocked successfully'
@@ -254,6 +264,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     if (response['success'] == true) {
       await _fetchUsers();
+      widget.onUserDataChanged?.call();
       _showMessage('User deleted successfully', backgroundColor: Colors.green);
     } else {
       _showMessage(
@@ -657,6 +668,18 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                       _buildFilterChip(AdminUserFilter.active, 'Active'),
                       const SizedBox(width: 8),
                       _buildFilterChip(AdminUserFilter.blocked, 'Blocked'),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        AdminUserFilter.registeredUsers,
+                        'Students',
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(AdminUserFilter.companies, 'Companies'),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        AdminUserFilter.universities,
+                        'Universities',
+                      ),
                     ],
                   ),
                 ),

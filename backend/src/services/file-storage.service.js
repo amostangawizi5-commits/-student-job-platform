@@ -318,6 +318,15 @@ const resolveAssetDownloadUrl = (fileUrl) => {
         return null;
     }
 
+    if (
+        !fileUrl.startsWith('http://') &&
+        !fileUrl.startsWith('https://')
+    ) {
+        const normalizedPath = `${fileUrl}`.replace(/^\/+/, '');
+        const absolutePath = path.join(__dirname, '../../', normalizedPath);
+        return fs.existsSync(absolutePath) ? fileUrl : null;
+    }
+
     return buildCloudinarySignedDownloadUrl(fileUrl) || fileUrl;
 };
 

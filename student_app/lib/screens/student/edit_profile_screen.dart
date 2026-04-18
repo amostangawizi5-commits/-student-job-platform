@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
@@ -19,10 +20,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _fullNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _programController = TextEditingController();
+  final _gpaController = TextEditingController();
   String? _selectedUniversityId;
   int? _expectedGraduationYear;
   int? _graduationYear;
   String _experienceLevel = 'no_experience';
+  PlatformFile? _selectedStudentIdFile;
+  String _currentIdentificationCardName = '';
 
   List<dynamic> _universities = [];
   List<int> _years = [];
@@ -69,7 +73,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _fullNameController.dispose();
     _phoneController.dispose();
     _programController.dispose();
+    _gpaController.dispose();
     super.dispose();
+  }
+
+  bool _isPdfFile(PlatformFile file) {
+    final fileName = file.name.trim().toLowerCase();
+    final filePath = (file.path ?? '').trim().toLowerCase();
+    return fileName.endsWith('.pdf') || filePath.endsWith('.pdf');
+  }
+
+  String _formatFileSize(int sizeInBytes) {
+    if (sizeInBytes >= 1024 * 1024) {
+      return '${(sizeInBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (sizeInBytes >= 1024) {
+      return '${(sizeInBytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '$sizeInBytes B';
   }
 
   // Helper method to show top SnackBar
@@ -123,8 +144,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _fullNameController.text = user?['full_name'] ?? '';
       _phoneController.text = user?['phone'] ?? '';
       _programController.text = user?['student_data']?['program'] ?? '';
+      _gpaController.text = '${user?['student_data']?['gpa'] ?? ''}'.replaceAll(
+        'null',
+        '',
+      );
       _selectedUniversityId = user?['student_data']?['university_id']
           ?.toString();
+      _currentIdentificationCardName =
+          user?['student_data']?['identification_card_name']?.toString() ?? '';
       _ensureCurrentUniversityOption(
         universityId: _selectedUniversityId,
         universityName: user?['student_data']?['university_name']?.toString(),
@@ -161,6 +188,47 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return null;
   }
 
+  Future<void> _pickStudentIdCard() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf'],
+        withData: true,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      if (!_isPdfFile(file)) {
+        _showTopSnackBar(
+          'Only PDF files are allowed for identification cards.',
+          Colors.red,
+        );
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        _showTopSnackBar('File size should be less than 5MB', Colors.red);
+        return;
+      }
+
+      if ((file.path == null || file.path!.isEmpty) && file.bytes == null) {
+        _showTopSnackBar('Selected file could not be read', Colors.red);
+        return;
+      }
+
+      setState(() => _selectedStudentIdFile = file);
+    } catch (e) {
+      if (!mounted) return;
+      _showTopSnackBar(
+        ApiService.normalizeErrorMessage(
+          e,
+          fallback: 'Failed to pick identification card.',
+        ),
+        Colors.red,
+      );
+    }
+  }
+
   Future<void> _saveProfile() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isSaving = true);
@@ -174,6 +242,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'program': _programController.text.trim(),
         'university_id': _selectedUniversityId,
         'student_type': _isGraduate ? 'graduate' : 'current',
+        'gpa': _gpaController.text.trim().isEmpty
+            ? null
+            : double.tryParse(_gpaController.text.trim()),
       };
 
       if (_isGraduate) {
@@ -189,10 +260,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       updateData['student_data'] = studentData;
 
       try {
-        final response = await _apiService.put(
-          '/api/auth/profile',
+        final response = await _apiService.updateProfile(
           updateData,
-          requiresAuth: true,
+          identificationCardFilePath: _selectedStudentIdFile?.path,
+          identificationCardFileBytes: _selectedStudentIdFile?.bytes,
+          identificationCardFileName: _selectedStudentIdFile?.name,
         );
         if (!mounted) return;
 
@@ -405,6 +477,163 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 16),
 
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(
+                                    Icons.badge_outlined,
+                                    color: Color(0xFF2C3E50),
+                                    size: 20,
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'Student Identification Card',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF2C3E50),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _selectedStudentIdFile != null
+                                    ? 'New PDF selected. It will replace the current ID after you save.'
+                                    : 'Upload a PDF copy of your student ID. Maximum 5MB.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              OutlinedButton.icon(
+                                onPressed: _isSaving
+                                    ? null
+                                    : _pickStudentIdCard,
+                                icon: const Icon(Icons.upload_file_outlined),
+                                label: Text(
+                                  _selectedStudentIdFile == null
+                                      ? 'Upload Student ID (PDF)'
+                                      : 'Replace Student ID (PDF)',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.primaryBlue,
+                                  side: BorderSide(
+                                    color: AppTheme.primaryBlue.withValues(
+                                      alpha: 0.35,
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              if (_selectedStudentIdFile != null)
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.grey.shade200,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.picture_as_pdf_outlined,
+                                        color: Colors.redAccent,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _selectedStudentIdFile!.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            Text(
+                                              _formatFileSize(
+                                                _selectedStudentIdFile!.size,
+                                              ),
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        onPressed: _isSaving
+                                            ? null
+                                            : () => setState(
+                                                () => _selectedStudentIdFile =
+                                                    null,
+                                              ),
+                                        icon: const Icon(Icons.close_rounded),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else if (_currentIdentificationCardName
+                                  .trim()
+                                  .isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.grey.shade200,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.picture_as_pdf_outlined,
+                                        color: Colors.redAccent,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          _currentIdentificationCardName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
                         // Program
                         TextFormField(
                           controller: _programController,
@@ -427,6 +656,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           style: const TextStyle(fontSize: 14),
                           validator: (v) =>
                               v?.isEmpty ?? true ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 16),
+
+                        TextFormField(
+                          controller: _gpaController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'GPA',
+                            prefixIcon: const Icon(
+                              Icons.auto_graph_outlined,
+                              size: 20,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            helperText: 'Optional. Use 0.0 to 5.0 scale.',
+                          ),
+                          style: const TextStyle(fontSize: 14),
+                          validator: (value) {
+                            final trimmed = value?.trim() ?? '';
+                            if (trimmed.isEmpty) return null;
+                            final parsed = double.tryParse(trimmed);
+                            if (parsed == null || parsed < 0 || parsed > 5) {
+                              return 'Enter GPA between 0.0 and 5.0';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 16),
 

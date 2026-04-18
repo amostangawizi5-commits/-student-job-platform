@@ -102,20 +102,79 @@ function createRectangleOperation(x, y, width, height, strokeWidth = 1) {
     return `${strokeWidth} w ${x} ${y} ${width} ${height} re S`;
 }
 
+function createFilledRectangleOperation(
+    x,
+    y,
+    width,
+    height,
+    { fillColor = [1, 1, 1], strokeColor = null, strokeWidth = 0 } = {}
+) {
+    const [fr, fg, fb] = fillColor;
+    const fill = `${fr} ${fg} ${fb} rg`;
+    if (!strokeColor || strokeWidth <= 0) {
+        return `q ${fill} ${x} ${y} ${width} ${height} re f Q`;
+    }
+
+    const [sr, sg, sb] = strokeColor;
+    return `q ${fill} ${sr} ${sg} ${sb} RG ${strokeWidth} w ${x} ${y} ${width} ${height} re B Q`;
+}
+
 function createImageOperation({ name, x, y, width, height }) {
     return `q ${width} 0 0 ${height} ${x} ${y} cm /${name} Do Q`;
+}
+
+function normalizeFieldValue(value, fallback = '................................') {
+    const normalized = `${value || ''}`.trim();
+    return normalized || fallback;
+}
+
+function justifyLine(line, maxWidth, fontSize) {
+    const words = `${line || ''}`.trim().split(/\s+/).filter(Boolean);
+    if (words.length < 2) {
+        return line;
+    }
+
+    const currentWidth = estimateTextWidth(line, fontSize);
+    const extraWidth = maxWidth - currentWidth;
+    const singleSpaceWidth = estimateTextWidth(' ', fontSize);
+
+    if (extraWidth <= singleSpaceWidth * 0.7) {
+        return line;
+    }
+
+    let extraSpaces = Math.max(0, Math.round(extraWidth / singleSpaceWidth));
+    if (extraSpaces === 0) {
+        return line;
+    }
+
+    const gaps = new Array(words.length - 1).fill(1);
+    let index = 0;
+    while (extraSpaces > 0) {
+        gaps[index] += 1;
+        extraSpaces -= 1;
+        index = (index + 1) % gaps.length;
+    }
+
+    return words
+        .slice(0, -1)
+        .map((word, wordIndex) => `${word}${' '.repeat(gaps[wordIndex])}`)
+        .join('') + words[words.length - 1];
 }
 
 function appendWrappedText(
     operations,
     text,
-    { x, y, maxWidth, size = 11, font = 'F1', lineHeight = 16 }
+    { x, y, maxWidth, size = 11, font = 'F1', lineHeight = 16, justify = false }
 ) {
     const lines = wrapText(text, maxWidth, size);
     let cursorY = y;
 
-    lines.forEach((line) => {
-        operations.push(createTextOperation({ text: line, x, y: cursorY, size, font }));
+    lines.forEach((line, index) => {
+        const formattedLine =
+            justify && index < lines.length - 1 ? justifyLine(line, maxWidth, size) : line;
+        operations.push(
+            createTextOperation({ text: formattedLine, x, y: cursorY, size, font })
+        );
         cursorY -= lineHeight;
     });
 
@@ -135,6 +194,89 @@ function appendCenteredWrappedText(
         const x = Math.max(40, (PAGE_WIDTH - width) / 2);
         operations.push(createTextOperation({ text: line, x, y: cursorY, size, font }));
         cursorY -= lineHeight;
+    });
+
+    return cursorY;
+}
+
+function appendFieldBox(
+    operations,
+    {
+        label,
+        value,
+        x,
+        y,
+        width,
+        height = 42,
+        labelSize = 9.6,
+        valueSize = 11.6
+    }
+) {
+    operations.push(
+        createTextOperation({
+            text: label,
+            x,
+            y,
+            size: labelSize,
+            font: 'F2'
+        })
+    );
+
+    const boxY = y - 34;
+    operations.push(
+        createFilledRectangleOperation(x, boxY, width, height, {
+            fillColor: [0.992, 0.984, 0.953],
+            strokeColor: [0.788, 0.737, 0.604],
+            strokeWidth: 0.8
+        })
+    );
+
+    const valueY = boxY + height - 16;
+    const nextY = appendWrappedText(operations, normalizeFieldValue(value), {
+        x: x + 12,
+        y: valueY,
+        maxWidth: width - 24,
+        size: valueSize,
+        font: 'F1',
+        lineHeight: 15
+    });
+
+    return Math.min(boxY, nextY - 10);
+}
+
+function appendLabelValueRows(
+    operations,
+    rows,
+    { x, y, labelWidth, valueWidth, rowGap = 8, size = 10.8, lineHeight = 15 }
+) {
+    let cursorY = y;
+
+    rows.forEach(({ label, value }) => {
+        operations.push(
+            createTextOperation({
+                text: `${label}:`,
+                x,
+                y: cursorY,
+                size,
+                font: 'F2'
+            })
+        );
+
+        const valueLines = wrapText(normalizeFieldValue(value), valueWidth, size);
+        valueLines.forEach((line, index) => {
+            operations.push(
+                createTextOperation({
+                    text: line,
+                    x: x + labelWidth,
+                    y: cursorY - index * lineHeight,
+                    size,
+                    font: 'F1'
+                })
+            );
+        });
+
+        const consumedHeight = Math.max(lineHeight, valueLines.length * lineHeight);
+        cursorY -= consumedHeight + rowGap;
     });
 
     return cursorY;
@@ -598,21 +740,53 @@ async function buildAcceptanceLetterPdf({
     const footerLineThree = footerContactBits.join(', ');
     const operations = [];
     const imageAssets = [];
-    let y = 806;
-    const headerLogoTopY = 754;
+    let y = 792;
+    const headerLogoTopY = 726;
+    const pagePanelX = 28;
+    const pagePanelY = 24;
+    const pagePanelWidth = PAGE_WIDTH - (pagePanelX * 2);
+    const pagePanelHeight = PAGE_HEIGHT - 48;
+
+    operations.push(
+        createFilledRectangleOperation(pagePanelX, pagePanelY, pagePanelWidth, pagePanelHeight, {
+            fillColor: [0.992, 0.984, 0.953],
+            strokeColor: [0.878, 0.831, 0.714],
+            strokeWidth: 1
+        })
+    );
+    operations.push(
+        createFilledRectangleOperation(LEFT_MARGIN - 12, 724, CONTENT_WIDTH + 24, 92, {
+            fillColor: [1, 1, 1],
+            strokeColor: [0.886, 0.855, 0.765],
+            strokeWidth: 0.8
+        })
+    );
 
     if (companyLogoImage) {
         const fitted = fitInside({
             width: companyLogoImage.width,
             height: companyLogoImage.height,
-            maxWidth: 82,
-            maxHeight: 50
+            maxWidth: 108,
+            maxHeight: 70
         });
         imageAssets.push(companyLogoImage);
+        operations.push(
+            createFilledRectangleOperation(
+                PAGE_WIDTH - LEFT_MARGIN - 116,
+                headerLogoTopY - 8,
+                116,
+                78,
+                {
+                    fillColor: [0.992, 0.984, 0.953],
+                    strokeColor: [0.855, 0.812, 0.694],
+                    strokeWidth: 0.8
+                }
+            )
+        );
         operations.push(createImageOperation({
             name: companyLogoImage.name,
-            x: PAGE_WIDTH - LEFT_MARGIN - fitted.width,
-            y: headerLogoTopY,
+            x: PAGE_WIDTH - LEFT_MARGIN - 58 - (fitted.width / 2),
+            y: headerLogoTopY + 4,
             width: fitted.width,
             height: fitted.height
         }));
@@ -622,14 +796,21 @@ async function buildAcceptanceLetterPdf({
         const fitted = fitInside({
             width: governmentLogoImage.width,
             height: governmentLogoImage.height,
-            maxWidth: 78,
-            maxHeight: 50
+            maxWidth: 108,
+            maxHeight: 70
         });
         imageAssets.push(governmentLogoImage);
+        operations.push(
+            createFilledRectangleOperation(LEFT_MARGIN - 2, headerLogoTopY - 8, 116, 78, {
+                fillColor: [0.992, 0.984, 0.953],
+                strokeColor: [0.855, 0.812, 0.694],
+                strokeWidth: 0.8
+            })
+        );
         operations.push(createImageOperation({
             name: governmentLogoImage.name,
-            x: LEFT_MARGIN,
-            y: headerLogoTopY,
+            x: LEFT_MARGIN + 56 - (fitted.width / 2),
+            y: headerLogoTopY + 4,
             width: fitted.width,
             height: fitted.height
         }));
@@ -656,7 +837,7 @@ async function buildAcceptanceLetterPdf({
         companyHeader,
         {
             y,
-            maxWidth: 300,
+            maxWidth: 250,
             size: 14,
             font: 'F2',
             lineHeight: 18
@@ -682,43 +863,60 @@ async function buildAcceptanceLetterPdf({
     }));
     y -= 28;
 
-    operations.push(createTextOperation({
-        text: 'Name of Organization / Institution',
+    y = appendFieldBox(operations, {
+        label: 'Name of Organization / Institution',
+        value: organizationName,
         x: LEFT_MARGIN,
         y,
-        size: 10.5,
-        font: 'F2'
-    }));
-    y -= 16;
+        width: CONTENT_WIDTH
+    });
+    y -= 18;
 
-    y = appendWrappedText(
-        operations,
-        organizationName,
-        { x: LEFT_MARGIN + 6, y, maxWidth: CONTENT_WIDTH - 12, size: 12.5, lineHeight: 18 }
-    );
-    y -= 16;
+    const studentInfoRows = [
+        { label: 'Student Name', value: studentName },
+        { label: 'Registration Number', value: registrationNumber },
+        {
+            label: 'College / University',
+            value: `${normalizeFieldValue(collegeName, 'College not provided')} / ${normalizeFieldValue(universityName, 'University not provided')}`
+        },
+        {
+            label: 'Training Period',
+            value: `${formattedStartDate} to ${formattedEndDate}`
+        }
+    ];
 
-    y = appendWrappedText(
-        operations,
-        `have accepted to enroll ${studentName} with registration number ${registrationNumber} from the ${collegeName} of the ${universityName} for industrial practical training for a period of at least Eight (8) weeks starting from ${formattedStartDate} to ${formattedEndDate}.`,
-        { x: LEFT_MARGIN, y, maxWidth: CONTENT_WIDTH, size: 12, lineHeight: 19 }
-    );
-    y -= 16;
-
-    operations.push(createTextOperation({
-        text: 'Reporting Section / Department',
+    y = appendLabelValueRows(operations, studentInfoRows, {
         x: LEFT_MARGIN,
         y,
-        size: 10.5,
-        font: 'F2'
-    }));
-    y -= 16;
+        labelWidth: 136,
+        valueWidth: CONTENT_WIDTH - 136,
+        rowGap: 7,
+        size: 10.8,
+        lineHeight: 14
+    });
+    y -= 4;
 
     y = appendWrappedText(
         operations,
-        sectionDepartment,
-        { x: LEFT_MARGIN + 6, y, maxWidth: CONTENT_WIDTH - 12, size: 12, lineHeight: 18 }
+        `This is to confirm that the above named student has been accepted to undertake Industrial Practical Training at ${normalizeFieldValue(organizationName, 'the organization')} for a period of at least Eight (8) weeks. The placement will run from ${formattedStartDate} to ${formattedEndDate}, subject to the institution's reporting and supervision arrangements.`,
+        {
+            x: LEFT_MARGIN,
+            y,
+            maxWidth: CONTENT_WIDTH,
+            size: 11.6,
+            lineHeight: 18,
+            justify: true
+        }
     );
+    y -= 18;
+
+    y = appendFieldBox(operations, {
+        label: 'Reporting Section / Department',
+        value: sectionDepartment,
+        x: LEFT_MARGIN,
+        y,
+        width: CONTENT_WIDTH
+    });
     y -= 18;
 
     operations.push(createTextOperation({
@@ -730,28 +928,39 @@ async function buildAcceptanceLetterPdf({
     }));
     y -= 26;
 
-    const signatureLineAnchorY = y - 26;
-    const signatureLines = [
-        `${officerName} (Name of Authorizing Officer)`,
-        `${officerDesignation} (Designation)`,
-        'Signature of Authorizing Officer',
-        `${officerPhone} (Telephone Number)`,
-        `${officerEmail} (E-mail Address)`,
-        `${officerRegion} (Region)`,
-        `${officerDistrict} (District)`,
-        `${officerArea} (Area / Physical Address)`,
-        `${formattedLetterDate} (Date)`
+    const signatureLineAnchorY = y - 20;
+    const signatureDetails = [
+        { label: 'Name of Authorizing Officer', value: officerName },
+        { label: 'Designation', value: officerDesignation },
+        { label: 'Telephone Number', value: officerPhone },
+        { label: 'E-mail Address', value: officerEmail },
+        { label: 'Region', value: officerRegion },
+        { label: 'District', value: officerDistrict },
+        { label: 'Area / Physical Address', value: officerArea },
+        { label: 'Date', value: formattedLetterDate }
     ];
 
-    signatureLines.forEach((line) => {
-        y = appendWrappedText(
-            operations,
-            line,
-            { x: LEFT_MARGIN, y, maxWidth: CONTENT_WIDTH, size: 11, lineHeight: 18 }
-        );
-        y -= 6;
-    });
+    operations.push(
+        createTextOperation({
+            text: 'Signature of Authorizing Officer:',
+            x: LEFT_MARGIN,
+            y,
+            size: 10.8,
+            font: 'F2'
+        })
+    );
+    operations.push(createLineOperation(LEFT_MARGIN + 170, y - 2, RIGHT_MARGIN - 16, y - 2, 0.8));
+    y -= 24;
 
+    y = appendLabelValueRows(operations, signatureDetails, {
+        x: LEFT_MARGIN,
+        y,
+        labelWidth: 152,
+        valueWidth: CONTENT_WIDTH - 152,
+        rowGap: 6,
+        size: 10.6,
+        lineHeight: 14
+    });
     y -= 10;
     const stampLabelY = y;
     operations.push(createTextOperation({
@@ -762,23 +971,23 @@ async function buildAcceptanceLetterPdf({
         font: 'F3'
     }));
     const stampBoxX = LEFT_MARGIN;
-    const stampBoxY = stampLabelY - 82;
-    const stampBoxWidth = 150;
-    const stampBoxHeight = 58;
+    const stampBoxY = stampLabelY - 92;
+    const stampBoxWidth = 170;
+    const stampBoxHeight = 68;
     operations.push(createRectangleOperation(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 0.8));
 
     if (signatureImage) {
         const fitted = fitInside({
             width: signatureImage.width,
             height: signatureImage.height,
-            maxWidth: 150,
-            maxHeight: 46
+            maxWidth: 170,
+            maxHeight: 56
         });
         imageAssets.push(signatureImage);
         operations.push(createImageOperation({
             name: signatureImage.name,
             x: LEFT_MARGIN + 10,
-            y: signatureLineAnchorY - 2,
+            y: signatureLineAnchorY - 6,
             width: fitted.width,
             height: fitted.height
         }));

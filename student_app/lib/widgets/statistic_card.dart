@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/theme.dart';
 
 class StatisticCard extends StatelessWidget {
   final String title;
@@ -53,22 +54,19 @@ class StatisticCard extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(borderRadius),
             border: Border.all(
-              color: color.withValues(alpha: selected ? 0.3 : 0.18),
-              width: selected ? 1.4 : 1,
+              color: selected
+                  ? color.withValues(alpha: 0.18)
+                  : AppTheme.borderGrey.withValues(alpha: 0.45),
+              width: selected ? 1.2 : 0.9,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withValues(alpha: selected ? 0.14 : 0.1),
-                blurRadius: selected ? cardShadowBlur + 1 : cardShadowBlur,
+                color: AppTheme.shadow.withValues(alpha: selected ? 0.1 : 0.06),
+                blurRadius: selected ? cardShadowBlur + 4 : cardShadowBlur + 2,
                 offset: Offset(
                   0,
-                  selected ? cardShadowOffset + 1 : cardShadowOffset,
+                  selected ? cardShadowOffset + 3 : cardShadowOffset + 1,
                 ),
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: compact ? 8 : 12,
-                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -80,7 +78,7 @@ class StatisticCard extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.all(iconPadding),
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: selected ? 0.18 : 0.12),
+                    color: color.withValues(alpha: selected ? 0.14 : 0.1),
                     borderRadius: BorderRadius.circular(iconRadius),
                   ),
                   child: Icon(icon, color: color, size: iconSize),
@@ -169,7 +167,7 @@ class StatisticCard extends StatelessWidget {
       return Colors.grey;
     }
     if (trendLabel.startsWith('+')) {
-      return Colors.green;
+      return const Color(0xFF0F766E);
     }
     if (trendLabel.startsWith('-')) {
       return Colors.red;

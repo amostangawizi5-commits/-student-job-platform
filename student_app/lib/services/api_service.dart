@@ -6,10 +6,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Default mobile backend points to the hosted production API.
-  static const String _defaultApiBaseUrl =
-      'https://student-job-platform-api.onrender.com';
-  static const String _webBaseUrl = _defaultApiBaseUrl;
+  // Android phones on Wi-Fi must use the laptop LAN IP, not localhost.
+  static const String _productionApiBaseUrl = 'http://192.168.180.219:5000';
+  // Keep Android debug aligned with the LAN backend unless overridden.
+  static const String _androidDebugBaseUrl = _productionApiBaseUrl;
+  // Flutter web running on the same laptop should hit the local backend directly.
+  static const String _webBaseUrl = 'http://127.0.0.1:5000';
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -30,7 +32,28 @@ class ApiService {
   static bool _isDioConfigured = false;
 
   static String _normalizeBaseUrl(String url) {
-    return url.trim().replaceFirst(RegExp(r'/*$'), '');
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return trimmed;
+
+    final withScheme =
+        RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)
+        ? trimmed
+        : 'http://$trimmed';
+
+    return withScheme.replaceFirst(RegExp(r'/*$'), '');
+  }
+
+  static bool _isLoopbackHost(String host) {
+    final normalized = host.trim().toLowerCase();
+    return normalized == 'localhost' ||
+        normalized == '127.0.0.1' ||
+        normalized == '::1';
+  }
+
+  static String _appendCacheBust(String url, {int? cacheBust}) {
+    if (cacheBust == null) return url;
+    final separator = url.contains('?') ? '&' : '?';
+    return '$url${separator}v=$cacheBust';
   }
 
   static String _resolveBaseUrl() {
@@ -39,13 +62,17 @@ class ApiService {
     }
 
     if (kIsWeb) {
-      return _webBaseUrl;
+      return _normalizeBaseUrl(_webBaseUrl);
     }
 
-    return _defaultApiBaseUrl;
+    if (kDebugMode && defaultTargetPlatform == TargetPlatform.android) {
+      return _normalizeBaseUrl(_androidDebugBaseUrl);
+    }
+
+    return _normalizeBaseUrl(_productionApiBaseUrl);
   }
 
-  // Native apps use the hosted API unless overridden with --dart-define.
+  // Native apps can still be overridden with --dart-define=API_BASE_URL=...
   final String baseUrl = _resolveBaseUrl();
 
   final Dio _dio = _sharedDio;
@@ -91,6 +118,78 @@ class ApiService {
     if (kDebugMode) {
       debugPrint(message);
     }
+  }
+
+  String? resolveAssetUrl(String? assetPath, {int? cacheBust}) {
+    final candidates = resolveAssetUrlCandidates(
+      assetPath,
+      cacheBust: cacheBust,
+    );
+    if (candidates.isEmpty) {
+      return null;
+    }
+    return candidates.first;
+  }
+
+  List<String> resolveAssetUrlCandidates(String? assetPath, {int? cacheBust}) {
+    final trimmed = '${assetPath ?? ''}'.trim();
+    if (trimmed.isEmpty) {
+      return const [];
+    }
+
+    final urls = <String>[];
+
+    void addUrl(String? value) {
+      final normalized = _normalizeBaseUrl(value ?? '');
+      if (normalized.isEmpty) return;
+      urls.add(_appendCacheBust(normalized, cacheBust: cacheBust));
+    }
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      final parsed = Uri.tryParse(trimmed);
+      addUrl(trimmed);
+
+      if (parsed != null && _isLoopbackHost(parsed.host)) {
+        final alternateLoopbackHost = parsed.host == 'localhost'
+            ? '127.0.0.1'
+            : 'localhost';
+        addUrl(parsed.replace(host: alternateLoopbackHost).toString());
+
+        final productionUri = Uri.tryParse(
+          _normalizeBaseUrl(_productionApiBaseUrl),
+        );
+        if (productionUri != null && !_isLoopbackHost(productionUri.host)) {
+          addUrl(
+            productionUri
+                .replace(path: parsed.path, query: parsed.query)
+                .toString(),
+          );
+        }
+      }
+    } else {
+      final normalizedPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+      addUrl('$baseUrl$normalizedPath');
+
+      final baseUri = Uri.tryParse(baseUrl);
+      if (baseUri != null && _isLoopbackHost(baseUri.host)) {
+        final alternateLoopbackHost = baseUri.host == 'localhost'
+            ? '127.0.0.1'
+            : 'localhost';
+        addUrl(
+          baseUri
+              .replace(host: alternateLoopbackHost, path: normalizedPath)
+              .toString(),
+        );
+
+        final productionBase = _normalizeBaseUrl(_productionApiBaseUrl);
+        final productionUri = Uri.tryParse(productionBase);
+        if (productionUri != null && !_isLoopbackHost(productionUri.host)) {
+          addUrl(productionUri.replace(path: normalizedPath).toString());
+        }
+      }
+    }
+
+    return urls.toSet().toList(growable: false);
   }
 
   static bool _isFresh(DateTime? timestamp, Duration ttl) {
@@ -239,6 +338,13 @@ class ApiService {
       return 'Invalid email or password.';
     }
 
+    if (lowerMessage.contains('email already registered') ||
+        lowerMessage.contains('email already exists') ||
+        lowerMessage.contains('already registered') ||
+        lowerMessage.contains('already exists')) {
+      return 'This email is already registered. Please log in or reset your password.';
+    }
+
     if (lowerMessage.contains('unauthorized') ||
         lowerMessage.contains('forbidden') ||
         lowerMessage.contains('jwt') ||
@@ -277,9 +383,23 @@ class ApiService {
       return 'That file type is not supported.';
     }
 
+    if (lowerMessage.contains('identification card') &&
+        (lowerMessage.contains('pdf') ||
+            lowerMessage.contains('jpg') ||
+            lowerMessage.contains('jpeg') ||
+            lowerMessage.contains('png') ||
+            lowerMessage.contains('webp'))) {
+      return 'Only PDF files are allowed for identification cards.';
+    }
+
     if (lowerMessage.contains('status code 429') ||
         lowerMessage.contains('too many requests')) {
       return 'Too many attempts. Please wait a moment and try again.';
+    }
+
+    if (lowerMessage.contains('status code 409') ||
+        lowerMessage.contains('conflict')) {
+      return 'This information already exists. Please review your details and try again.';
     }
 
     if (lowerMessage.contains('status code 500') ||
@@ -541,9 +661,10 @@ class ApiService {
     Future<Response<dynamic>> sendRequest() async {
       final options = Options(
         method: normalizedMethod,
-        headers: requiresAuth
-            ? {'Authorization': 'Bearer ${await getToken()}'}
-            : {},
+        headers: {
+          if (requiresAuth) 'Authorization': 'Bearer ${await getToken()}',
+          if (data is FormData) 'Content-Type': 'multipart/form-data',
+        },
       );
 
       return _dio.request(
@@ -588,7 +709,7 @@ class ApiService {
             return retryResponse.data;
           } on DioException catch (retryError) {
             _log(
-              '❌ Receive-timeout retry failed ${retryError.type}: ${retryError.message}',
+              ' Receive-timeout retry failed ${retryError.type}: ${retryError.message}',
             );
           }
         }
@@ -612,7 +733,7 @@ class ApiService {
 
         final overrideHint = kIsWeb
             ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
-            : 'If you are testing on a phone, rebuild with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000';
+            : 'If you are testing on an Android phone over Wi-Fi, use --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use http://localhost:5000.';
         throw Exception(
           kIsWeb
               ? 'Cannot connect to server at $baseUrl. Render may still be waking up. Please wait a few seconds and refresh. $overrideHint'
@@ -690,11 +811,21 @@ class ApiService {
     if (normalized.endsWith('.png')) {
       return DioMediaType.parse('image/png');
     }
+    if (normalized.endsWith('.webp')) {
+      return DioMediaType.parse('image/webp');
+    }
     if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) {
       return DioMediaType.parse('image/jpeg');
     }
 
     return null;
+  }
+
+  bool _looksLikePdfUpload(String? fileName, String? filePath) {
+    final normalizedFileName = (fileName ?? '').trim().toLowerCase();
+    final normalizedFilePath = (filePath ?? '').trim().toLowerCase();
+    return normalizedFileName.endsWith('.pdf') ||
+        normalizedFilePath.endsWith('.pdf');
   }
 
   // ==================== AUTH METHODS ====================
@@ -802,12 +933,58 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> register(Map<String, dynamic> userData) async {
+  Future<Map<String, dynamic>> register(
+    Map<String, dynamic> userData, {
+    String? identificationCardFilePath,
+    Uint8List? identificationCardFileBytes,
+    String? identificationCardFileName,
+    String? collegeLogoFilePath,
+    Uint8List? collegeLogoFileBytes,
+    String? collegeLogoFileName,
+  }) async {
     try {
+      final hasIdentificationFile =
+          (identificationCardFilePath != null &&
+              identificationCardFilePath.trim().isNotEmpty) ||
+          identificationCardFileBytes != null;
+      final hasCollegeLogoFile =
+          (collegeLogoFilePath != null &&
+              collegeLogoFilePath.trim().isNotEmpty) ||
+          collegeLogoFileBytes != null;
+      if (hasIdentificationFile &&
+          !_looksLikePdfUpload(
+            identificationCardFileName,
+            identificationCardFilePath,
+          )) {
+        return {
+          'success': false,
+          'message': 'Only PDF files are allowed for identification cards.',
+        };
+      }
+
+      final payload = hasIdentificationFile || hasCollegeLogoFile
+          ? FormData.fromMap({
+              ...userData,
+              if (hasIdentificationFile)
+                'identification_card': await _createMultipartFile(
+                  filePath: identificationCardFilePath,
+                  fileBytes: identificationCardFileBytes,
+                  fileName:
+                      identificationCardFileName ?? 'identification_card.pdf',
+                ),
+              if (hasCollegeLogoFile)
+                'college_logo': await _createMultipartFile(
+                  filePath: collegeLogoFilePath,
+                  fileBytes: collegeLogoFileBytes,
+                  fileName: collegeLogoFileName ?? 'college_logo.png',
+                ),
+            })
+          : userData;
+
       final response = await _request(
         'POST',
         '/api/auth/register',
-        data: userData,
+        data: payload,
       );
       final token = _extractAuthToken(response);
 
@@ -852,12 +1029,47 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> updateProfile(
+    Map<String, dynamic> data, {
+    String? identificationCardFilePath,
+    Uint8List? identificationCardFileBytes,
+    String? identificationCardFileName,
+  }) async {
     try {
+      final hasIdentificationFile =
+          (identificationCardFilePath != null &&
+              identificationCardFilePath.trim().isNotEmpty) ||
+          identificationCardFileBytes != null;
+
+      if (hasIdentificationFile &&
+          !_looksLikePdfUpload(
+            identificationCardFileName,
+            identificationCardFilePath,
+          )) {
+        return {
+          'success': false,
+          'message': 'Only PDF files are allowed for identification cards.',
+        };
+      }
+
+      final payload = hasIdentificationFile
+          ? FormData.fromMap({
+              ...data,
+              if (data['student_data'] is Map<String, dynamic>)
+                'student_data': jsonEncode(data['student_data']),
+              'identification_card': await _createMultipartFile(
+                filePath: identificationCardFilePath,
+                fileBytes: identificationCardFileBytes,
+                fileName:
+                    identificationCardFileName ?? 'identification_card.pdf',
+              ),
+            })
+          : data;
+
       final response = await _request(
         'PUT',
         '/api/auth/profile',
-        data: data,
+        data: payload,
         requiresAuth: true,
       );
       _invalidateProfileCache();
@@ -1196,6 +1408,50 @@ class ApiService {
       return {
         'success': false,
         'message': 'Failed to update application: ${e.message}',
+      };
+    }
+  }
+
+  // ==================== AWARDS METHODS ====================
+  Future<Map<String, dynamic>> getAwardsHomeData() async {
+    try {
+      return await _request('GET', '/api/awards/home');
+    } catch (e) {
+      _log('❌ Error loading awards home: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getWallOfFame({int limit = 60}) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/awards/wall-of-fame',
+        queryParams: {'limit': '$limit'},
+      );
+    } catch (e) {
+      _log('❌ Error loading wall of fame: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getAwardsLeaderboard({int limit = 20}) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/awards/leaderboard',
+        queryParams: {'limit': '$limit'},
+      );
+    } catch (e) {
+      _log('❌ Error loading awards leaderboard: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
       };
     }
   }
@@ -1755,6 +2011,126 @@ class ApiService {
       return await _request('GET', '/api/admin/logs', requiresAuth: true);
     } catch (e) {
       _log('❌ Error getting admin logs: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  // ===== NEW ADMIN STUDENT METHODS =====
+  Future<Map<String, dynamic>> getAllAdminStudents() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/admin/students/all',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting all admin students: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getStudentsWithUniversity() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/admin/students/with-university',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting students with university: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getStudentsWithAwards() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/admin/students/with-awards',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting students with awards: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getStudentsNoField() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/admin/students/no-field',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting students no field: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getUniversityStudentsOverview() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/university/students/overview',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting university students overview: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': {'students': []},
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getUniversityPlacedStudents() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/university/students/placed',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting university placed students: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': {'placements': []},
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getUniversityCompanyContacts() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/university/companies/contacts',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('❌ Error getting university company contacts: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),

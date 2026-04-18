@@ -24,6 +24,19 @@ const normalizeOptionalInteger = (value) => {
     return Number.isNaN(parsed) ? value : parsed;
 };
 
+const normalizeOptionalDecimal = (value) => {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (value === null || value === '') {
+        return null;
+    }
+
+    const parsed = Number.parseFloat(`${value}`.trim());
+    return Number.isNaN(parsed) ? value : parsed;
+};
+
 class UserModel {
     // Create new user
     static async create(userData) {
@@ -36,6 +49,9 @@ class UserModel {
             university_id,
             program,
             student_type,
+            registration_number,
+            identification_card_url,
+            identification_card_name,
             expected_graduation_year,
             graduation_year,
             experience_level,
@@ -43,9 +59,25 @@ class UserModel {
             industry,
             company_size,
             location,
-            description
+            description,
+            college_name,
+            registration_number: university_registration_number,
+            college_email,
+            college_phone,
+            address,
+            region,
+            district,
+            website_url,
+            college_type,
+            subscription_status,
+            coordinator_name,
+            coordinator_phone,
+            coordinator_email,
+            logo_url,
+            logo_name
         } = userData;
         const normalizedEmail = `${email || ''}`.trim().toLowerCase();
+        const normalizedRole = role === 'graduate' ? 'student' : role;
 
         try {
             // Hash password
@@ -57,37 +89,96 @@ class UserModel {
                 `INSERT INTO users (email, password_hash, role, full_name, phone)
                  VALUES ($1, $2, $3, $4, $5)
                  RETURNING user_id, email, role, full_name, created_at`,
-                [normalizedEmail, password_hash, role, full_name, phone]
+                [normalizedEmail, password_hash, normalizedRole, full_name, phone]
             );
 
             const userId = userResult.rows[0].user_id;
 
             // Insert into specific role table
-            if (role === 'student' || role === 'graduate') {
+            if (normalizedRole === 'student') {
                 await query(
-                    `INSERT INTO students (student_id, university_id, program, student_type, 
-                      expected_graduation_year, graduation_year, experience_level, bio)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                    [userId, university_id, program, student_type, 
-                     expected_graduation_year, graduation_year, experience_level, null]
+                    `INSERT INTO students (
+                        student_id,
+                        university_id,
+                        program,
+                        student_type,
+                        registration_number,
+                        identification_card_url,
+                        identification_card_name,
+                        expected_graduation_year,
+                        graduation_year,
+                        experience_level,
+                        bio
+                    )
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                    [
+                        userId,
+                        university_id,
+                        program,
+                        student_type,
+                        registration_number,
+                        identification_card_url,
+                        identification_card_name,
+                        expected_graduation_year,
+                        graduation_year,
+                        experience_level,
+                        null
+                    ]
                 );
             } 
-            else if (role === 'company') {
+            else if (normalizedRole === 'company') {
                 await query(
                     `INSERT INTO companies (company_id, company_name, industry, company_size, location, description)
                      VALUES ($1, $2, $3, $4, $5, $6)`,
                     [userId, company_name, industry, company_size, location, description]
                 );
             }
+            else if (normalizedRole === 'university') {
+                await query(
+                    `INSERT INTO university_profiles (
+                        user_id,
+                        university_id,
+                        college_name,
+                        registration_number,
+                        college_email,
+                        college_phone,
+                        address,
+                        region,
+                        district,
+                        website_url,
+                        college_type,
+                        subscription_status,
+                        coordinator_name,
+                        coordinator_phone,
+                        coordinator_email,
+                        logo_url,
+                        logo_name
+                    )
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+                    [
+                        userId,
+                        university_id,
+                        college_name,
+                        university_registration_number,
+                        college_email,
+                        college_phone,
+                        address,
+                        region,
+                        district,
+                        website_url,
+                        college_type,
+                        subscription_status || 'trial',
+                        coordinator_name,
+                        coordinator_phone,
+                        coordinator_email,
+                        logo_url,
+                        logo_name
+                    ]
+                );
+            }
             // Admin doesn't need additional data insertion
             
-            return {
-                user_id: userId,
-                email: normalizedEmail,
-                role,
-                full_name,
-                created_at: userResult.rows[0].created_at
-            };
+            return await this.findById(userId);
             
         } catch (error) {
             throw error;
@@ -136,6 +227,18 @@ class UserModel {
                 user.company_data = companyResult.rows[0];
             }
         }
+        else if (user.role === 'university') {
+            const universityResult = await query(
+                `SELECT up.*, uni.name AS university_name
+                 FROM university_profiles up
+                 LEFT JOIN universities uni ON up.university_id = uni.university_id
+                 WHERE up.user_id = $1`,
+                [userId]
+            );
+            if (universityResult.rows.length > 0) {
+                user.university_data = universityResult.rows[0];
+            }
+        }
         // Admin doesn't have additional data
         
         return user;
@@ -159,6 +262,9 @@ class UserModel {
             : null;
         const companyData = payload.company_data && typeof payload.company_data === 'object'
             ? payload.company_data
+            : null;
+        const universityData = payload.university_data && typeof payload.university_data === 'object'
+            ? payload.university_data
             : null;
 
         const allowedUserFields = new Set([
@@ -227,6 +333,21 @@ class UserModel {
             if (studentData.resume_url !== undefined) {
                 studentData.resume_url = normalizeOptionalString(studentData.resume_url);
             }
+            if (studentData.registration_number !== undefined) {
+                studentData.registration_number = normalizeOptionalString(
+                    studentData.registration_number
+                );
+            }
+            if (studentData.identification_card_url !== undefined) {
+                studentData.identification_card_url = normalizeOptionalString(
+                    studentData.identification_card_url
+                );
+            }
+            if (studentData.identification_card_name !== undefined) {
+                studentData.identification_card_name = normalizeOptionalString(
+                    studentData.identification_card_name
+                );
+            }
             if (studentData.github_url !== undefined) {
                 studentData.github_url = normalizeOptionalString(studentData.github_url);
             }
@@ -243,6 +364,9 @@ class UserModel {
                     studentData.graduation_year
                 );
             }
+            if (studentData.gpa !== undefined) {
+                studentData.gpa = normalizeOptionalDecimal(studentData.gpa);
+            }
 
             if (userRole === 'student') {
                 studentData.student_type = 'current';
@@ -256,9 +380,13 @@ class UserModel {
                 'student_type',
                 'expected_graduation_year',
                 'graduation_year',
+                'gpa',
                 'experience_level',
                 'bio',
                 'resume_url',
+                'registration_number',
+                'identification_card_url',
+                'identification_card_name',
                 'github_url',
                 'linkedin_url'
             ]);
@@ -287,6 +415,20 @@ class UserModel {
         }
 
         if (companyData) {
+            if (userRole === 'company') {
+                const fallbackCompanyName =
+                    normalizeOptionalString(companyData.company_name) ||
+                    normalizeOptionalString(payload.full_name) ||
+                    'Company';
+
+                await query(
+                    `INSERT INTO companies (company_id, company_name)
+                     VALUES ($1, $2)
+                     ON CONFLICT (company_id) DO NOTHING`,
+                    [userId, fallbackCompanyName]
+                );
+            }
+
             const allowedCompanyFields = new Set([
                 'company_name',
                 'industry',
@@ -318,6 +460,82 @@ class UserModel {
                     `UPDATE companies SET ${companyFields.join(', ')}
                      WHERE company_id = $${companyIndex}`,
                     companyValues
+                );
+            }
+        }
+
+        if (universityData) {
+            const normalizedUniversityData = { ...universityData };
+            const optionalTextFields = [
+                'university_id',
+                'college_name',
+                'registration_number',
+                'college_email',
+                'college_phone',
+                'address',
+                'region',
+                'district',
+                'website_url',
+                'college_type',
+                'subscription_status',
+                'coordinator_name',
+                'coordinator_phone',
+                'coordinator_email',
+                'logo_url',
+                'logo_name'
+            ];
+
+            for (const field of optionalTextFields) {
+                if (normalizedUniversityData[field] !== undefined) {
+                    normalizedUniversityData[field] = normalizeOptionalString(
+                        normalizedUniversityData[field]
+                    );
+                }
+            }
+
+            if (userRole === 'university') {
+                await query(
+                    `INSERT INTO university_profiles (
+                        user_id,
+                        college_name,
+                        registration_number,
+                        college_email,
+                        college_phone,
+                        address,
+                        region,
+                        district,
+                        subscription_status,
+                        coordinator_name,
+                        coordinator_phone,
+                        coordinator_email
+                    )
+                     VALUES ($1, '', '', '', '', '', '', '', 'trial', '', '', '')
+                     ON CONFLICT (user_id) DO NOTHING`,
+                    [userId]
+                );
+            }
+
+            const allowedUniversityFields = new Set(optionalTextFields);
+            const universityFields = [];
+            const universityValues = [];
+            let universityIndex = 1;
+
+            for (const [key, value] of Object.entries(normalizedUniversityData)) {
+                if (!allowedUniversityFields.has(key)) continue;
+                if (value !== undefined) {
+                    universityFields.push(`${key} = $${universityIndex}`);
+                    universityValues.push(value);
+                    universityIndex++;
+                }
+            }
+
+            if (universityFields.length > 0) {
+                universityFields.push('updated_at = CURRENT_TIMESTAMP');
+                universityValues.push(userId);
+                await query(
+                    `UPDATE university_profiles SET ${universityFields.join(', ')}
+                     WHERE user_id = $${universityIndex}`,
+                    universityValues
                 );
             }
         }
