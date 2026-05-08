@@ -70,7 +70,10 @@ const profileUpdateUpload = createUploadMiddleware({
 router.post('/register', registrationUpload, authController.register);
 router.post('/login', authController.login);
 router.post('/forgot-password', authController.forgotPassword);
+router.get('/', authController.get);
 router.get('/universities', authController.getUniversities);
+router.get('/government-', authController.getGovernment);
+router.get('/company-directory', authController.getCompanyDirectory);
 router.get('/skills', authController.getSkills);
 router.get('/reset-password', authController.renderPasswordResetForm);
 router.post('/reset-password', authController.completePasswordReset);

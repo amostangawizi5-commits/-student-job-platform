@@ -13,7 +13,7 @@ const AWARD_SELECT = `
     FROM awards aw
     JOIN users u ON aw.student_id = u.user_id
     JOIN companies c ON aw.company_id = c.company_id
-    LEFT JOIN jobs j ON aw.job_id = j.job_id
+    LEFT JOIN training j ON aw.job_id = j.job_id
     LEFT JOIN students s ON aw.student_id = s.student_id
     LEFT JOIN universities un ON s.university_id = un.university_id
 `;

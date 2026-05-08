@@ -14,8 +14,31 @@ const AUDIT_LOG_TABLE_SQL = `
     )
 `;
 
+let ensureAuditLogTablePromise = null;
+
 const ensureAuditLogTable = async () => {
-    await query(AUDIT_LOG_TABLE_SQL);
+    if (!ensureAuditLogTablePromise) {
+        ensureAuditLogTablePromise = (async () => {
+            await query(AUDIT_LOG_TABLE_SQL);
+            await query(`
+                CREATE INDEX IF NOT EXISTS admin_audit_logs_created_at_idx
+                ON admin_audit_logs(created_at DESC)
+            `);
+            await query(`
+                CREATE INDEX IF NOT EXISTS admin_audit_logs_actor_user_id_idx
+                ON admin_audit_logs(actor_user_id)
+            `);
+            await query(`
+                CREATE INDEX IF NOT EXISTS admin_audit_logs_user_involved_idx
+                ON admin_audit_logs(user_involved)
+            `);
+        })().catch((error) => {
+            ensureAuditLogTablePromise = null;
+            throw error;
+        });
+    }
+
+    await ensureAuditLogTablePromise;
 };
 
 const logAuditEvent = async ({

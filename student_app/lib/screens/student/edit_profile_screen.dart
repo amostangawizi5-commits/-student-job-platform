@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -17,11 +18,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // Controllers
-  final _fullNameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _secondNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _programController = TextEditingController();
   final _gpaController = TextEditingController();
-  String? _selectedUniversityId;
+  final _institutionController = TextEditingController();
+  String? _selectedInstitutionId;
   int? _expectedGraduationYear;
   int? _graduationYear;
   String _experienceLevel = 'no_experience';
@@ -33,19 +36,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
 
-  bool _isGraduate = false;
+  bool _is = false;
 
-  void _ensureCurrentUniversityOption({
-    required String? universityId,
-    required String? universityName,
+  void _ensureCurrentInstitutionOption({
+    required String? institutionId,
+    required String? institutionName,
   }) {
-    final normalizedId = universityId?.trim();
+    final normalizedId = institutionId?.trim();
     if (normalizedId == null || normalizedId.isEmpty) {
       return;
     }
 
     final alreadyPresent = _universities.any(
-      (uni) => uni['university_id']?.toString() == normalizedId,
+      (institution) => institution['university_id']?.toString() == normalizedId,
     );
     if (alreadyPresent) {
       return;
@@ -55,9 +58,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ..._universities,
       {
         'university_id': normalizedId,
-        'name': (universityName?.trim().isNotEmpty ?? false)
-            ? universityName!.trim()
-            : 'Current University',
+        'name': (institutionName?.trim().isNotEmpty ?? false)
+            ? institutionName!.trim()
+            : 'Current Institution',
       },
     ];
   }
@@ -70,11 +73,57 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   void dispose() {
-    _fullNameController.dispose();
+    _firstNameController.dispose();
+    _secondNameController.dispose();
     _phoneController.dispose();
     _programController.dispose();
     _gpaController.dispose();
+    _institutionController.dispose();
     super.dispose();
+  }
+
+  Map<String, String> _splitName(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return {'first': '', 'second': ''};
+    }
+
+    final parts = normalized
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    return {
+      'first': parts.isNotEmpty ? parts.first : '',
+      'second': parts.length > 1 ? parts.sublist(1).join(' ') : '',
+    };
+  }
+
+  String _buildFullName() {
+    return [
+      _firstNameController.text.trim(),
+      _secondNameController.text.trim(),
+    ].where((value) => value.isNotEmpty).join(' ');
+  }
+
+  Map<String, dynamic>? _findInstitutionByName(String? name) {
+    final normalized = name?.trim().toLowerCase() ?? '';
+    if (normalized.isEmpty) return null;
+
+    for (final institution in _universities) {
+      if (institution is Map &&
+          institution['name']?.toString().trim().toLowerCase() == normalized) {
+        return Map<String, dynamic>.from(institution);
+      }
+    }
+    return null;
+  }
+
+  void _syncSelectedInstitutionFromInput() {
+    final match = _findInstitutionByName(_institutionController.text);
+    _selectedInstitutionId = match?['university_id']?.toString();
+    if (match != null) {
+      _institutionController.text = match['name']?.toString() ?? '';
+    }
   }
 
   bool _isPdfFile(PlatformFile file) {
@@ -96,7 +145,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   // Helper method to show top SnackBar
   void _showTopSnackBar(String message, Color backgroundColor) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Row(
           children: [
@@ -127,13 +176,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _isLoading = true);
     try {
       final user = Provider.of<AuthProvider>(context, listen: false).user;
-      _isGraduate = user?['role'] == 'graduate';
+      _is = user?['role'] == '';
 
-      // Load universities
-      final uniResponse = await _apiService.getUniversities();
-      _universities = uniResponse['data'] ?? [];
+      final universityResponse = await _apiService.getUniversities();
+      _universities = universityResponse['data'] ?? [];
 
-      // Cover historical and future years for both graduates and current students.
+      // Cover historical and future years for both s and current students.
       final currentYear = DateTime.now().year;
       _years = List<int>.generate(
         currentYear - 2000 + 11,
@@ -141,23 +189,34 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
 
       // Fill controllers
-      _fullNameController.text = user?['full_name'] ?? '';
+      final nameParts = _splitName(
+        user?['full_name']?.toString() ??
+            '${user?['first_name'] ?? ''} ${user?['second_name'] ?? ''}',
+      );
+      _firstNameController.text = nameParts['first'] ?? '';
+      _secondNameController.text = nameParts['second'] ?? '';
       _phoneController.text = user?['phone'] ?? '';
       _programController.text = user?['student_data']?['program'] ?? '';
       _gpaController.text = '${user?['student_data']?['gpa'] ?? ''}'.replaceAll(
         'null',
         '',
       );
-      _selectedUniversityId = user?['student_data']?['university_id']
+      _selectedInstitutionId = user?['student_data']?['university_id']
           ?.toString();
+      _institutionController.text =
+          user?['student_data']?['institution_name']?.toString() ??
+          user?['student_data']?['university_name']?.toString() ??
+          '';
       _currentIdentificationCardName =
           user?['student_data']?['identification_card_name']?.toString() ?? '';
-      _ensureCurrentUniversityOption(
-        universityId: _selectedUniversityId,
-        universityName: user?['student_data']?['university_name']?.toString(),
+      _ensureCurrentInstitutionOption(
+        institutionId: _selectedInstitutionId,
+        institutionName:
+            user?['student_data']?['institution_name']?.toString() ??
+            user?['student_data']?['university_name']?.toString(),
       );
 
-      if (_isGraduate) {
+      if (_is) {
         int? gradYear = user?['student_data']?['graduation_year'];
         if (gradYear != null && !_years.contains(gradYear)) {
           _years.add(gradYear);
@@ -234,20 +293,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       setState(() => _isSaving = true);
 
       Map<String, dynamic> updateData = {
-        'full_name': _fullNameController.text.trim(),
+        'full_name': _buildFullName(),
         'phone': _phoneController.text.trim(),
       };
 
+      _syncSelectedInstitutionFromInput();
+
       Map<String, dynamic> studentData = {
         'program': _programController.text.trim(),
-        'university_id': _selectedUniversityId,
-        'student_type': _isGraduate ? 'graduate' : 'current',
+        'university_id': _selectedInstitutionId,
+        'institution_name': _institutionController.text.trim(),
+        'student_type': _is ? '' : 'current',
         'gpa': _gpaController.text.trim().isEmpty
             ? null
             : double.tryParse(_gpaController.text.trim()),
       };
 
-      if (_isGraduate) {
+      if (_is) {
         studentData['expected_graduation_year'] = null;
         studentData['graduation_year'] = _graduationYear;
         studentData['experience_level'] = _experienceLevel;
@@ -371,11 +433,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Full Name
                         TextFormField(
-                          controller: _fullNameController,
+                          controller: _firstNameController,
                           decoration: InputDecoration(
-                            labelText: 'Full Name',
+                            labelText: 'First Name',
                             prefixIcon: const Icon(
                               Icons.person_outline,
                               size: 20,
@@ -392,7 +453,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ),
                           style: const TextStyle(fontSize: 14),
                           validator: (v) =>
-                              v?.isEmpty ?? true ? 'Required' : null,
+                              v?.trim().isEmpty ?? true ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 16),
+
+                        TextFormField(
+                          controller: _secondNameController,
+                          decoration: InputDecoration(
+                            labelText: 'Second Name',
+                            prefixIcon: const Icon(
+                              Icons.badge_outlined,
+                              size: 20,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                          ),
+                          style: const TextStyle(fontSize: 14),
+                          validator: (v) =>
+                              v?.trim().isEmpty ?? true ? 'Required' : null,
                         ),
                         const SizedBox(height: 16),
 
@@ -435,45 +520,122 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        // University
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedUniversityId,
-                          isExpanded: true,
-                          dropdownColor: Colors.white,
-                          decoration: InputDecoration(
-                            labelText: 'University',
-                            prefixIcon: const Icon(
-                              Icons.school_outlined,
-                              size: 20,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
+                        Autocomplete<Map<String, dynamic>>(
+                          initialValue: TextEditingValue(
+                            text: _institutionController.text,
                           ),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.black,
-                          ),
-                          items: _universities.map((uni) {
-                            return DropdownMenuItem(
-                              value: uni['university_id'].toString(),
-                              child: Text(
-                                uni['name'],
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.black),
+                          displayStringForOption: (option) =>
+                              '${option['name'] ?? ''}',
+                          optionsBuilder: (textEditingValue) {
+                            final query = textEditingValue.text
+                                .trim()
+                                .toLowerCase();
+                            final options = _universities
+                                .whereType<Map>()
+                                .map((item) => Map<String, dynamic>.from(item))
+                                .toList(growable: false);
+
+                            if (query.isEmpty) {
+                              return options.take(12);
+                            }
+
+                            return options
+                                .where((option) {
+                                  final name = '${option['name'] ?? ''}'
+                                      .toLowerCase();
+                                  final location = '${option['location'] ?? ''}'
+                                      .toLowerCase();
+                                  return name.contains(query) ||
+                                      location.contains(query);
+                                })
+                                .take(12);
+                          },
+                          onSelected: (selection) {
+                            setState(() {
+                              _selectedInstitutionId =
+                                  selection['university_id']?.toString();
+                              _institutionController.text =
+                                  selection['name']?.toString() ?? '';
+                            });
+                          },
+                          fieldViewBuilder:
+                              (
+                                context,
+                                textController,
+                                focusNode,
+                                onFieldSubmitted,
+                              ) {
+                                return TextFormField(
+                                  controller: textController,
+                                  focusNode: focusNode,
+                                  decoration: InputDecoration(
+                                    labelText: 'Institution',
+                                    hintText: 'Select your university',
+                                    prefixIcon: const Icon(
+                                      Icons.school_outlined,
+                                      size: 20,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 14,
+                                    ),
+                                  ),
+                                  style: const TextStyle(fontSize: 14),
+                                  onChanged: (value) {
+                                    _institutionController.text = value;
+                                    final match = _findInstitutionByName(value);
+                                    _selectedInstitutionId =
+                                        match?['university_id']?.toString();
+                                  },
+                                  validator: (value) {
+                                    final typed = value?.trim() ?? '';
+                                    if (typed.isEmpty) return 'Required';
+                                    return _findInstitutionByName(typed) == null
+                                        ? 'Select institution from the list'
+                                        : null;
+                                  },
+                                );
+                              },
+                          optionsViewBuilder: (context, onSelected, options) {
+                            return Align(
+                              alignment: Alignment.topLeft,
+                              child: Material(
+                                elevation: 4,
+                                borderRadius: BorderRadius.circular(12),
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 420,
+                                    maxHeight: 280,
+                                  ),
+                                  child: ListView.separated(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                    shrinkWrap: true,
+                                    itemCount: options.length,
+                                    separatorBuilder: (_, _) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, index) {
+                                      final option = options.elementAt(index);
+                                      return ListTile(
+                                        dense: true,
+                                        title: Text('${option['name'] ?? ''}'),
+                                        subtitle: Text(
+                                          '${option['location'] ?? ''}',
+                                        ),
+                                        onTap: () => onSelected(option),
+                                      );
+                                    },
+                                  ),
+                                ),
                               ),
                             );
-                          }).toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedUniversityId = v),
-                          validator: (v) => v == null ? 'Required' : null,
+                          },
                         ),
                         const SizedBox(height: 16),
 
@@ -718,8 +880,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Graduation Year (for graduates)
-                        if (_isGraduate) ...[
+                        // Graduation Year (for s)
+                        if (_is) ...[
                           DropdownButtonFormField<int>(
                             initialValue: _getSafeYearValue(_graduationYear),
                             isExpanded: true,

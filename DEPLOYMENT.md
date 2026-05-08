@@ -2,7 +2,7 @@
 
 ## Recommended Setup
 
-- Backend API: Render web service
+- Backend : Render web service
 - PostgreSQL: Neon free Postgres
 - File uploads: Cloudinary free
 - Android app: release APK/AAB built with a public API URL

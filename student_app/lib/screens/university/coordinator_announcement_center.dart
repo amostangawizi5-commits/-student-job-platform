@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/coordinator_workspace_service.dart';
 
@@ -61,7 +62,7 @@ class _CoordinatorAnnouncementCenterState
     final title = _titleController.text.trim();
     final message = _messageController.text.trim();
     if (title.isEmpty || message.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Write both title and message before posting.'),
           backgroundColor: Colors.red,
@@ -85,7 +86,7 @@ class _CoordinatorAnnouncementCenterState
     _titleController.clear();
     _messageController.clear();
     setState(() => _isSubmitting = false);
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       const SnackBar(
         content: Text('Announcement posted successfully.'),
         backgroundColor: Color(0xFF0F766E),
@@ -250,11 +251,7 @@ class _CoordinatorAnnouncementCenterState
                   ),
                 ),
                 SizedBox(height: 6),
-                Text(
-                  'Your posted updates for students or companies will appear here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF5F7288)),
-                ),
+               
               ],
             ),
           )

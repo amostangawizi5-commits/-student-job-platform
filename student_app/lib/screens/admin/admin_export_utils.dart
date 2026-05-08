@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/export_file_saver.dart';
 
@@ -53,10 +54,10 @@ class AdminExportUtils {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Export saved to $path')));
+      ).showAppSnackBar(SnackBar(content: Text('Export saved to $path')));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Export failed: $e'),
           backgroundColor: Colors.red,

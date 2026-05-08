@@ -37,6 +37,22 @@ const normalizeOptionalDecimal = (value) => {
     return Number.isNaN(parsed) ? value : parsed;
 };
 
+const splitFullName = (value) => {
+    const normalized = `${value || ''}`.trim();
+    if (!normalized) {
+        return {
+            first_name: '',
+            second_name: ''
+        };
+    }
+
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    return {
+        first_name: parts[0] || '',
+        second_name: parts.slice(1).join(' ')
+    };
+};
+
 class UserModel {
     // Create new user
     static async create(userData) {
@@ -56,8 +72,15 @@ class UserModel {
             graduation_year,
             experience_level,
             company_name,
+            organization_subtype,
+            government_category,
             industry,
             company_size,
+            tin_number,
+            brela_number,
+            business_license_number,
+            department,
+            sector,
             location,
             description,
             college_name,
@@ -76,8 +99,31 @@ class UserModel {
             logo_url,
             logo_name
         } = userData;
-        const normalizedEmail = `${email || ''}`.trim().toLowerCase();
-        const normalizedRole = role === 'graduate' ? 'student' : role;
+            const normalizedEmail = `${email || ''}`.trim().toLowerCase();
+            const normalizedRole = role === '' ? 'student' : role;
+            const normalizedCompanySubtype = normalizeOptionalString(
+                organization_subtype
+            )?.toLowerCase().replace(/\s+/g, '_');
+            const normalizedGovernmentCategory = normalizeOptionalString(
+                government_category
+            );
+            const normalizedTinNumber = normalizeOptionalString(tin_number);
+            const normalizedBrelaNumber = normalizeOptionalString(brela_number);
+            const normalizedBusinessLicenseNumber = normalizeOptionalString(
+                business_license_number
+            );
+            const normalizedDepartment = normalizeOptionalString(department);
+            const normalizedSector = normalizeOptionalString(sector);
+            const normalizedIndustry = normalizeOptionalString(industry);
+            const normalizedCompanySize = normalizeOptionalString(company_size);
+            const normalizedLocation = normalizeOptionalString(location);
+            const normalizedDescription = normalizeOptionalString(description);
+            const normalizedRegion = normalizeOptionalString(region);
+            const normalizedDistrict = normalizeOptionalString(district);
+            const isPrivateSectorOrganization =
+                normalizedCompanySubtype === 'private_sector';
+            const isGovernmentSectorOrganization =
+                normalizedCompanySubtype === 'government_sector';
 
         try {
             // Hash password
@@ -128,9 +174,45 @@ class UserModel {
             } 
             else if (normalizedRole === 'company') {
                 await query(
-                    `INSERT INTO companies (company_id, company_name, industry, company_size, location, description)
-                     VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [userId, company_name, industry, company_size, location, description]
+                    `INSERT INTO companies (
+                        company_id,
+                        company_name,
+                        organization_subtype,
+                        government_category,
+                        industry,
+                        company_size,
+                        tin_number,
+                        brela_number,
+                        business_license_number,
+                        department,
+                        sector,
+                        location,
+                        description,
+                        region,
+                        district
+                    )
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                    [
+                        userId,
+                        normalizeOptionalString(company_name),
+                        normalizedCompanySubtype,
+                        isGovernmentSectorOrganization
+                            ? normalizedGovernmentCategory
+                            : null,
+                        isPrivateSectorOrganization ? normalizedIndustry : null,
+                        isPrivateSectorOrganization ? normalizedCompanySize : null,
+                        isPrivateSectorOrganization ? normalizedTinNumber : null,
+                        isPrivateSectorOrganization ? normalizedBrelaNumber : null,
+                        isPrivateSectorOrganization
+                            ? normalizedBusinessLicenseNumber
+                            : null,
+                        isGovernmentSectorOrganization ? normalizedDepartment : null,
+                        isGovernmentSectorOrganization ? normalizedSector : null,
+                        normalizedLocation,
+                        normalizedDescription,
+                        normalizedRegion,
+                        normalizedDistrict
+                    ]
                 );
             }
             else if (normalizedRole === 'university') {
@@ -175,6 +257,27 @@ class UserModel {
                         logo_name
                     ]
                 );
+
+                await query(
+                    `INSERT INTO companies (
+                        company_id,
+                        company_name,
+                        industry,
+                        location,
+                        description
+                    )
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [
+                        userId,
+                        normalizeOptionalString(college_name) ||
+                            normalizeOptionalString(full_name) ||
+                            normalizedEmail,
+                        'Education / Institution',
+                        [district, region].filter(Boolean).join(', ') || null,
+                        normalizeOptionalString(address) ||
+                            'Institution practical training opportunities'
+                    ]
+                );
             }
             // Admin doesn't need additional data insertion
             
@@ -188,7 +291,10 @@ class UserModel {
     // Find user by email
     static async findByEmail(email) {
         const result = await query(
-            'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+            `SELECT user_id, email, role, full_name, is_active, password_hash, auth_version
+             FROM users
+             WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
+             LIMIT 1`,
             [email]
         );
         return result.rows[0];
@@ -203,10 +309,10 @@ class UserModel {
         
         if (result.rows.length === 0) return null;
         
-        const user = result.rows[0];
+        let user = result.rows[0];
         
         // Get role-specific data
-        if (user.role === 'student' || user.role === 'graduate') {
+        if (user.role === 'student' || user.role === '') {
             const studentResult = await query(
                 `SELECT s.*, u.name as university_name 
                  FROM students s 
@@ -215,7 +321,12 @@ class UserModel {
                 [userId]
             );
             if (studentResult.rows.length > 0) {
-                user.student_data = studentResult.rows[0];
+                user.student_data = {
+                    ...studentResult.rows[0],
+                    institution_name:
+                        studentResult.rows[0].institution_name ||
+                        studentResult.rows[0].university_name
+                };
             }
         } 
         else if (user.role === 'company') {
@@ -240,7 +351,11 @@ class UserModel {
             }
         }
         // Admin doesn't have additional data
-        
+        user = {
+            ...user,
+            ...splitFullName(user.full_name)
+        };
+
         return user;
     }
 
@@ -306,12 +421,12 @@ class UserModel {
         }
 
         if (studentData) {
-            if (userRole === 'student' || userRole === 'graduate') {
+            if (userRole === 'student' || userRole === '') {
                 await query(
                     `INSERT INTO students (student_id, student_type)
                      VALUES ($1, $2)
                      ON CONFLICT (student_id) DO NOTHING`,
-                    [userId, userRole === 'graduate' ? 'graduate' : 'current']
+                    [userId, userRole === '' ? '' : 'current']
                 );
             }
 
@@ -370,8 +485,8 @@ class UserModel {
 
             if (userRole === 'student') {
                 studentData.student_type = 'current';
-            } else if (userRole === 'graduate') {
-                studentData.student_type = 'graduate';
+            } else if (userRole === '') {
+                studentData.student_type = '';
             }
 
             const allowedStudentFields = new Set([
@@ -429,11 +544,67 @@ class UserModel {
                 );
             }
 
-            const allowedCompanyFields = new Set([
+            const optionalCompanyTextFields = [
                 'company_name',
+                'organization_subtype',
+                'government_category',
                 'industry',
                 'company_size',
+                'tin_number',
+                'brela_number',
+                'business_license_number',
+                'department',
+                'sector',
                 'location',
+                'region',
+                'district',
+                'description',
+                'website_url',
+                'logo_url',
+                'stamp_url',
+                'signature_url'
+            ];
+
+            for (const field of optionalCompanyTextFields) {
+                if (companyData[field] !== undefined) {
+                    companyData[field] = normalizeOptionalString(companyData[field]);
+                }
+            }
+
+            if (companyData.organization_subtype) {
+                companyData.organization_subtype = companyData.organization_subtype
+                    .toLowerCase()
+                    .replace(/\s+/g, '_');
+            }
+
+            if (companyData.organization_subtype === 'private_sector') {
+                companyData.government_category = null;
+                companyData.department = null;
+                companyData.sector = null;
+            }
+
+            if (companyData.organization_subtype === 'government_sector') {
+                companyData.industry = null;
+                companyData.company_size = null;
+                companyData.tin_number = null;
+                companyData.brela_number = null;
+                companyData.business_license_number = null;
+            }
+
+            const allowedCompanyFields = new Set([
+                'company_name',
+                'organization_subtype',
+                'government_category',
+                'industry',
+                'company_size',
+                'tin_number',
+                'brela_number',
+                'business_license_number',
+                'department',
+                'sector',
+                'location',
+                'region',
+                'district',
                 'description',
                 'website_url',
                 'logo_url',
@@ -538,6 +709,57 @@ class UserModel {
                     universityValues
                 );
             }
+
+            if (userRole === 'university') {
+                const profileResult = await query(
+                    `SELECT college_name, region, district, address, website_url, logo_url
+                     FROM university_profiles
+                     WHERE user_id = $1
+                     LIMIT 1`,
+                    [userId]
+                );
+                const profile = profileResult.rows[0] || {};
+                const companyName =
+                    normalizeOptionalString(profile.college_name) ||
+                    normalizeOptionalString(payload.full_name) ||
+                    'Institution';
+                const location =
+                    normalizeOptionalString(
+                        [profile.district, profile.region]
+                            .filter(Boolean)
+                            .join(', ')
+                    ) ||
+                    normalizeOptionalString(profile.address);
+
+                await query(
+                    `INSERT INTO companies (
+                        company_id,
+                        company_name,
+                        industry,
+                        location,
+                        description,
+                        website_url,
+                        logo_url
+                    )
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)
+                     ON CONFLICT (company_id) DO UPDATE SET
+                        company_name = EXCLUDED.company_name,
+                        industry = EXCLUDED.industry,
+                        location = EXCLUDED.location,
+                        description = EXCLUDED.description,
+                        website_url = EXCLUDED.website_url,
+                        logo_url = EXCLUDED.logo_url`,
+                    [
+                        userId,
+                        companyName,
+                        'Education / Institution',
+                        location,
+                        'Institution practical training opportunities',
+                        normalizeOptionalString(profile.website_url),
+                        normalizeOptionalString(profile.logo_url)
+                    ]
+                );
+            }
         }
 
         return this.findById(userId);
@@ -555,7 +777,11 @@ class UserModel {
     // Check if email exists
     static async emailExists(email) {
         const result = await query(
-            'SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1))',
+            `SELECT EXISTS(
+                SELECT 1
+                FROM users
+                WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
+            )`,
             [email]
         );
         return result.rows[0].exists;

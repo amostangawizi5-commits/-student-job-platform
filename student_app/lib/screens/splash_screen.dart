@@ -7,7 +7,7 @@ import '../utils/assets.dart';
 import '../utils/theme.dart';
 import 'admin/admin_dashboard.dart';
 import 'auth/login_screen.dart';
-import 'company/company_dashboard.dart';
+import 'organization/organization_dashboard.dart';
 import 'student/student_dashboard.dart';
 import 'university/university_dashboard.dart';
 
@@ -85,9 +85,9 @@ class _SplashScreenState extends State<SplashScreen>
     final nextScreen = await _resolveNextScreen();
     if (!mounted) return;
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => nextScreen),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (context) => nextScreen));
   }
 
   Future<Widget> _resolveNextScreen() async {
@@ -104,8 +104,8 @@ class _SplashScreenState extends State<SplashScreen>
       if (isStudentRole(role)) {
         return const StudentDashboard();
       }
-      if (role == 'company') {
-        return const CompanyDashboard();
+      if (isCompanyRole(role)) {
+        return const OrganizationDashboard();
       }
       if (role == 'university') {
         return const UniversityDashboard();
@@ -207,10 +207,7 @@ class _SplashScreenState extends State<SplashScreen>
                           duration: const Duration(milliseconds: 720),
                           curve: Curves.easeOutCubic,
                           builder: (context, value, child) {
-                            return Transform.scale(
-                              scale: value,
-                              child: child,
-                            );
+                            return Transform.scale(scale: value, child: child);
                           },
                           child: Image.asset(
                             AppAssets.splashLogo,

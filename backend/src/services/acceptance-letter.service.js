@@ -244,6 +244,42 @@ function appendFieldBox(
     return Math.min(boxY, nextY - 10);
 }
 
+function appendPlainField(
+    operations,
+    {
+        label,
+        value,
+        x,
+        y,
+        width,
+        labelSize = 9.6,
+        valueSize = 11.6,
+        lineHeight = 15,
+        gap = 8
+    }
+) {
+    operations.push(
+        createTextOperation({
+            text: label,
+            x,
+            y,
+            size: labelSize,
+            font: 'F2'
+        })
+    );
+
+    const nextY = appendWrappedText(operations, normalizeFieldValue(value), {
+        x,
+        y: y - 18,
+        maxWidth: width,
+        size: valueSize,
+        font: 'F1',
+        lineHeight
+    });
+
+    return nextY - gap;
+}
+
 function appendLabelValueRows(
     operations,
     rows,
@@ -766,27 +802,14 @@ async function buildAcceptanceLetterPdf({
         const fitted = fitInside({
             width: companyLogoImage.width,
             height: companyLogoImage.height,
-            maxWidth: 108,
-            maxHeight: 70
+            maxWidth: 118,
+            maxHeight: 74
         });
         imageAssets.push(companyLogoImage);
-        operations.push(
-            createFilledRectangleOperation(
-                PAGE_WIDTH - LEFT_MARGIN - 116,
-                headerLogoTopY - 8,
-                116,
-                78,
-                {
-                    fillColor: [0.992, 0.984, 0.953],
-                    strokeColor: [0.855, 0.812, 0.694],
-                    strokeWidth: 0.8
-                }
-            )
-        );
         operations.push(createImageOperation({
             name: companyLogoImage.name,
-            x: PAGE_WIDTH - LEFT_MARGIN - 58 - (fitted.width / 2),
-            y: headerLogoTopY + 4,
+            x: PAGE_WIDTH - LEFT_MARGIN - fitted.width,
+            y: headerLogoTopY + 2,
             width: fitted.width,
             height: fitted.height
         }));
@@ -844,7 +867,6 @@ async function buildAcceptanceLetterPdf({
         }
     );
 
-    operations.push(createLineOperation(LEFT_MARGIN - 6, y - 10, RIGHT_MARGIN + 6, y - 10, 1.2));
     y -= 34;
 
     operations.push(createCenteredTextOperation({
@@ -863,7 +885,7 @@ async function buildAcceptanceLetterPdf({
     }));
     y -= 28;
 
-    y = appendFieldBox(operations, {
+    y = appendPlainField(operations, {
         label: 'Name of Organization / Institution',
         value: organizationName,
         x: LEFT_MARGIN,
@@ -910,7 +932,7 @@ async function buildAcceptanceLetterPdf({
     );
     y -= 18;
 
-    y = appendFieldBox(operations, {
+    y = appendPlainField(operations, {
         label: 'Reporting Section / Department',
         value: sectionDepartment,
         x: LEFT_MARGIN,
@@ -949,7 +971,6 @@ async function buildAcceptanceLetterPdf({
             font: 'F2'
         })
     );
-    operations.push(createLineOperation(LEFT_MARGIN + 170, y - 2, RIGHT_MARGIN - 16, y - 2, 0.8));
     y -= 24;
 
     y = appendLabelValueRows(operations, signatureDetails, {

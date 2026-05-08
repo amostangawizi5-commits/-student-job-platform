@@ -73,7 +73,7 @@ const getUniversityStudentsOverview = async (req, res) => {
              FROM users u
              JOIN students s ON u.user_id = s.student_id
              LEFT JOIN universities uni ON s.university_id = uni.university_id
-             WHERE u.role IN ('student', 'graduate')
+             WHERE u.role IN ('student', '')
                AND (
                     ($1 <> '' AND s.university_id::text = $1)
                     OR (
@@ -137,10 +137,10 @@ const getUniversityPlacedStudents = async (req, res) => {
              FROM applications a
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON a.student_id = u.user_id
-             JOIN jobs j ON a.job_id = j.job_id
+             JOIN training j ON a.job_id = j.job_id
              JOIN companies c ON j.company_id = c.company_id
              LEFT JOIN universities uni ON s.university_id = uni.university_id
-             WHERE u.role IN ('student', 'graduate')
+             WHERE u.role IN ('student', '')
                AND a.status = 'accepted'
                AND (
                     ($1 <> '' AND s.university_id::text = $1)

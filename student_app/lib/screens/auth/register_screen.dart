@@ -1,14 +1,17 @@
 // lib/screens/auth/register_screen.dart
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/tanzania_locations.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
+import '../../utils/user_role.dart';
 import '../admin/admin_dashboard.dart';
-import '../company/company_dashboard.dart';
+import '../organization/organization_dashboard.dart';
 import '../student/student_dashboard.dart';
 import '../university/university_dashboard.dart';
 
@@ -23,7 +26,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _apiService = ApiService();
 
-  final _fullNameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _secondNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -31,6 +35,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   final _programController = TextEditingController();
   final _registrationNumberController = TextEditingController();
+  final _studentInstitutionController = TextEditingController();
   final _universityNameController = TextEditingController();
   final _collegeRegNoController = TextEditingController();
   final _collegeEmailController = TextEditingController();
@@ -39,15 +44,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _collegeRegionController = TextEditingController();
   final _collegeDistrictController = TextEditingController();
   final _collegeWebsiteController = TextEditingController();
-  final _coordinatorNameController = TextEditingController();
+  final _coordinatorFirstNameController = TextEditingController();
+  final _coordinatorSecondNameController = TextEditingController();
   final _coordinatorPhoneController = TextEditingController();
   final _coordinatorEmailController = TextEditingController();
   final _universityPasswordController = TextEditingController();
   final _universityConfirmPasswordController = TextEditingController();
 
-  final _companyNameController = TextEditingController();
-  final _companyLocationController = TextEditingController();
-  final _companyDescriptionController = TextEditingController();
+  final _organizationNameController = TextEditingController();
+  final _organizationLocationController = TextEditingController();
+  final _organizationTinController = TextEditingController();
+  final _organizationBrelaController = TextEditingController();
+  final _organizationBusinessLicenseController = TextEditingController();
+  final _organizationDepartmentController = TextEditingController();
+  final _organizationSectorController = TextEditingController();
 
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
@@ -62,39 +72,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _selectedUniversityId;
   String? _selectedCollegeUniversityId;
   int? _expectedGraduationYear;
-  String? _selectedIndustry;
-  String? _selectedCompanySize;
+  String? _selectedOrganizationSubtype;
+  String? _selectedGovernmentCategory;
   String? _selectedCollegeType;
+  String? _selectedCollegeRegion;
+  String? _selectedCollegeDistrict;
   String? _universitiesError;
+  String? _governmentError;
   PlatformFile? _selectedStudentIdFile;
   PlatformFile? _selectedCollegeLogoFile;
+  List<dynamic> _institutions = [];
   List<dynamic> _universities = [];
+  List<dynamic> _government = [];
 
-  final List<String> _industries = [
-    'Technology / Software Development',
-    'Banking / Finance',
-    'Telecommunications',
-    'Healthcare',
-    'Education',
-    'Manufacturing',
-    'Retail',
-    'Agriculture',
-    'Construction',
-    'Hospitality',
-    'Consulting',
-    'Other',
+  final List<Map<String, String>> _organizationSubtypes = const [
+    {'value': 'private_sector', 'label': 'Private Sector'},
+    {'value': 'government_sector', 'label': 'Government Sector'},
   ];
 
-  final List<String> _companySizes = [
-    '1-10',
-    '11-50',
-    '51-200',
-    '201-500',
-    '501-1000',
-    '1000+',
+  final List<String> _governmentSectorCategories = const [
+    'Ministry',
+    'Agency',
+    'Authority',
+    'Local Government',
+    'Public Institution',
   ];
 
   final List<String> _collegeTypes = ['TCU'];
+  final List<String> _institutionTypes = [
+    'Government Office',
+    'Regional Office',
+    'District Office',
+    'Council',
+    'Agency',
+    'Authority',
+    'Commission',
+    'Public Institution',
+  ];
 
   late final List<int> _studentExpectedYears = List<int>.generate(
     11,
@@ -109,13 +123,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _fullNameController.dispose();
+    _firstNameController.dispose();
+    _secondNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _programController.dispose();
     _registrationNumberController.dispose();
+    _studentInstitutionController.dispose();
     _universityNameController.dispose();
     _collegeRegNoController.dispose();
     _collegeEmailController.dispose();
@@ -124,14 +140,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _collegeRegionController.dispose();
     _collegeDistrictController.dispose();
     _collegeWebsiteController.dispose();
-    _coordinatorNameController.dispose();
+    _coordinatorFirstNameController.dispose();
+    _coordinatorSecondNameController.dispose();
     _coordinatorPhoneController.dispose();
     _coordinatorEmailController.dispose();
     _universityPasswordController.dispose();
     _universityConfirmPasswordController.dispose();
-    _companyNameController.dispose();
-    _companyLocationController.dispose();
-    _companyDescriptionController.dispose();
+    _organizationNameController.dispose();
+    _organizationLocationController.dispose();
+    _organizationTinController.dispose();
+    _organizationBrelaController.dispose();
+    _organizationBusinessLicenseController.dispose();
+    _organizationDepartmentController.dispose();
+    _organizationSectorController.dispose();
     super.dispose();
   }
 
@@ -139,10 +160,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final universitiesResponse = await _apiService.getUniversities(
-        forceRefresh: forceRefresh,
-      );
+      final responses = await Future.wait([
+        _apiService.get('/api/auth/', requiresAuth: false),
+        _apiService.getUniversities(forceRefresh: forceRefresh),
+        _apiService.getGovernment(forceRefresh: forceRefresh),
+      ]);
       if (!mounted) return;
+
+      final institutionsResponse = responses[0];
+      final universitiesResponse = responses[1];
+      final governmentResponse = responses[2];
+      final dynamic raw = institutionsResponse['data'];
+      List<dynamic> institutions = [];
+      if (raw is List) {
+        institutions = raw;
+      } else if (raw is Map && raw['institutions'] is List) {
+        institutions = raw['institutions'] as List<dynamic>;
+      }
 
       final dynamic rawUniversities = universitiesResponse['data'];
       List<dynamic> universities = [];
@@ -153,12 +187,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
         universities = rawUniversities['universities'] as List<dynamic>;
       }
 
+      final dynamic rawGovernment = governmentResponse['data'];
+      List<dynamic> government = [];
+      if (rawGovernment is List) {
+        government = rawGovernment;
+      } else if (rawGovernment is Map && rawGovernment['government'] is List) {
+        government = rawGovernment['government'] as List<dynamic>;
+      }
+
       setState(() {
+        _institutions = institutions;
         _universities = universities;
+        _government = government;
         _universitiesError = universities.isEmpty
             ? (universitiesResponse['message']?.toString() ??
                   context.read<LanguageProvider>().tr(
                     'no_universities_available_right_now',
+                  ))
+            : null;
+        _governmentError = government.isEmpty
+            ? (governmentResponse['message']?.toString() ??
+                  context.read<LanguageProvider>().tr(
+                    'no_government_offices_available_right_now',
                   ))
             : null;
         _isLoading = false;
@@ -171,6 +221,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           e,
           fallback: context.read<LanguageProvider>().tr(
             'no_universities_available_right_now',
+          ),
+        );
+        _governmentError = ApiService.normalizeErrorMessage(
+          e,
+          fallback: context.read<LanguageProvider>().tr(
+            'no_government_offices_available_right_now',
           ),
         );
       });
@@ -260,44 +316,416 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _resetRoleSelection() {
     setState(() {
       _selectedRole = null;
+      _selectedUniversityId = null;
+      _selectedOrganizationSubtype = null;
+      _selectedGovernmentCategory = null;
       _showStudentIdError = false;
       _showCollegeLogoError = false;
+      _selectedCollegeRegion = null;
+      _selectedCollegeDistrict = null;
+      _selectedCollegeUniversityId = null;
+      _studentInstitutionController.clear();
+      _organizationNameController.clear();
+      _organizationLocationController.clear();
+      _organizationTinController.clear();
+      _organizationBrelaController.clear();
+      _organizationBusinessLicenseController.clear();
+      _organizationDepartmentController.clear();
+      _organizationSectorController.clear();
+      _collegeRegionController.clear();
+      _collegeDistrictController.clear();
+      _universityNameController.clear();
     });
   }
 
-  Map<String, dynamic>? _findUniversityById(String? universityId) {
-    if (universityId == null || universityId.trim().isEmpty) {
+  Map<String, dynamic>? _findInstitutionById(
+    List<dynamic> institutions,
+    String? institutionId,
+  ) {
+    if (institutionId == null || institutionId.trim().isEmpty) {
       return null;
     }
 
-    for (final university in _universities) {
-      if (university is Map &&
-          university['university_id']?.toString() == universityId) {
-        return Map<String, dynamic>.from(university);
+    for (final institution in institutions) {
+      if (institution is Map &&
+          institution['university_id']?.toString() == institutionId) {
+        return Map<String, dynamic>.from(institution);
       }
     }
     return null;
   }
 
-  void _selectCollegeUniversity(String? universityId) {
-    final selectedUniversity = _findUniversityById(universityId);
+  void _selectInstitutionFromList(
+    String? institutionId,
+    List<dynamic> institutions,
+  ) {
+    final selectedInstitution = _findInstitutionById(
+      institutions,
+      institutionId,
+    );
     setState(() {
-      _selectedCollegeUniversityId = universityId;
+      _selectedCollegeUniversityId = institutionId;
       _universityNameController.text =
-          selectedUniversity?['name']?.toString() ?? '';
+          selectedInstitution?['name']?.toString() ?? '';
+    });
+  }
+
+  Map<String, dynamic>? _findInstitutionByName(
+    List<dynamic> institutions,
+    String? institutionName,
+  ) {
+    final normalizedName = institutionName?.trim().toLowerCase() ?? '';
+    if (normalizedName.isEmpty) {
+      return null;
+    }
+
+    for (final institution in institutions) {
+      if (institution is Map &&
+          institution['name']?.toString().trim().toLowerCase() ==
+              normalizedName) {
+        return Map<String, dynamic>.from(institution);
+      }
+    }
+    return null;
+  }
+
+  void _syncSelectedStudentInstitutionFromInput() {
+    final match = _findInstitutionByName(
+      _institutions,
+      _studentInstitutionController.text,
+    );
+    _selectedUniversityId = match?['university_id']?.toString();
+    if (match != null) {
+      _studentInstitutionController.text = match['name']?.toString() ?? '';
+    }
+  }
+
+  String _studentDisplayName() {
+    final parts = [
+      _firstNameController.text.trim(),
+      _secondNameController.text.trim(),
+    ].where((value) => value.isNotEmpty).toList(growable: false);
+    return parts.join(' ');
+  }
+
+  String _normalizeLocationText(Object? value) {
+    return '$value'.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  List<String> get _institutionRegions {
+    final regions = tanzaniaRegionDistricts.keys.toList(growable: false);
+    regions.sort();
+    return regions;
+  }
+
+  List<String> get _institutionDistricts {
+    final region = _selectedCollegeRegion;
+    if (region == null || region.trim().isEmpty) {
+      return const [];
+    }
+
+    final districts = List<String>.from(
+      tanzaniaRegionDistricts[region] ?? const <String>[],
+    );
+    districts.sort();
+    return districts;
+  }
+
+  bool get _isPrivateSectorOrganization =>
+      _selectedOrganizationSubtype == 'private_sector';
+
+  bool get _isGovernmentSectorOrganization =>
+      _selectedOrganizationSubtype == 'government_sector';
+
+  void _setOrganizationSubtype(String? subtype) {
+    setState(() {
+      _selectedOrganizationSubtype = subtype;
+
+      if (subtype == 'private_sector') {
+        _selectedGovernmentCategory = null;
+        _organizationDepartmentController.clear();
+        _organizationSectorController.clear();
+      } else if (subtype == 'government_sector') {
+        _organizationTinController.clear();
+        _organizationBrelaController.clear();
+        _organizationBusinessLicenseController.clear();
+      } else {
+        _selectedGovernmentCategory = null;
+        _organizationTinController.clear();
+        _organizationBrelaController.clear();
+        _organizationBusinessLicenseController.clear();
+        _organizationDepartmentController.clear();
+        _organizationSectorController.clear();
+      }
+    });
+  }
+
+  bool _isNationwideInstitutionLocation(Object? location) {
+    final normalized = _normalizeLocationText(location);
+    if (normalized.isEmpty) return false;
+
+    return normalized.contains('all regions') ||
+        normalized.contains('nationwide') ||
+        normalized.contains('all districts') ||
+        normalized.contains('all wards') ||
+        normalized.contains('all villages');
+  }
+
+  bool _isDistrictWideInstitutionLocation(Object? location) {
+    final normalized = _normalizeLocationText(location);
+    if (normalized.isEmpty) return false;
+
+    return normalized.contains('district councils') ||
+        normalized.contains('district hospitals') ||
+        normalized.contains('city councils') ||
+        normalized.contains('municipal councils') ||
+        normalized.contains('town councils');
+  }
+
+  String? _resolveRegionFromLocation(Object? location) {
+    final normalized = _normalizeLocationText(location);
+    if (normalized.isEmpty) return null;
+
+    for (final region in _institutionRegions) {
+      final normalizedRegion = _normalizeLocationText(region);
+      if (normalized == normalizedRegion ||
+          normalized.contains(normalizedRegion)) {
+        return region;
+      }
+
+      for (final district
+          in tanzaniaRegionDistricts[region] ?? const <String>[]) {
+        final normalizedDistrict = _normalizeLocationText(district);
+        if (normalized == normalizedDistrict ||
+            normalized.contains(normalizedDistrict)) {
+          return region;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  String? _resolveDistrictFromLocation(Object? location, String? region) {
+    final normalized = _normalizeLocationText(location);
+    if (normalized.isEmpty || region == null || region.trim().isEmpty) {
+      return null;
+    }
+
+    for (final district
+        in tanzaniaRegionDistricts[region] ?? const <String>[]) {
+      final normalizedDistrict = _normalizeLocationText(district);
+      if (normalized == normalizedDistrict ||
+          normalized.contains(normalizedDistrict)) {
+        return district;
+      }
+    }
+
+    return null;
+  }
+
+  bool _matchesInstitutionRegion(
+    Map<String, dynamic> institution,
+    String region,
+  ) {
+    final location = institution['location'];
+    if (_isNationwideInstitutionLocation(location)) {
+      return true;
+    }
+
+    final resolvedRegion = _resolveRegionFromLocation(location);
+    if (resolvedRegion != null) {
+      return resolvedRegion == region;
+    }
+
+    return _normalizeLocationText(
+      location,
+    ).contains(_normalizeLocationText(region));
+  }
+
+  bool _matchesInstitutionDistrict(
+    Map<String, dynamic> institution,
+    String district,
+  ) {
+    final location = institution['location'];
+    if (_isNationwideInstitutionLocation(location) ||
+        _isDistrictWideInstitutionLocation(location)) {
+      return true;
+    }
+
+    final resolvedDistrict = _resolveDistrictFromLocation(
+      location,
+      _selectedCollegeRegion,
+    );
+    if (resolvedDistrict != null) {
+      return resolvedDistrict == district;
+    }
+
+    return _normalizeLocationText(
+      location,
+    ).contains(_normalizeLocationText(district));
+  }
+
+  List<dynamic> get _filteredGovernment {
+    final region = _selectedCollegeRegion;
+    if (region == null || region.trim().isEmpty) {
+      return const [];
+    }
+
+    final district = _selectedCollegeDistrict;
+    final filtered = _government
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((institution) => _matchesInstitutionRegion(institution, region))
+        .where(
+          (institution) =>
+              district == null ||
+              district.trim().isEmpty ||
+              _matchesInstitutionDistrict(institution, district),
+        )
+        .toList(growable: false);
+
+    filtered.sort((left, right) {
+      int score(Map<String, dynamic> institution) {
+        var value = 0;
+        final location = institution['location'];
+        final resolvedRegion = _resolveRegionFromLocation(location);
+        final resolvedDistrict = _resolveDistrictFromLocation(
+          location,
+          _selectedCollegeRegion,
+        );
+
+        if (resolvedRegion == _selectedCollegeRegion) {
+          value += 4;
+        } else if (_isNationwideInstitutionLocation(location)) {
+          value += 1;
+        }
+
+        if (_selectedCollegeDistrict != null &&
+            _selectedCollegeDistrict!.trim().isNotEmpty) {
+          if (resolvedDistrict == _selectedCollegeDistrict) {
+            value += 4;
+          } else if (_isDistrictWideInstitutionLocation(location)) {
+            value += 1;
+          }
+        }
+
+        return value;
+      }
+
+      final scoreCompare = score(right).compareTo(score(left));
+      if (scoreCompare != 0) return scoreCompare;
+
+      return '${left['name']}'.toLowerCase().compareTo(
+        '${right['name']}'.toLowerCase(),
+      );
+    });
+
+    return filtered;
+  }
+
+  void _setCollegeRegion(String? region) {
+    setState(() {
+      _selectedCollegeRegion = region;
+      _collegeRegionController.text = region ?? '';
+      _selectedCollegeDistrict = null;
+      _collegeDistrictController.clear();
+      _selectedCollegeUniversityId = null;
+      _universityNameController.clear();
+    });
+  }
+
+  void _setCollegeDistrict(String? district) {
+    setState(() {
+      _selectedCollegeDistrict = district;
+      _collegeDistrictController.text = district ?? '';
+      _selectedCollegeUniversityId = null;
+      _universityNameController.clear();
     });
   }
 
   void _selectRole(String role) {
     setState(() {
       _selectedRole = role;
+      _selectedUniversityId = null;
+      _selectedOrganizationSubtype = null;
+      _selectedGovernmentCategory = null;
       _showStudentIdError = false;
       _showCollegeLogoError = false;
+      _selectedCollegeRegion = null;
+      _selectedCollegeDistrict = null;
+      _selectedCollegeUniversityId = null;
+      _selectedCollegeType = null;
+      _studentInstitutionController.clear();
+      _organizationNameController.clear();
+      _organizationLocationController.clear();
+      _organizationTinController.clear();
+      _organizationBrelaController.clear();
+      _organizationBusinessLicenseController.clear();
+      _organizationDepartmentController.clear();
+      _organizationSectorController.clear();
+      _collegeRegionController.clear();
+      _collegeDistrictController.clear();
+      _universityNameController.clear();
+      _coordinatorFirstNameController.clear();
+      _coordinatorSecondNameController.clear();
     });
   }
 
+  String _coordinatorDisplayName() {
+    return [
+      _coordinatorFirstNameController.text.trim(),
+      _coordinatorSecondNameController.text.trim(),
+    ].where((part) => part.isNotEmpty).join(' ');
+  }
+
+  bool get _isUniversityLikeRole =>
+      _selectedRole == 'university' || _selectedRole == 'institution';
+
+  String _accountRoleLabel(LanguageProvider language, String? role) {
+    switch (role) {
+      case 'student':
+        return language.tr('student');
+      case 'organization':
+        return 'Organization';
+      case 'institution':
+        return language.tr('other_institution');
+      case 'university':
+      default:
+        return language.tr('university');
+    }
+  }
+
+  String _accountSubtitle(LanguageProvider language) {
+    switch (_selectedRole) {
+      case 'student':
+        return language.tr('student_registration_subtitle');
+      case 'organization':
+        return ' ';
+      case 'institution':
+        return language.tr('institution_registration_subtitle');
+      case 'university':
+      default:
+        return language.tr('university_registration_subtitle');
+    }
+  }
+
+  String _detailSectionLabel(LanguageProvider language) {
+    switch (_selectedRole) {
+      case 'student':
+        return language.tr('student_details');
+      case 'organization':
+        return 'Organization Details';
+      case 'institution':
+        return language.tr('institution_details');
+      case 'university':
+      default:
+        return language.tr('university_details');
+    }
+  }
+
   void _showSnackBar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red : AppTheme.primaryBlue,
@@ -322,6 +750,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleRegister() async {
+    if (_selectedRole == 'student') {
+      _syncSelectedStudentInstitutionFromInput();
+    }
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -346,10 +778,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    if (_selectedRole == 'university' && _selectedCollegeLogoFile == null) {
+    if (_isUniversityLikeRole && _selectedCollegeLogoFile == null) {
       setState(() => _showCollegeLogoError = true);
       _showSnackBar(
-        context.read<LanguageProvider>().tr('upload_college_logo_required'),
+        context.read<LanguageProvider>().tr(
+          _selectedRole == 'institution'
+              ? 'upload_institution_logo_required'
+              : 'upload_college_logo_required',
+        ),
         isError: true,
       );
       return;
@@ -357,37 +793,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isSubmitting = true);
 
-    final userData = <String, dynamic>{'role': _selectedRole};
+    final userData = <String, dynamic>{
+      'role': _selectedRole == 'institution' ? 'university' : _selectedRole,
+    };
 
     if (_selectedRole == 'student') {
+      final studentName = _studentDisplayName();
       userData.addAll({
         'email': _emailController.text.trim(),
         'password': _passwordController.text,
-        'full_name': _fullNameController.text.trim(),
+        'first_name': _firstNameController.text.trim(),
+        'second_name': _secondNameController.text.trim(),
+        'full_name': studentName,
         'phone': _phoneController.text.trim(),
       });
       userData.addAll({
         'university_id': _selectedUniversityId,
+        'institution_name': _studentInstitutionController.text.trim(),
         'program': _programController.text.trim(),
         'student_type': 'current',
         'expected_graduation_year': _expectedGraduationYear,
         'registration_number': _registrationNumberController.text.trim(),
       });
-    } else if (_selectedRole == 'company') {
+    } else if (_selectedRole == 'organization') {
+      final organizationName = _organizationNameController.text.trim();
       userData.addAll({
         'email': _emailController.text.trim(),
         'password': _passwordController.text,
-        'full_name': _fullNameController.text.trim(),
+        'full_name': organizationName,
         'phone': _phoneController.text.trim(),
       });
       userData.addAll({
-        'company_name': _companyNameController.text.trim(),
-        'industry': _selectedIndustry,
-        'company_size': _selectedCompanySize,
-        'location': _companyLocationController.text.trim(),
-        'description': _companyDescriptionController.text.trim(),
+        'organization_name': organizationName,
+        'organization_subtype': _selectedOrganizationSubtype,
+        'government_category': _selectedGovernmentCategory,
+        'tin_number': _organizationTinController.text.trim(),
+        'brela_number': _organizationBrelaController.text.trim(),
+        'business_license_number': _organizationBusinessLicenseController.text
+            .trim(),
+        'department': _organizationDepartmentController.text.trim(),
+        'sector': _organizationSectorController.text.trim(),
+        'location': _organizationLocationController.text.trim(),
       });
-    } else if (_selectedRole == 'university') {
+    } else if (_isUniversityLikeRole) {
+      final coordinatorName = _coordinatorDisplayName();
       userData.addAll({
         'email': _collegeEmailController.text.trim(),
         'password': _universityPasswordController.text,
@@ -403,7 +852,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'district': _collegeDistrictController.text.trim(),
         'website_url': _collegeWebsiteController.text.trim(),
         'college_type': _selectedCollegeType,
-        'coordinator_name': _coordinatorNameController.text.trim(),
+        'coordinator_name': coordinatorName,
         'coordinator_phone': _coordinatorPhoneController.text.trim(),
         'coordinator_email': _coordinatorEmailController.text.trim(),
       });
@@ -501,10 +950,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   void _showSuccessDialog(AuthProvider authProvider) {
     final language = context.read<LanguageProvider>();
-    final displayName = _selectedRole == 'university'
+    final displayName = _isUniversityLikeRole
         ? _universityNameController.text.trim()
-        : _fullNameController.text.trim();
-    final displayEmail = _selectedRole == 'university'
+        : _selectedRole == 'student'
+        ? _studentDisplayName()
+        : _organizationNameController.text.trim();
+    final displayEmail = _isUniversityLikeRole
         ? _collegeEmailController.text.trim()
         : _emailController.text.trim();
 
@@ -629,9 +1080,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
-                    final role = authProvider.user?['role'];
+                    final role = normalizeUserRole(authProvider.user?['role']);
 
-                    if (role == 'student' || role == 'graduate') {
+                    if (isStudentRole(role)) {
                       Navigator.pushAndRemoveUntil(
                         context,
                         MaterialPageRoute(
@@ -639,11 +1090,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         (route) => false,
                       );
-                    } else if (role == 'company') {
+                    } else if (isCompanyRole(role)) {
                       Navigator.pushAndRemoveUntil(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const CompanyDashboard(),
+                          builder: (_) => const OrganizationDashboard(),
                         ),
                         (route) => false,
                       );
@@ -681,11 +1132,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                language.tr('next_create_app_pin'),
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
               ),
             ],
           ),
@@ -755,11 +1201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         Text(
           language.tr('empowering_tanzanian_youth'),
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 10,
-            fontStyle: FontStyle.italic,
-            color: Color(0xFF888888),
-          ),
+          style: const TextStyle(fontSize: 10, color: Color(0xFF888888)),
         ),
       ],
     );
@@ -772,8 +1214,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onTap: () => _selectRole('student'),
       ),
       _RoleCardData(
-        title: language.tr('company'),
-        onTap: () => _selectRole('company'),
+        title: 'Organization',
+        onTap: () => _selectRole('organization'),
       ),
       _RoleCardData(
         title: language.tr('university'),
@@ -831,27 +1273,217 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Widget _buildOrganizationTypeField() {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedOrganizationSubtype,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: 'Organization Type',
+        prefixIcon: const Icon(Icons.account_tree_outlined),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      items: _organizationSubtypes.map((subtype) {
+        return DropdownMenuItem<String>(
+          value: subtype['value'],
+          child: Text(subtype['label'] ?? ''),
+        );
+      }).toList(),
+      onChanged: _setOrganizationSubtype,
+      validator: (value) {
+        if (_selectedRole != 'organization') {
+          return null;
+        }
+        return value == null ? 'Please select organization type' : null;
+      },
+    );
+  }
+
   Widget _buildCommonFields(LanguageProvider language, bool isDesktop) {
-    final children = [
+    final isGovernmentOrganization = _isGovernmentSectorOrganization;
+    final children = <_ResponsiveField>[
       _ResponsiveField(
         child: TextFormField(
-          controller: _fullNameController,
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            labelText: language.tr('full_name'),
-            prefixIcon: const Icon(Icons.person_outline),
+            labelText: isGovernmentOrganization
+                ? 'Official Email'
+                : 'Email Address',
+            prefixIcon: const Icon(Icons.email_outlined),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
-              return language.tr('full_name_required');
+              return isGovernmentOrganization
+                  ? 'Official email is required'
+                  : 'Email address is required';
             }
-            if (value.trim().length < 3) {
-              return language.tr('full_name_min_3');
+            if (!value.contains('@')) {
+              return language.tr('email_must_contain_at');
+            }
+            if (!value.contains('.')) {
+              return language.tr('email_must_contain_domain');
+            }
+            if (!RegExp(
+              r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
+            ).hasMatch(value)) {
+              return language.tr('enter_valid_email_address');
             }
             return null;
           },
         ),
       ),
+      _ResponsiveField(
+        child: TextFormField(
+          controller: _phoneController,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+            labelText: 'Phone Number',
+            prefixIcon: const Icon(Icons.phone_outlined),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            hintText: language.tr('phone_hint_tz'),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return language.tr('phone_number_required');
+            }
+            final phone = value.replaceAll(RegExp(r'[\s\-]'), '');
+            if (!RegExp(r'^(0|\+255)[0-9]{9}$').hasMatch(phone)) {
+              return language.tr('enter_valid_tanzanian_phone');
+            }
+            return null;
+          },
+        ),
+      ),
+      _ResponsiveField(
+        child: TextFormField(
+          controller: _passwordController,
+          obscureText: !_isPasswordVisible,
+          decoration: InputDecoration(
+            labelText: language.tr('password'),
+            prefixIcon: const Icon(Icons.lock_outline),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _isPasswordVisible ? Icons.visibility_off : Icons.visibility,
+                color: AppTheme.textLight,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isPasswordVisible = !_isPasswordVisible;
+                });
+              },
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            helperText: language.tr('password_helper'),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return language.tr('password_required');
+            }
+            if (value.length < 8) {
+              return language.tr('password_min_8');
+            }
+            if (!RegExp(r'[A-Z]').hasMatch(value)) {
+              return language.tr('password_uppercase_required');
+            }
+            if (!RegExp(r'[a-z]').hasMatch(value)) {
+              return language.tr('password_lowercase_required');
+            }
+            if (!RegExp(r'[0-9]').hasMatch(value)) {
+              return language.tr('password_number_required');
+            }
+            return null;
+          },
+        ),
+      ),
+      _ResponsiveField(
+        child: TextFormField(
+          controller: _confirmPasswordController,
+          obscureText: !_isConfirmPasswordVisible,
+          decoration: InputDecoration(
+            labelText: language.tr('confirm_password'),
+            prefixIcon: const Icon(Icons.lock_outline),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _isConfirmPasswordVisible
+                    ? Icons.visibility_off
+                    : Icons.visibility,
+                color: AppTheme.textLight,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+                });
+              },
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return language.tr('please_confirm_password');
+            }
+            if (value != _passwordController.text) {
+              return language.tr('passwords_do_not_match');
+            }
+            return null;
+          },
+        ),
+      ),
+    ];
+
+    return _buildResponsiveFields(children, isDesktop: isDesktop);
+  }
+
+  Widget _buildStudentBasicFields(LanguageProvider language, bool isDesktop) {
+    final children = [
+      _ResponsiveField(
+        child: TextFormField(
+          controller: _firstNameController,
+          decoration: InputDecoration(
+            labelText: language.tr('first_name'),
+            prefixIcon: const Icon(Icons.person_outline),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return language.tr('first_name_required');
+            }
+            if (value.trim().length < 2) {
+              return language.tr('first_name_min_2');
+            }
+            return null;
+          },
+        ),
+      ),
+      _ResponsiveField(
+        child: TextFormField(
+          controller: _secondNameController,
+          decoration: InputDecoration(
+            labelText: language.tr('second_name'),
+            prefixIcon: const Icon(Icons.badge_outlined),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return language.tr('second_name_required');
+            }
+            if (value.trim().length < 2) {
+              return language.tr('second_name_min_2');
+            }
+            return null;
+          },
+        ),
+      ),
+      ..._buildBasicContactAndPasswordFields(language),
+    ];
+
+    return _buildResponsiveFields(children, isDesktop: isDesktop);
+  }
+
+  List<_ResponsiveField> _buildBasicContactAndPasswordFields(
+    LanguageProvider language,
+  ) {
+    return [
       _ResponsiveField(
         child: TextFormField(
           controller: _emailController,
@@ -977,84 +1609,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     ];
-
-    return _buildResponsiveFields(children, isDesktop: isDesktop);
   }
 
   Widget _buildStudentFields(LanguageProvider language, bool isDesktop) {
     final children = [
-      _ResponsiveField(
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: DropdownButtonFormField<String>(
-            initialValue: _selectedUniversityId,
-            decoration: InputDecoration(
-              labelText: language.tr('university'),
-              prefixIcon: const Icon(Icons.school_outlined),
-              suffixIcon: _isLoading
-                  ? const Padding(
-                      padding: EdgeInsets.all(10),
-                      child: SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : (_universitiesError != null
-                        ? IconButton(
-                            tooltip: language.tr('retry_loading_universities'),
-                            icon: const Icon(Icons.refresh),
-                            onPressed: () => _loadData(forceRefresh: true),
-                          )
-                        : null),
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 14,
-              ),
-            ),
-            hint: Text(language.tr('select_your_university')),
-            isExpanded: true,
-            items: _universities.isEmpty
-                ? [
-                    DropdownMenuItem<String>(
-                      value: null,
-                      child: Text(
-                        _isLoading
-                            ? language.tr('loading_universities')
-                            : language.tr('tap_refresh_to_load_universities'),
-                      ),
-                    ),
-                  ]
-                : _universities.map<DropdownMenuItem<String>>((uni) {
-                    return DropdownMenuItem<String>(
-                      value: uni['university_id'].toString(),
-                      child: Text(
-                        '${uni['name']}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-            onChanged: _universities.isEmpty
-                ? null
-                : (value) {
-                    setState(() => _selectedUniversityId = value);
-                  },
-            validator: (value) {
-              if (_universities.isEmpty) {
-                return language.tr('universities_unavailable_refresh');
-              }
-              return value == null
-                  ? language.tr('please_select_university')
-                  : null;
-            },
-          ),
-        ),
-      ),
+      _ResponsiveField(child: _buildStudentearchField(language)),
       _ResponsiveField(
         child: TextFormField(
           controller: _programController,
@@ -1123,6 +1682,80 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Widget _buildStudentearchField(LanguageProvider language) {
+    final universityOptions = _universities
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedUniversityId,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: language.tr('university'),
+        hintText: language.tr('select_your_university'),
+        prefixIcon: const Icon(Icons.school_outlined),
+        suffixIcon: _isLoading
+            ? const Padding(
+                padding: EdgeInsets.all(10),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : (_universitiesError != null
+                  ? IconButton(
+                      tooltip: language.tr('retry_loading_universities'),
+                      icon: const Icon(Icons.refresh),
+                      onPressed: () => _loadData(forceRefresh: true),
+                    )
+                  : null),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        helperText: _universitiesError,
+      ),
+      items: universityOptions.map((university) {
+        final universityId = university['university_id']?.toString();
+        final location = '${university['location'] ?? ''}'.trim();
+        final name = '${university['name'] ?? ''}'.trim();
+
+        return DropdownMenuItem<String>(
+          value: universityId,
+          child: Text(
+            location.isNotEmpty ? '$name • $location' : name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      }).toList(),
+      onChanged: universityOptions.isEmpty
+          ? null
+          : (value) {
+              final selected = universityOptions
+                  .cast<Map<String, dynamic>?>()
+                  .firstWhere(
+                    (item) => item?['university_id']?.toString() == value,
+                    orElse: () => null,
+                  );
+
+              setState(() {
+                _selectedUniversityId = value;
+                _studentInstitutionController.text =
+                    selected?['name']?.toString() ?? '';
+              });
+            },
+      validator: (value) {
+        if (universityOptions.isEmpty) {
+          return language.tr('universities_unavailable_refresh');
+        }
+        if (value == null || value.trim().isEmpty) {
+          return language.tr('please_select_university');
+        }
+        return null;
+      },
+    );
+  }
+
   Widget _buildStudentIdUploader(LanguageProvider language) {
     return _buildUploadCard(
       title: language.tr('identification_card'),
@@ -1136,22 +1769,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         setState(() => _selectedStudentIdFile = null);
       },
       icon: Icons.badge_outlined,
-    );
-  }
-
-  Widget _buildCollegeLogoUploader(LanguageProvider language) {
-    return _buildUploadCard(
-      title: language.tr('college_logo'),
-      hint: language.tr('upload_college_logo_hint'),
-      buttonLabel: language.tr('upload_college_logo'),
-      file: _selectedCollegeLogoFile,
-      hasError: _showCollegeLogoError,
-      errorText: language.tr('upload_college_logo_required'),
-      onPick: _pickCollegeLogo,
-      onClear: () {
-        setState(() => _selectedCollegeLogoFile = null);
-      },
-      icon: Icons.image_outlined,
     );
   }
 
@@ -1258,112 +1875,324 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildCompanyFields(LanguageProvider language, bool isDesktop) {
+  Widget _buildOrganizationNameField() {
+    return TextFormField(
+      controller: _organizationNameController,
+      decoration: InputDecoration(
+        labelText: 'Organization Name',
+        hintText: 'Enter organization name',
+        prefixIcon: const Icon(Icons.business_outlined),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      validator: (value) {
+        return value?.trim().isEmpty ?? true
+            ? 'Organization name is required'
+            : null;
+      },
+    );
+  }
+
+  Widget _buildOrganizationFields(LanguageProvider language, bool isDesktop) {
     return _buildResponsiveFields([
-      _ResponsiveField(
-        child: TextFormField(
-          controller: _companyNameController,
-          decoration: InputDecoration(
-            labelText: language.tr('company_name'),
-            prefixIcon: const Icon(Icons.business_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          validator: (value) {
-            return value?.isEmpty ?? true
-                ? language.tr('company_name_required')
-                : null;
-          },
-        ),
-      ),
-      _ResponsiveField(
-        child: DropdownButtonFormField<String>(
-          initialValue: _selectedIndustry,
-          isExpanded: true,
-          decoration: InputDecoration(
-            labelText: language.tr('industry'),
-            prefixIcon: const Icon(Icons.factory_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          items: _industries.map((industry) {
-            return DropdownMenuItem<String>(
-              value: industry,
-              child: Text(
-                industry,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+      _ResponsiveField(child: _buildOrganizationNameField()),
+      if (_isPrivateSectorOrganization)
+        _ResponsiveField(
+          child: TextFormField(
+            controller: _organizationBrelaController,
+            decoration: InputDecoration(
+              labelText: 'BRELA Number',
+              prefixIcon: const Icon(Icons.verified_user_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-            );
-          }).toList(),
-          onChanged: (value) {
-            setState(() => _selectedIndustry = value);
-          },
-          validator: (value) {
-            return value == null ? language.tr('please_select_industry') : null;
-          },
-        ),
-      ),
-      _ResponsiveField(
-        child: DropdownButtonFormField<String>(
-          initialValue: _selectedCompanySize,
-          isExpanded: true,
-          decoration: InputDecoration(
-            labelText: language.tr('company_size'),
-            prefixIcon: const Icon(Icons.people_outline),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            validator: (value) {
+              return value?.trim().isEmpty ?? true
+                  ? 'BRELA number is required'
+                  : null;
+            },
           ),
-          items: _companySizes.map((size) {
-            return DropdownMenuItem<String>(
-              value: size,
-              child: Text(language.tr('employees_count', {'size': size})),
-            );
-          }).toList(),
-          onChanged: (value) {
-            setState(() => _selectedCompanySize = value);
-          },
-          validator: (value) {
-            return value == null
-                ? language.tr('please_select_company_size')
-                : null;
-          },
         ),
-      ),
+      if (_isPrivateSectorOrganization)
+        _ResponsiveField(
+          child: TextFormField(
+            controller: _organizationTinController,
+            decoration: InputDecoration(
+              labelText: 'TIN Number',
+              prefixIcon: const Icon(Icons.badge_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            validator: (value) {
+              return value?.trim().isEmpty ?? true
+                  ? 'TIN number is required'
+                  : null;
+            },
+          ),
+        ),
+      if (_isPrivateSectorOrganization)
+        _ResponsiveField(
+          child: TextFormField(
+            controller: _organizationBusinessLicenseController,
+            decoration: InputDecoration(
+              labelText: 'Business License Number',
+              prefixIcon: const Icon(Icons.workspace_premium_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            validator: (value) {
+              return value?.trim().isEmpty ?? true
+                  ? 'Business license number is required'
+                  : null;
+            },
+          ),
+        ),
+      if (_isGovernmentSectorOrganization)
+        _ResponsiveField(
+          child: DropdownButtonFormField<String>(
+            initialValue: _selectedGovernmentCategory,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Category',
+              prefixIcon: const Icon(Icons.account_balance_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            items: _governmentSectorCategories.map((category) {
+              return DropdownMenuItem<String>(
+                value: category,
+                child: Text(category, overflow: TextOverflow.ellipsis),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() => _selectedGovernmentCategory = value);
+            },
+            validator: (value) {
+              return value == null ? 'Please select category' : null;
+            },
+          ),
+        ),
+      if (_isGovernmentSectorOrganization)
+        _ResponsiveField(
+          child: TextFormField(
+            controller: _organizationDepartmentController,
+            decoration: InputDecoration(
+              labelText: 'Department',
+              prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            validator: (value) {
+              return value?.trim().isEmpty ?? true
+                  ? 'Department is required'
+                  : null;
+            },
+          ),
+        ),
+      if (_isGovernmentSectorOrganization)
+        _ResponsiveField(
+          child: TextFormField(
+            controller: _organizationSectorController,
+            decoration: InputDecoration(
+              labelText: 'Sector',
+              prefixIcon: const Icon(Icons.domain_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            validator: (value) {
+              return value?.trim().isEmpty ?? true
+                  ? 'Sector is required'
+                  : null;
+            },
+          ),
+        ),
       _ResponsiveField(
+        fullWidth: true,
         child: TextFormField(
-          controller: _companyLocationController,
+          controller: _organizationLocationController,
+          maxLines: 2,
           decoration: InputDecoration(
-            labelText: language.tr('location'),
+            labelText: 'Physical Address',
             prefixIcon: const Icon(Icons.location_on_outlined),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
-            return value?.isEmpty ?? true
-                ? language.tr('location_required')
+            return value?.trim().isEmpty ?? true
+                ? 'Physical address is required'
                 : null;
           },
-        ),
-      ),
-      _ResponsiveField(
-        fullWidth: true,
-        child: TextFormField(
-          controller: _companyDescriptionController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            labelText: language.tr('company_description'),
-            prefixIcon: const Icon(Icons.description_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
         ),
       ),
     ], isDesktop: isDesktop);
   }
 
   Widget _buildUniversityFields(LanguageProvider language, bool isDesktop) {
+    final isGovernmentInstitution = _selectedRole == 'institution';
+    final institutions = isGovernmentInstitution
+        ? _filteredGovernment
+        : _universities;
+    final institutionError = isGovernmentInstitution
+        ? _governmentError
+        : _universitiesError;
+    final sectionTitle = isGovernmentInstitution
+        ? language.tr('government_office_information')
+        : language.tr('college_information');
+    final nameLabel = isGovernmentInstitution
+        ? language.tr('government_office')
+        : language.tr('college_name');
+    final nameHint = isGovernmentInstitution
+        ? (_selectedCollegeRegion == null
+              ? language.tr('select_region_first')
+              : (_selectedCollegeDistrict == null
+                    ? language.tr('select_district_first')
+                    : language.tr('select_government_office')))
+        : language.tr('select_your_university');
+    final loadingLabel = isGovernmentInstitution
+        ? language.tr('loading_government_offices')
+        : language.tr('loading_universities');
+    final tapRefreshLabel = isGovernmentInstitution
+        ? language.tr('tap_refresh_to_load_government_offices')
+        : language.tr('tap_refresh_to_load_universities');
+    final unavailableLabel = isGovernmentInstitution
+        ? language.tr('government_offices_unavailable_refresh')
+        : language.tr('universities_unavailable_refresh');
+    final selectionRequiredLabel = isGovernmentInstitution
+        ? language.tr('please_select_government_office')
+        : language.tr('please_select_university');
+    final regNoLabel = isGovernmentInstitution
+        ? language.tr('institution_reg_no')
+        : language.tr('college_reg_no');
+    final regNoRequired = isGovernmentInstitution
+        ? language.tr('institution_reg_no_required')
+        : language.tr('college_reg_no_required');
+    final emailLabel = isGovernmentInstitution
+        ? language.tr('institution_email')
+        : language.tr('college_email');
+    final emailRequired = isGovernmentInstitution
+        ? language.tr('institution_email_required')
+        : language.tr('college_email_required');
+    final phoneLabel = isGovernmentInstitution
+        ? language.tr('institution_phone')
+        : language.tr('college_phone');
+    final phoneRequired = isGovernmentInstitution
+        ? language.tr('institution_phone_required')
+        : language.tr('college_phone_required');
+    final addressLabel = isGovernmentInstitution
+        ? language.tr('institution_address')
+        : language.tr('college_address');
+    final addressRequired = isGovernmentInstitution
+        ? language.tr('institution_address_required')
+        : language.tr('college_address_required');
+    final regionLabel = isGovernmentInstitution
+        ? language.tr('institution_region')
+        : language.tr('college_region');
+    final regionRequired = isGovernmentInstitution
+        ? language.tr('institution_region_required')
+        : language.tr('college_region_required');
+    final districtLabel = isGovernmentInstitution
+        ? language.tr('institution_district')
+        : language.tr('college_district');
+    final districtRequired = isGovernmentInstitution
+        ? language.tr('institution_district_required')
+        : language.tr('college_district_required');
+    final districtHint = isGovernmentInstitution
+        ? (_selectedCollegeRegion == null
+              ? language.tr('select_region_first')
+              : language.tr('select_institution_district'))
+        : language.tr('select_college_district');
+    final regionHint = isGovernmentInstitution
+        ? language.tr('select_institution_region')
+        : language.tr('select_college_region');
+    final websiteLabel = isGovernmentInstitution
+        ? language.tr('institution_website')
+        : language.tr('college_website');
+    final typeLabel = isGovernmentInstitution
+        ? language.tr('institution_type')
+        : language.tr('college_type');
+    final typeRequired = isGovernmentInstitution
+        ? language.tr('institution_type_required')
+        : language.tr('college_type_required');
+    final typeOptions = isGovernmentInstitution
+        ? _institutionTypes
+        : _collegeTypes;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildSectionTitle(language.tr('college_information')),
+        _buildSectionTitle(sectionTitle),
         const SizedBox(height: 12),
         _buildResponsiveFields([
+          if (isGovernmentInstitution)
+            _ResponsiveField(
+              child: DropdownButtonFormField<String>(
+                initialValue: _selectedCollegeRegion,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: regionLabel,
+                  hintText: regionHint,
+                  prefixIcon: const Icon(Icons.map_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                items: _institutionRegions
+                    .map(
+                      (region) => DropdownMenuItem<String>(
+                        value: region,
+                        child: Text(region),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => _setCollegeRegion(value),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return regionRequired;
+                  }
+                  return null;
+                },
+              ),
+            ),
+          if (isGovernmentInstitution)
+            _ResponsiveField(
+              child: DropdownButtonFormField<String>(
+                initialValue: _selectedCollegeDistrict,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: districtLabel,
+                  hintText: districtHint,
+                  prefixIcon: const Icon(Icons.place_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                items: _institutionDistricts
+                    .map(
+                      (district) => DropdownMenuItem<String>(
+                        value: district,
+                        child: Text(
+                          district,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _selectedCollegeRegion == null
+                    ? null
+                    : (value) => _setCollegeDistrict(value),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return districtRequired;
+                  }
+                  return null;
+                },
+              ),
+            ),
           _ResponsiveField(
             child: Container(
               decoration: BoxDecoration(
@@ -1373,7 +2202,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: DropdownButtonFormField<String>(
                 initialValue: _selectedCollegeUniversityId,
                 decoration: InputDecoration(
-                  labelText: language.tr('college_name'),
+                  labelText: nameLabel,
                   prefixIcon: const Icon(Icons.account_balance_outlined),
                   suffixIcon: _isLoading
                       ? const Padding(
@@ -1384,11 +2213,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
-                      : (_universitiesError != null
+                      : (institutionError != null
                             ? IconButton(
-                                tooltip: language.tr(
-                                  'retry_loading_universities',
-                                ),
+                                tooltip: isGovernmentInstitution
+                                    ? language.tr(
+                                        'retry_loading_government_offices',
+                                      )
+                                    : language.tr('retry_loading_universities'),
                                 icon: const Icon(Icons.refresh),
                                 onPressed: () => _loadData(forceRefresh: true),
                               )
@@ -1399,43 +2230,60 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     vertical: 14,
                   ),
                 ),
-                hint: Text(language.tr('select_your_university')),
+                hint: Text(nameHint),
                 isExpanded: true,
-                items: _universities.isEmpty
+                items: institutions.isEmpty
                     ? [
                         DropdownMenuItem<String>(
                           value: null,
                           child: Text(
                             _isLoading
-                                ? language.tr('loading_universities')
-                                : language.tr(
-                                    'tap_refresh_to_load_universities',
-                                  ),
+                                ? loadingLabel
+                                : isGovernmentInstitution
+                                ? (_selectedCollegeRegion == null
+                                      ? language.tr('select_region_first')
+                                      : (_selectedCollegeDistrict == null
+                                            ? language.tr(
+                                                'select_district_first',
+                                              )
+                                            : language.tr(
+                                                'no_government_offices_match_selected_location',
+                                              )))
+                                : tapRefreshLabel,
                           ),
                         ),
                       ]
-                    : _universities.map<DropdownMenuItem<String>>((uni) {
+                    : institutions.map<DropdownMenuItem<String>>((uni) {
                         return DropdownMenuItem<String>(
                           value: uni['university_id'].toString(),
                           child: Text(
-                            '${uni['name']}',
+                            isGovernmentInstitution &&
+                                    '${uni['location'] ?? ''}'.trim().isNotEmpty
+                                ? '${uni['name']} • ${uni['location']}'
+                                : '${uni['name']}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         );
                       }).toList(),
-                onChanged: _universities.isEmpty
+                onChanged: institutions.isEmpty
                     ? null
                     : (value) {
-                        _selectCollegeUniversity(value);
+                        _selectInstitutionFromList(value, institutions);
                       },
                 validator: (value) {
-                  if (_universities.isEmpty) {
-                    return language.tr('universities_unavailable_refresh');
+                  if (institutions.isEmpty) {
+                    return isGovernmentInstitution
+                        ? (_selectedCollegeRegion == null
+                              ? regionRequired
+                              : (_selectedCollegeDistrict == null
+                                    ? districtRequired
+                                    : language.tr(
+                                        'no_government_offices_match_selected_location',
+                                      )))
+                        : unavailableLabel;
                   }
-                  return value == null
-                      ? language.tr('college_name_required')
-                      : null;
+                  return value == null ? selectionRequiredLabel : null;
                 },
               ),
             ),
@@ -1443,7 +2291,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           _ResponsiveField(
             child: TextFormField(
               decoration: InputDecoration(
-                labelText: language.tr('college_reg_no'),
+                labelText: regNoLabel,
                 prefixIcon: const Icon(Icons.badge_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1452,7 +2300,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               controller: _collegeRegNoController,
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return language.tr('college_reg_no_required');
+                  return regNoRequired;
                 }
                 return null;
               },
@@ -1463,7 +2311,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               controller: _collegeEmailController,
               keyboardType: TextInputType.emailAddress,
               decoration: InputDecoration(
-                labelText: language.tr('college_email'),
+                labelText: emailLabel,
                 prefixIcon: const Icon(Icons.email_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1471,7 +2319,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return language.tr('college_email_required');
+                  return emailRequired;
                 }
                 if (!RegExp(
                   r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
@@ -1487,7 +2335,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               controller: _collegePhoneController,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: language.tr('college_phone'),
+                labelText: phoneLabel,
                 prefixIcon: const Icon(Icons.phone_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1495,7 +2343,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return language.tr('college_phone_required');
+                  return phoneRequired;
                 }
                 return null;
               },
@@ -1506,7 +2354,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: TextFormField(
               controller: _collegeAddressController,
               decoration: InputDecoration(
-                labelText: language.tr('college_address'),
+                labelText: addressLabel,
                 prefixIcon: const Icon(Icons.location_on_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1514,54 +2362,84 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return language.tr('college_address_required');
+                  return addressRequired;
                 }
                 return null;
               },
             ),
           ),
-          _ResponsiveField(
-            child: TextFormField(
-              controller: _collegeRegionController,
-              decoration: InputDecoration(
-                labelText: language.tr('college_region'),
-                prefixIcon: const Icon(Icons.map_outlined),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+          if (!isGovernmentInstitution)
+            _ResponsiveField(
+              child: DropdownButtonFormField<String>(
+                initialValue: _selectedCollegeRegion,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: regionLabel,
+                  hintText: regionHint,
+                  prefixIcon: const Icon(Icons.map_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
+                items: _institutionRegions
+                    .map(
+                      (region) => DropdownMenuItem<String>(
+                        value: region,
+                        child: Text(region),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => _setCollegeRegion(value),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return regionRequired;
+                  }
+                  return null;
+                },
               ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return language.tr('college_region_required');
-                }
-                return null;
-              },
             ),
-          ),
-          _ResponsiveField(
-            child: TextFormField(
-              controller: _collegeDistrictController,
-              decoration: InputDecoration(
-                labelText: language.tr('college_district'),
-                prefixIcon: const Icon(Icons.place_outlined),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+          if (!isGovernmentInstitution)
+            _ResponsiveField(
+              child: DropdownButtonFormField<String>(
+                initialValue: _selectedCollegeDistrict,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: districtLabel,
+                  hintText: districtHint,
+                  prefixIcon: const Icon(Icons.place_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
+                items: _institutionDistricts
+                    .map(
+                      (district) => DropdownMenuItem<String>(
+                        value: district,
+                        child: Text(
+                          district,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _selectedCollegeRegion == null
+                    ? null
+                    : (value) => _setCollegeDistrict(value),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return districtRequired;
+                  }
+                  return null;
+                },
               ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return language.tr('college_district_required');
-                }
-                return null;
-              },
             ),
-          ),
           _ResponsiveField(
             child: TextFormField(
               controller: _collegeWebsiteController,
               keyboardType: TextInputType.url,
               decoration: InputDecoration(
-                labelText: language.tr('college_website'),
+                labelText: websiteLabel,
                 prefixIcon: const Icon(Icons.language_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1574,37 +2452,66 @@ class _RegisterScreenState extends State<RegisterScreen> {
               initialValue: _selectedCollegeType,
               isExpanded: true,
               decoration: InputDecoration(
-                labelText: language.tr('college_type'),
+                labelText: typeLabel,
                 prefixIcon: const Icon(Icons.apartment_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              items: _collegeTypes.map((type) {
+              items: typeOptions.map((type) {
                 return DropdownMenuItem<String>(value: type, child: Text(type));
               }).toList(),
               onChanged: (value) {
                 setState(() => _selectedCollegeType = value);
               },
               validator: (value) {
-                return value == null
-                    ? language.tr('college_type_required')
-                    : null;
+                return value == null ? typeRequired : null;
               },
             ),
           ),
         ], isDesktop: isDesktop),
+        if (isGovernmentInstitution &&
+            _selectedCollegeRegion != null &&
+            _selectedCollegeDistrict != null &&
+            !_isLoading &&
+            institutions.isEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            language.tr('no_government_offices_match_selected_location'),
+            style: const TextStyle(color: Colors.red, fontSize: 12),
+          ),
+        ],
         const SizedBox(height: 14),
-        _buildCollegeLogoUploader(language),
+        _buildUploadCard(
+          title: isGovernmentInstitution
+              ? language.tr('institution_logo')
+              : language.tr('college_logo'),
+          hint: isGovernmentInstitution
+              ? language.tr('upload_institution_logo_hint')
+              : language.tr('upload_college_logo_hint'),
+          buttonLabel: isGovernmentInstitution
+              ? language.tr('upload_institution_logo')
+              : language.tr('upload_college_logo'),
+          file: _selectedCollegeLogoFile,
+          hasError: _showCollegeLogoError,
+          errorText: isGovernmentInstitution
+              ? language.tr('upload_institution_logo_required')
+              : language.tr('upload_college_logo_required'),
+          onPick: _pickCollegeLogo,
+          onClear: () {
+            setState(() => _selectedCollegeLogoFile = null);
+          },
+          icon: Icons.image_outlined,
+        ),
         const SizedBox(height: 22),
         _buildSectionTitle(language.tr('coordinator_information')),
         const SizedBox(height: 12),
         _buildResponsiveFields([
           _ResponsiveField(
             child: TextFormField(
-              controller: _coordinatorNameController,
+              controller: _coordinatorFirstNameController,
               decoration: InputDecoration(
-                labelText: language.tr('coordinator_name'),
+                labelText: 'Coordinator First Name',
                 prefixIcon: const Icon(Icons.person_outline),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1612,7 +2519,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
-                  return language.tr('coordinator_name_required');
+                  return 'Coordinator first name is required';
+                }
+                return null;
+              },
+            ),
+          ),
+          _ResponsiveField(
+            child: TextFormField(
+              controller: _coordinatorSecondNameController,
+              decoration: InputDecoration(
+                labelText: 'Coordinator Second Name',
+                prefixIcon: const Icon(Icons.badge_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Coordinator second name is required';
                 }
                 return null;
               },
@@ -1811,11 +2736,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildForm(LanguageProvider language, bool isDesktop) {
-    final roleLabel = _selectedRole == 'student'
-        ? language.tr('student')
-        : _selectedRole == 'company'
-        ? language.tr('company')
-        : language.tr('university');
+    final roleLabel = _accountRoleLabel(language, _selectedRole);
+    final shouldShowOrganizationFields =
+        _selectedRole != 'organization' || _selectedOrganizationSubtype != null;
 
     return Form(
       key: _formKey,
@@ -1861,15 +2784,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            _selectedRole == 'student'
-                ? language.tr('student_registration_subtitle')
-                : _selectedRole == 'company'
-                ? language.tr('company_registration_subtitle')
-                : language.tr('university_registration_subtitle'),
+            _accountSubtitle(language),
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 24),
+          if (_selectedRole == 'organization') ...[
+            _buildSectionTitle('Organization Setup'),
+            const SizedBox(height: 12),
+            _buildOrganizationTypeField(),
+            const SizedBox(height: 22),
+          ],
           if (_isLoading && _selectedRole == 'student') ...[
             Row(
               children: [
@@ -1880,33 +2805,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  language.tr('loading_universities'),
+                  language.tr('loading_'),
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                 ),
               ],
             ),
             const SizedBox(height: 12),
           ],
-          if (_selectedRole != 'university') ...[
+          if (!_isUniversityLikeRole && shouldShowOrganizationFields) ...[
             _buildSectionTitle(language.tr('basic_information')),
             const SizedBox(height: 12),
-            _buildCommonFields(language, isDesktop),
+            _selectedRole == 'student'
+                ? _buildStudentBasicFields(language, isDesktop)
+                : _buildCommonFields(language, isDesktop),
             const SizedBox(height: 22),
           ],
-          _buildSectionTitle(
-            _selectedRole == 'student'
-                ? language.tr('student_details')
-                : _selectedRole == 'company'
-                ? language.tr('company_details')
-                : language.tr('university_details'),
-          ),
-          const SizedBox(height: 12),
-          if (_selectedRole == 'student')
-            _buildStudentFields(language, isDesktop)
-          else if (_selectedRole == 'company')
-            _buildCompanyFields(language, isDesktop)
-          else
-            _buildUniversityFields(language, isDesktop),
+          if (_selectedRole != 'organization' ||
+              shouldShowOrganizationFields) ...[
+            _buildSectionTitle(_detailSectionLabel(language)),
+            const SizedBox(height: 12),
+            if (_selectedRole == 'student')
+              _buildStudentFields(language, isDesktop)
+            else if (_selectedRole == 'organization')
+              _buildOrganizationFields(language, isDesktop)
+            else
+              _buildUniversityFields(language, isDesktop),
+          ],
           const SizedBox(height: 28),
           ElevatedButton(
             onPressed: _isSubmitting ? null : _handleRegister,

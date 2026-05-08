@@ -1,4 +1,6 @@
-// lib/screens/student/browse_jobs_screen.dart
+// lib/screens/student/browse_training_screen.dart
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
@@ -6,77 +8,46 @@ import '../../models/job.dart';
 import '../../widgets/job_card.dart';
 import 'job_details_screen.dart';
 
-class BrowseJobsScreen extends StatefulWidget {
-  const BrowseJobsScreen({super.key});
+class BrowsetrainingScreen extends StatefulWidget {
+  const BrowsetrainingScreen({super.key});
 
   @override
-  State<BrowseJobsScreen> createState() => _BrowseJobsScreenState();
+  State<BrowsetrainingScreen> createState() => _BrowsetrainingScreenState();
 }
 
-class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
+class _BrowsetrainingScreenState extends State<BrowsetrainingScreen> {
   final ApiService _apiService = ApiService();
-  List<Job> _jobs = [];
+  List<Job> _training = [];
   bool _isLoading = true;
   String? _errorMessage;
   String _selectedView = 'open';
-  String _selectedLocation = 'all';
   final TextEditingController _searchController = TextEditingController();
-
-  final List<String> _locations = [
-    'all',
-    'Dar es Salaam',
-    'Dodoma',
-    'Arusha',
-    'Mwanza',
-  ];
-  final List<String> _moreLocations = [
-    'Geita',
-    'Iringa',
-    'Kagera',
-    'Katavi',
-    'Kigoma',
-    'Kilimanjaro',
-    'Lindi',
-    'Manyara',
-    'Mara',
-    'Mbeya',
-    'Morogoro',
-    'Mtwara',
-    'Njombe',
-    'Pwani',
-    'Rukwa',
-    'Ruvuma',
-    'Shinyanga',
-    'Simiyu',
-    'Singida',
-    'Songwe',
-    'Tabora',
-    'Tanga',
-    'Zanzibar',
-  ];
+  Timer? _searchDebounce;
+  int _loadRequestId = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadJobs();
+    _loadtraining();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadJobs({bool forceRefresh = false}) async {
+  Future<void> _loadtraining({bool forceRefresh = false}) async {
+    final requestId = ++_loadRequestId;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final response = await _apiService.getJobs(
+      final response = await _apiService.gettraining(
         view: _selectedView,
-        location: _selectedLocation == 'all' ? null : _selectedLocation,
         search: _searchController.text.isEmpty ? null : _searchController.text,
         forceRefresh: forceRefresh,
       );
@@ -85,18 +56,18 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
         throw Exception(
           ApiService.responseMessage(
             response,
-            fallback: 'Unable to load jobs right now.',
+            fallback: 'Unable to load training right now.',
           ),
         );
       }
 
-      final jobsData = response['data'];
-      if (jobsData is! List) {
-        throw const FormatException('Jobs response is invalid.');
+      final trainingData = response['data'];
+      if (trainingData is! List) {
+        throw const FormatException('training response is invalid.');
       }
 
-      final parsedJobs = <Job>[];
-      for (final job in jobsData) {
+      final parsedtraining = <Job>[];
+      for (final job in trainingData) {
         if (job is! Map) {
           if (kDebugMode) {
             debugPrint('Skipping malformed job entry: $job');
@@ -105,7 +76,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
         }
 
         try {
-          parsedJobs.add(Job.fromJson(Map<String, dynamic>.from(job)));
+          parsedtraining.add(Job.fromJson(Map<String, dynamic>.from(job)));
         } catch (error) {
           if (kDebugMode) {
             debugPrint('Skipping job due to parse error: $error');
@@ -113,41 +84,52 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
         }
       }
 
-      if (!mounted) return;
+      if (!mounted || requestId != _loadRequestId) return;
 
       setState(() {
-        _jobs = parsedJobs;
+        _training = parsedtraining;
         _isLoading = false;
       });
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('Error loading jobs: $e');
+        debugPrint('Error loading training: $e');
       }
 
       final message = ApiService.normalizeErrorMessage(
         e,
-        fallback: 'Unable to load jobs right now.',
+        fallback: 'Unable to load training right now.',
       );
 
-      if (!mounted) return;
+      if (!mounted || requestId != _loadRequestId) return;
 
       setState(() {
-        _jobs = [];
+        _training = [];
         _isLoading = false;
         _errorMessage = message;
       });
     }
   }
 
-  Future<void> _openJobDetails(Job job) async {
+  void _scheduleSearch() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      _loadtraining();
+    });
+  }
+
+  Future<void> _openJobDetails(Job job, {bool openApplySheet = false}) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => JobDetailsScreen(jobId: job.jobId),
+        builder: (context) => JobDetailsScreen(
+          jobId: job.jobId,
+          openApplySheetOnLoad: openApplySheet,
+        ),
       ),
     );
     if (!mounted) return;
-    _loadJobs(forceRefresh: true);
+    _loadtraining(forceRefresh: true);
   }
 
   Widget _buildViewToggle() {
@@ -163,7 +145,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
           onTap: () {
             if (_selectedView == value) return;
             setState(() => _selectedView = value);
-            _loadJobs();
+            _loadtraining();
           },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
@@ -218,16 +200,16 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
           children: [
             item(
               value: 'open',
-              label: 'Open Jobs',
+              label: 'Open training',
               icon: Icons.bolt_rounded,
-              activeColor: const Color(0xFF2E8B57),
+              activeColor: const Color(0xFF2563EB),
             ),
             const SizedBox(width: 6),
             item(
               value: 'history',
               label: 'History',
               icon: Icons.history_rounded,
-              activeColor: const Color(0xFF5B6C8F),
+              activeColor: const Color(0xFF2563EB),
             ),
           ],
         ),
@@ -239,7 +221,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
     return TextField(
       controller: _searchController,
       decoration: InputDecoration(
-        hintText: 'Search jobs, companies...',
+        hintText: 'Search training, companies,region..',
         prefixIcon: const Icon(Icons.search),
         suffixIcon: _searchController.text.isNotEmpty
             ? IconButton(
@@ -247,7 +229,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
                 onPressed: () {
                   _searchController.clear();
                   setState(() {});
-                  _loadJobs(forceRefresh: true);
+                  _loadtraining(forceRefresh: true);
                 },
               )
             : null,
@@ -258,95 +240,21 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
         filled: true,
         fillColor: Colors.grey.shade100,
       ),
-      onChanged: (_) => setState(() {}),
-      onSubmitted: (_) => _loadJobs(),
-    );
-  }
-
-  Widget _buildLocationFilter() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            ..._locations.map((location) {
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(location, style: const TextStyle(fontSize: 13)),
-                  selected: _selectedLocation == location,
-                  onSelected: (selected) {
-                    setState(() {
-                      _selectedLocation = location;
-                    });
-                    _loadJobs();
-                  },
-                  backgroundColor: Colors.grey.shade100,
-                  selectedColor: Colors.blue.shade100,
-                ),
-              );
-            }),
-            ActionChip(
-              label: Text(
-                _moreLocations.contains(_selectedLocation)
-                    ? _selectedLocation
-                    : 'Other Regions',
-                style: const TextStyle(fontSize: 13),
-              ),
-              backgroundColor: _moreLocations.contains(_selectedLocation)
-                  ? Colors.blue.shade100
-                  : Colors.grey.shade100,
-              onPressed: _openMoreRegionsSheet,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openMoreRegionsSheet() async {
-    final selectedRegion = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const ListTile(
-                title: Text(
-                  'Other Regions',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              ..._moreLocations.map((region) {
-                final isSelected = _selectedLocation == region;
-                return ListTile(
-                  title: Text(region),
-                  trailing: isSelected
-                      ? const Icon(Icons.check, color: Colors.blue)
-                      : null,
-                  onTap: () => Navigator.pop(context, region),
-                );
-              }),
-            ],
-          ),
-        );
+      onChanged: (_) {
+        setState(() {});
+        _scheduleSearch();
+      },
+      onSubmitted: (_) {
+        _searchDebounce?.cancel();
+        _loadtraining();
       },
     );
-
-    if (!mounted || selectedRegion == null) return;
-
-    setState(() {
-      _selectedLocation = selectedRegion;
-    });
-    _loadJobs();
   }
 
   Widget _buildResultsCount() {
-    final title = _selectedView == 'history' ? 'Job History' : 'Browse Jobs';
+    final title = _selectedView == 'history'
+        ? 'Training History'
+        : 'Browse training';
     final subtitle = _selectedView == 'history'
         ? 'Review previous openings and closed opportunities.'
         : 'Explore available industrial practical training opportunities.';
@@ -423,8 +331,8 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
                         ),
                         child: Text(
                           _selectedView == 'history'
-                              ? '${_jobs.length} posted jobs in history'
-                              : '${_jobs.length} opportunities found',
+                              ? '${_training.length} posted training in history'
+                              : '${_training.length} opportunities found',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -432,33 +340,14 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
                           ),
                         ),
                       ),
-                      if (_selectedLocation != 'all')
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFECFDF5),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            _selectedLocation,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF047857),
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ],
               ),
             ),
-            if (!_isLoading && _jobs.isEmpty)
+            if (!_isLoading && _training.isEmpty && _selectedView != 'history')
               TextButton(
-                onPressed: () => _loadJobs(forceRefresh: true),
+                onPressed: () => _loadtraining(forceRefresh: true),
                 child: const Text('Refresh'),
               ),
           ],
@@ -483,8 +372,8 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
           const SizedBox(height: 8),
           Text(
             _selectedView == 'history'
-                ? 'Expired and closed jobs will appear here'
-                : 'Try adjusting your filters',
+                ? 'Expired and closed training will appear here'
+                : 'Try a different search term',
             style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
@@ -502,7 +391,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
             Icon(Icons.cloud_off, size: 64, color: Colors.grey.shade400),
             const SizedBox(height: 16),
             const Text(
-              'Unable to load jobs',
+              'Unable to load training',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
@@ -513,7 +402,7 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () => _loadJobs(forceRefresh: true),
+              onPressed: () => _loadtraining(forceRefresh: true),
               child: const Text('Try Again'),
             ),
           ],
@@ -542,7 +431,6 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
             ),
           ),
           SliverToBoxAdapter(child: _buildViewToggle()),
-          SliverToBoxAdapter(child: _buildLocationFilter()),
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
           SliverToBoxAdapter(child: _buildResultsCount()),
           if (_isLoading)
@@ -550,21 +438,22 @@ class _BrowseJobsScreenState extends State<BrowseJobsScreen> {
               hasScrollBody: false,
               child: Center(child: CircularProgressIndicator()),
             )
-          else if (_errorMessage != null && _jobs.isEmpty)
+          else if (_errorMessage != null && _training.isEmpty)
             SliverFillRemaining(hasScrollBody: false, child: _buildErrorState())
-          else if (_jobs.isEmpty)
+          else if (_training.isEmpty)
             SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState())
           else
             SliverPadding(
               padding: const EdgeInsets.only(bottom: 24),
               sliver: SliverList.builder(
-                itemCount: _jobs.length,
+                itemCount: _training.length,
                 itemBuilder: (context, index) {
-                  final job = _jobs[index];
+                  final job = _training[index];
                   return JobCard(
                     job: job,
                     onViewDetails: () => _openJobDetails(job),
-                    onApplyNow: () => _openJobDetails(job),
+                    onApplyNow: () =>
+                        _openJobDetails(job, openApplySheet: true),
                   );
                 },
               ),

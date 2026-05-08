@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/student/student_dashboard.dart';
-import '../screens/company/company_dashboard.dart';
+import '../screens/organization/organization_dashboard.dart';
 import '../screens/admin/admin_dashboard.dart';
 import '../screens/university/university_dashboard.dart';
 import '../utils/user_role.dart';
@@ -46,8 +46,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
           if (isStudentRole(role)) {
             return const StudentDashboard();
-          } else if (role == 'company') {
-            return const CompanyDashboard();
+          } else if (isCompanyRole(role)) {
+            return const OrganizationDashboard();
           } else if (role == 'university') {
             return const UniversityDashboard();
           } else if (role == 'admin') {

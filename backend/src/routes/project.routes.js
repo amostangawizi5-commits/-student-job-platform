@@ -22,7 +22,7 @@ router.get('/test', (req, res) => {
 });
 
 // Get student projects
-router.get('/student', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.get('/student', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const result = await query(
       `SELECT project_id, student_id, title, description, technologies, github_link, live_demo_link, image_url, created_at, updated_at
@@ -40,7 +40,7 @@ router.get('/student', authMiddleware, authorize('student', 'graduate'), async (
 });
 
 // Add project
-router.post('/student', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.post('/student', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const { title, description, technologies, github_link, live_demo_link } = req.body;
 
@@ -74,7 +74,7 @@ router.post('/student', authMiddleware, authorize('student', 'graduate'), async 
 });
 
 // Delete project
-router.delete('/student/:project_id', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.delete('/student/:project_id', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const { project_id } = req.params;
 

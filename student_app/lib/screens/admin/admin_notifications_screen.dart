@@ -57,7 +57,7 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
         return Icons.person_add_alt_1_rounded;
       case 'shortlisted':
         return Icons.star_rounded;
-      case 'interview':
+      case '':
         return Icons.event_rounded;
       case 'accepted':
         return Icons.check_circle_rounded;
@@ -74,7 +74,7 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> {
         return Colors.blue;
       case 'shortlisted':
         return Colors.indigo;
-      case 'interview':
+      case '':
         return Colors.purple;
       case 'accepted':
         return Colors.green;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 
@@ -56,7 +57,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     setState(() => _isSubmitting = false);
 
     if (response['success'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             response['message']?.toString() ??
@@ -69,7 +70,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(
           response['message']?.toString() ?? 'Failed to reset password',

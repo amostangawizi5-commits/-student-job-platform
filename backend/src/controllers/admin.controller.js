@@ -4,7 +4,7 @@ const { sendPasswordResetEmail } = require('../services/email.service');
 const NotificationModel = require('../models/notification.model');
 const { getAuditLogs, logAuditEvent } = require('../services/audit-log.service');
 
-const ADMIN_APPROVED_DB_STATUSES = ['shortlisted', 'interview', 'accepted'];
+const ADMIN_APPROVED_DB_STATUSES = ['shortlisted', '', 'accepted'];
 
 const normalizeAdminApplicationStatus = (status) => {
     const normalizedStatus = `${status || ''}`.trim().toLowerCase();
@@ -172,8 +172,8 @@ const updateUserRole = async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        const allowedRoles = new Set(['student', 'company', 'university', 'admin']);
-
+        const allowedRoles = new Set(['student', 'organizations', 'university', 'admin']);
+ 
         if (!allowedRoles.has(role)) {
             return res.status(400).json({
                 success: false,
@@ -419,7 +419,7 @@ const getAllApplications = async (req, res) => {
              FROM applications a
              JOIN users u ON a.student_id = u.user_id
              LEFT JOIN students s ON a.student_id = s.student_id
-             JOIN jobs j ON a.job_id = j.job_id
+             JOIN training j ON a.job_id = j.job_id
              JOIN companies c ON j.company_id = c.company_id
              ${whereClause}
              ORDER BY a.applied_date DESC`,
@@ -455,7 +455,7 @@ const updateAdminApplicationStatus = async (req, res) => {
                     j.title AS job_title, c.company_name
              FROM applications a
              JOIN users u ON a.student_id = u.user_id
-             JOIN jobs j ON a.job_id = j.job_id
+             JOIN training j ON a.job_id = j.job_id
              JOIN companies c ON j.company_id = c.company_id
              WHERE a.application_id = $1`,
             [applicationId]
@@ -551,7 +551,7 @@ const resetUserPassword = async (req, res) => {
         }
 
         const user = userResult.rows[0];
-        const allowedRoles = new Set(['student', 'graduate', 'company', 'university']);
+        const allowedRoles = new Set(['student', '', 'company', 'university']);
 
         if (!allowedRoles.has(user.role)) {
             return res.status(403).json({
@@ -639,18 +639,18 @@ const resetUserPassword = async (req, res) => {
     }
 };
 
-// Get all jobs (for admin)
-const getAllJobs = async (req, res) => {
+// Get all training (for admin)
+const getAlltraining = async (req, res) => {
   try {
     const result = await query(`
       SELECT j.*, c.company_name
-      FROM jobs j
+      FROM training j
       JOIN companies c ON j.company_id = c.company_id
       ORDER BY j.created_at DESC
     `);
     res.json({ success: true, data: result.rows });
   } catch (error) {
-    console.error('Get jobs error:', error);
+    console.error('Get training error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -668,7 +668,7 @@ const getAllAdminStudents = async (req, res) => {
       FROM users u
       JOIN students s ON u.user_id = s.student_id
       LEFT JOIN universities u2 ON s.university_id = u2.university_id
-      WHERE u.role IN ('student', 'graduate')
+      WHERE u.role IN ('student', '')
       ORDER BY u.created_at DESC
     `);
     
@@ -690,7 +690,7 @@ const getStudentsWithUniversity = async (req, res) => {
       FROM users u
       JOIN students s ON u.user_id = s.student_id
       JOIN universities u2 ON s.university_id = u2.university_id
-      WHERE u.role IN ('student', 'graduate')
+      WHERE u.role IN ('student', '')
       ORDER BY u.created_at DESC
     `);
     
@@ -713,8 +713,8 @@ const getStudentsWithAwards = async (req, res) => {
       JOIN students s ON u.user_id = s.student_id
       LEFT JOIN universities u2 ON s.university_id = u2.university_id
       JOIN applications a ON a.student_id = u.user_id
-      WHERE u.role IN ('student', 'graduate')
-        AND a.status IN ('shortlisted', 'interview', 'accepted')
+      WHERE u.role IN ('student', '')
+        AND a.status IN ('shortlisted', '', 'accepted')
       ORDER BY u.created_at DESC
     `);
     
@@ -736,11 +736,11 @@ const getStudentsNoField = async (req, res) => {
       FROM users u
       JOIN students s ON u.user_id = s.student_id
       LEFT JOIN universities u2 ON s.university_id = u2.university_id
-      WHERE u.role IN ('student', 'graduate')
+      WHERE u.role IN ('student', '')
         AND NOT EXISTS (
           SELECT 1 FROM applications a 
           WHERE a.student_id = u.user_id 
-            AND a.status IN ('shortlisted', 'interview', 'accepted')
+            AND a.status IN ('shortlisted', '', 'accepted')
         )
       ORDER BY u.created_at DESC
     `);
@@ -756,7 +756,7 @@ const getStudentsNoField = async (req, res) => {
 const deleteJob = async (req, res) => {
     try {
         const { id } = req.params;
-        await query('DELETE FROM jobs WHERE job_id = $1', [id]);
+        await query('DELETE FROM training WHERE job_id = $1', [id]);
         res.json({ success: true, message: 'Job deleted successfully' });
     } catch (error) {
         console.error('Delete job error:', error);
@@ -768,10 +768,10 @@ const deleteJob = async (req, res) => {
 const getStats = async (req, res) => {
     try {
         const totalUsers = await query('SELECT COUNT(*) FROM users WHERE role != \'admin\'');
-        const totalStudents = await query('SELECT COUNT(*) FROM users WHERE role = \'student\' OR role = \'graduate\'');
+        const totalStudents = await query('SELECT COUNT(*) FROM users WHERE role = \'student\' OR role = \'\'');
         const totalCompanies = await query('SELECT COUNT(*) FROM users WHERE role = \'company\'');
         const totalUniversities = await query('SELECT COUNT(*) FROM users WHERE role = \'university\'');
-        const totalJobs = await query('SELECT COUNT(*) FROM jobs');
+        const totaltraining = await query('SELECT COUNT(*) FROM training');
         const totalApplications = await query('SELECT COUNT(*) FROM applications');
         const pendingApplications = await query('SELECT COUNT(*) FROM applications WHERE status = \'pending\'');
         const approvedApplications = await query(
@@ -787,7 +787,7 @@ const getStats = async (req, res) => {
                 total_students: parseInt(totalStudents.rows[0].count),
                 total_companies: parseInt(totalCompanies.rows[0].count),
                 total_universities: parseInt(totalUniversities.rows[0].count),
-                total_jobs: parseInt(totalJobs.rows[0].count),
+                total_training: parseInt(totaltraining.rows[0].count),
                 total_applications: parseInt(totalApplications.rows[0].count),
                 pending_applications: parseInt(pendingApplications.rows[0].count),
                 approved_applications: parseInt(approvedApplications.rows[0].count),
@@ -821,7 +821,7 @@ module.exports = {
     resetUserPassword,
     getAllApplications,
     updateAdminApplicationStatus,
-    getAllJobs,
+    getAlltraining,
     getAllAdminStudents,
     getStudentsWithUniversity,
     getStudentsWithAwards,

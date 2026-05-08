@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -33,6 +34,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       CoordinatorWorkspaceService();
   List<dynamic> _applications = [];
   Map<String, dynamic>? _confirmedSelection;
+  Map<String, Map<String, dynamic>> _approvalByApplicationId = const {};
   bool _isLoading = true;
   String _selectedFilter = 'all';
   String? _confirmingApplicationId;
@@ -72,7 +74,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
   String _normalizeFilter(String filter) {
     switch (filter.toLowerCase()) {
-      case 'interview':
+      case '':
       case 'pending':
       case 'review':
       case 'accepted':
@@ -104,8 +106,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
   String _filterTitle() {
     switch (_selectedFilter) {
-      case 'interview':
-        return 'Interview';
+      case '':
+        return '';
       case 'pending':
         return 'Pending';
       case 'review':
@@ -125,9 +127,19 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     final studentEmail = currentUser?['email']?.toString() ?? '';
     try {
       final response = await _apiService.getMyApplications();
+      final approvalRecords = await _workspaceService.getApprovalRecords();
       final selection = await _workspaceService.getStudentSelection(
         studentEmail,
       );
+      final approvalsByApplicationId = <String, Map<String, dynamic>>{};
+      for (final approval in approvalRecords) {
+        final applicationId = '${approval['application_id'] ?? ''}'.trim();
+        if (applicationId.isEmpty ||
+            approvalsByApplicationId.containsKey(applicationId)) {
+          continue;
+        }
+        approvalsByApplicationId[applicationId] = approval;
+      }
       debugPrint('Applications: ${response['data']?.length ?? 0}');
       if (response['success']) {
         final applications = (response['data'] as List<dynamic>? ?? const []);
@@ -135,12 +147,14 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         setState(() {
           _applications = applications;
           _confirmedSelection = selection;
+          _approvalByApplicationId = approvalsByApplicationId;
           _isLoading = false;
         });
       } else {
         if (!mounted) return;
         setState(() {
           _confirmedSelection = selection;
+          _approvalByApplicationId = approvalsByApplicationId;
           _isLoading = false;
         });
       }
@@ -155,6 +169,29 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  bool _isOfferConfirmationExpired(String applicationId) {
+    final approval = _approvalByApplicationId[applicationId.trim()];
+    if (approval == null) return false;
+
+    final choiceStatus = '${approval['student_choice_status'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final companyStatus = '${approval['company_selection_status'] ?? ''}'
+        .trim()
+        .toLowerCase();
+
+    return choiceStatus == 'expired' || companyStatus == 'expired';
+  }
+
+  DateTime? _offerConfirmationExpiresAt(String applicationId) {
+    final raw =
+        _approvalByApplicationId[applicationId
+            .trim()]?['confirmation_expires_at'];
+    final normalized = '$raw'.trim();
+    if (normalized.isEmpty) return null;
+    return DateTime.tryParse(normalized)?.toLocal();
   }
 
   List<Map<String, dynamic>> get _acceptedApplications {
@@ -179,9 +216,22 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     final applicationId = '${app['application_id'] ?? ''}';
     final companyName = '${app['company_name'] ?? 'Company'}';
     final jobTitle = '${app['title'] ?? app['job_title'] ?? 'Placement'}';
+    final isOfferExpired = _isOfferConfirmationExpired(applicationId);
+
+    if (isOfferExpired) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text(
+            'This offer expired because it was not confirmed within 48 hours.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     if (studentEmail.trim().isEmpty || universityName.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Missing student or university details.'),
           backgroundColor: Colors.red,
@@ -194,7 +244,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         '${_confirmedSelection?['selected_application_id'] ?? ''}';
     if (existingApplicationId.isNotEmpty &&
         existingApplicationId != applicationId) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'You already confirmed ${_confirmedSelection?['selected_company_name'] ?? 'another company'}.',
@@ -241,7 +291,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         universityName: universityName,
         chosenApplicationId: applicationId,
         chosenCompanyName: companyName,
-        chosenJobTitle: jobTitle,
+        chosenTrainingTitle: jobTitle,
         reportingStartDate: app['reporting_start_date']?.toString(),
         reportingEndDate: app['reporting_end_date']?.toString(),
         acceptedApplications: _acceptedApplications,
@@ -251,7 +301,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       );
       if (!mounted) return;
       setState(() => _confirmedSelection = selection);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'You confirmed $companyName successfully. The coordinator has been notified.',
@@ -261,12 +311,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       );
     } on StateError catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text(error.message), backgroundColor: Colors.orange),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Failed to confirm company: $error'),
           backgroundColor: Colors.red,
@@ -285,7 +335,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return Colors.orange;
       case 'shortlisted':
         return Colors.blue;
-      case 'interview':
+      case '':
         return Colors.purple;
       case 'accepted':
         return Colors.green;
@@ -302,8 +352,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return 'Pending Review';
       case 'shortlisted':
         return 'Shortlisted';
-      case 'interview':
-        return 'Interview Scheduled';
+      case '':
+        return ' Scheduled';
       case 'accepted':
         return 'Accepted';
       case 'rejected':
@@ -319,7 +369,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return Icons.hourglass_empty;
       case 'shortlisted':
         return Icons.star;
-      case 'interview':
+      case '':
         return Icons.calendar_today;
       case 'accepted':
         return Icons.check_circle;
@@ -455,7 +505,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     if (authenticatedUrl != null) {
       if (effectiveUrl == null || effectiveUrl.trim().isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
         );
         return;
@@ -483,7 +533,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           fallback: failureMessage,
         );
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(content: Text(message), backgroundColor: Colors.red),
         );
       }
@@ -492,7 +542,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
     if (fileUrl == null || fileUrl.trim().isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
       );
       return;
@@ -501,7 +551,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     final uri = Uri.tryParse(_resolveFileUrl(fileUrl));
     if (uri == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
       );
       return;
@@ -509,7 +559,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text(failureMessage), backgroundColor: Colors.red),
       );
     }
@@ -528,7 +578,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
     if (effectiveUrl == null || effectiveUrl.trim().isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text(invalidMessage), backgroundColor: Colors.red),
       );
       return;
@@ -560,7 +610,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
             fallback: failureMessage,
           );
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(content: Text(message), backgroundColor: Colors.red),
           );
         }
@@ -594,7 +644,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           : savePath;
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('$successLabel: $finalPath'),
           backgroundColor: Colors.green,
@@ -621,7 +671,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         fallback: failureMessage,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('$failureMessage: $message'),
           backgroundColor: Colors.red,
@@ -645,7 +695,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         fallback: failureMessage,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('$failureMessage: $message'),
           backgroundColor: Colors.red,
@@ -668,6 +718,407 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     if (verifiedValue == true) return Colors.green;
     if (verifiedValue == false) return Colors.red;
     return Colors.orange;
+  }
+
+  Widget _buildApplicationActionTile({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required Color backgroundColor,
+    required Color borderColor,
+    required Color iconColor,
+    required Color textColor,
+    VoidCallback? onTap,
+    Widget? trailing,
+    bool showChevron = true,
+    bool isLoading = false,
+  }) {
+    final isEnabled = onTap != null && !isLoading;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: isEnabled ? onTap : null,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: borderColor),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Center(
+                    child: isLoading
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: iconColor,
+                            ),
+                          )
+                        : Icon(icon, color: iconColor, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.35,
+                          color: textColor.withValues(alpha: 0.82),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                trailing ??
+                    (showChevron
+                        ? Icon(
+                            Icons.chevron_right_rounded,
+                            color: textColor,
+                            size: 24,
+                          )
+                        : const SizedBox.shrink()),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineInfoPill({
+    required IconData icon,
+    required String label,
+    required Color backgroundColor,
+    required Color borderColor,
+    required Color textColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: textColor),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: textColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInlineActionPill({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color backgroundColor = const Color(0xFFEAF3FF),
+    Color borderColor = const Color(0xFFB8D4FF),
+    Color textColor = const Color(0xFF1D4ED8),
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: textColor),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: textColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showApplicationPreview(Map<String, dynamic> app) async {
+    final reviewColor = _documentReviewColor(
+      app['supportive_document_verified'],
+    );
+    final reviewText = _documentReviewText(app['supportive_document_verified']);
+    final verificationNotes =
+        app['supportive_document_verification_notes']?.toString() ?? '';
+    final companyFeedback = app['company_feedback']?.toString() ?? '';
+    final responseLetterUrl = app['response_letter_url']?.toString() ?? '';
+    final responseLetterName =
+        app['response_letter_name']?.toString() ?? 'response_letter.pdf';
+    final coverLetterUrl = app['cover_letter']?.toString() ?? '';
+    final supportiveDocumentUrl =
+        app['supportive_document_url']?.toString() ?? '';
+    final supportiveDocumentName =
+        app['supportive_document_name']?.toString() ?? 'supportive_document';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        Widget infoTile({
+          required IconData icon,
+          required String label,
+          required String value,
+        }) {
+          return Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 18, color: const Color(0xFF334155)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        value.isEmpty ? '-' : value,
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    app['title']?.toString() ?? 'Application Preview',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    app['company_name']?.toString() ?? 'Unknown Company',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  infoTile(
+                    icon: Icons.location_on_outlined,
+                    label: 'Location',
+                    value: app['location']?.toString() ?? '',
+                  ),
+                  infoTile(
+                    icon: Icons.work_outline_rounded,
+                    label: 'Training Type',
+                    value: app['type']?.toString() ?? 'Job',
+                  ),
+                  infoTile(
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Applied Date',
+                    value: _formatDate(app['applied_date']?.toString() ?? ''),
+                  ),
+                  infoTile(
+                    icon: Icons.verified_outlined,
+                    label: 'Supportive Document Review',
+                    value: supportiveDocumentUrl.isEmpty
+                        ? 'No supportive document attached'
+                        : reviewText,
+                  ),
+                  if ((app['reporting_start_date'] ?? '').toString().isNotEmpty)
+                    infoTile(
+                      icon: Icons.event_available_outlined,
+                      label: 'Reporting Start',
+                      value: _formatDate(
+                        app['reporting_start_date']?.toString() ?? '',
+                      ),
+                    ),
+                  if ((app['reporting_end_date'] ?? '').toString().isNotEmpty)
+                    infoTile(
+                      icon: Icons.event_busy_outlined,
+                      label: 'Reporting End',
+                      value: _formatDate(
+                        app['reporting_end_date']?.toString() ?? '',
+                      ),
+                    ),
+                  if (verificationNotes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: reviewColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: reviewColor.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Text(
+                        'Verification notes: $verificationNotes',
+                        style: TextStyle(
+                          color: Colors.grey.shade800,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (companyFeedback.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        'Company feedback: $companyFeedback',
+                        style: TextStyle(
+                          color: Colors.grey.shade800,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Documents',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      if (coverLetterUrl.isNotEmpty &&
+                          (coverLetterUrl.startsWith('http://') ||
+                              coverLetterUrl.startsWith('https://') ||
+                              coverLetterUrl.startsWith('/')))
+                        OutlinedButton.icon(
+                          onPressed: () => _openFile(
+                            coverLetterUrl,
+                            authenticatedUrl: app['application_id'] == null
+                                ? null
+                                : '/api/applications/${app['application_id']}/cover-letter',
+                            fileName: 'cover_letter.pdf',
+                            invalidMessage: 'Cover letter link is invalid.',
+                            failureMessage: 'Unable to open cover letter.',
+                          ),
+                          icon: const Icon(Icons.description_outlined),
+                          label: const Text('Open Cover Letter'),
+                        ),
+                      if (supportiveDocumentUrl.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => _openFile(
+                            supportiveDocumentUrl,
+                            authenticatedUrl: app['application_id'] == null
+                                ? null
+                                : '/api/applications/${app['application_id']}/supportive-document',
+                            fileName: supportiveDocumentName,
+                            invalidMessage:
+                                'Supportive document link is invalid.',
+                            failureMessage:
+                                'Unable to open supportive document.',
+                          ),
+                          icon: const Icon(Icons.picture_as_pdf_outlined),
+                          label: const Text('Open Supportive Document'),
+                        ),
+                      if (responseLetterUrl.isNotEmpty)
+                        ElevatedButton.icon(
+                          onPressed: () => _downloadFile(
+                            responseLetterUrl,
+                            authenticatedUrl: app['application_id'] == null
+                                ? null
+                                : '/api/applications/${app['application_id']}/response-letter',
+                            fileName: responseLetterName,
+                            invalidMessage: 'Response letter link is invalid.',
+                            failureMessage:
+                                'Failed to download response letter',
+                            successLabel: 'Response letter downloaded to',
+                            saveToDownloadsOnAndroid: true,
+                          ),
+                          icon: const Icon(Icons.download_rounded),
+                          label: const Text('Download Response Letter'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -709,8 +1160,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
               const SizedBox(height: 8),
               Text(
                 _selectedFilter == 'all'
-                    ? 'Start applying for jobs to see them here'
-                    : 'Try another filter or apply to more jobs',
+                    ? 'Start applying for training to see them here'
+                    : 'Try another filter or apply to more training',
                 style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
               const SizedBox(height: 24),
@@ -753,7 +1204,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
             },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'all', child: Text('All')),
-              PopupMenuItem(value: 'interview', child: Text('Interview')),
+              PopupMenuItem(value: '', child: Text('')),
               PopupMenuItem(value: 'pending', child: Text('Pending')),
               PopupMenuItem(value: 'review', child: Text('Review')),
               PopupMenuItem(value: 'accepted', child: Text('Accepted')),
@@ -776,46 +1227,18 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           final statusColor = _getStatusColor(status);
           final statusText = _getStatusText(status);
           final statusIcon = _getStatusIcon(status);
-          final reviewColor = _documentReviewColor(
-            app['supportive_document_verified'],
-          );
-          final reviewText = _documentReviewText(
-            app['supportive_document_verified'],
-          );
-          final verificationNotes =
-              app['supportive_document_verification_notes']?.toString();
-          final companyFeedback = app['company_feedback']?.toString();
-          final responseLetterUrl = app['response_letter_url']?.toString();
-          final responseLetterName =
-              app['response_letter_name']?.toString() ?? 'response_letter.pdf';
-          final isDownloadingResponseLetter =
-              responseLetterUrl != null &&
-              _downloadingResponseLetters.contains(
-                _resolveFileUrl(responseLetterUrl),
-              );
-          final profileResumeUrl = app['resume_url']?.toString();
-          final hasProfileResume =
-              profileResumeUrl != null && profileResumeUrl.isNotEmpty;
-          final supportiveDocumentUrl = app['supportive_document_url']
-              ?.toString();
-          final supportiveDocumentName =
-              app['supportive_document_name']?.toString() ??
-              'supportive_document';
-          final hasSupportiveDocument =
-              supportiveDocumentUrl != null && supportiveDocumentUrl.isNotEmpty;
-          final displayReviewText = hasSupportiveDocument
-              ? reviewText
-              : 'Cover letter only';
-          final displayReviewColor = hasSupportiveDocument
-              ? reviewColor
-              : Colors.blueGrey;
           final hasConfirmedSelection = _confirmedSelection != null;
           final isConfirmedThisApplication = _isConfirmedApplication(
             applicationId,
           );
+          final isOfferExpired = _isOfferConfirmationExpired(applicationId);
+          final offerExpiresAt = _offerConfirmationExpiresAt(applicationId);
           final confirmedCompanyName =
               '${_confirmedSelection?['selected_company_name'] ?? ''}';
           final isConfirming = _confirmingApplicationId == applicationId;
+          final title = '${app['title'] ?? app['job_title'] ?? 'Placement'}';
+          final companyName = '${app['company_name'] ?? 'Unknown Company'}';
+          final location = '${app['location'] ?? 'Location not specified'}';
 
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
@@ -836,367 +1259,159 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              app['title'] ?? 'No Title',
+                              title,
                               style: const TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              app['company_name'] ?? 'Unknown Company',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: statusColor.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(statusIcon, size: 14, color: statusColor),
-                            const SizedBox(width: 4),
-                            Text(
-                              statusText,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: statusColor,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.business_outlined,
+                                  size: 15,
+                                  color: Colors.grey.shade600,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    companyName,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey.shade700,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  if (hasProfileResume) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFD9E2EC)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Profile CV attached automatically',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () => _openFile(
-                                profileResumeUrl,
-                                invalidMessage: 'Profile CV link is invalid.',
-                                failureMessage: 'Unable to open profile CV.',
-                              ),
-                              icon: const Icon(Icons.open_in_new, size: 16),
-                              label: const Text('Open Profile CV'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: displayReviewColor.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: displayReviewColor.withValues(alpha: 0.25),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.verified_outlined,
-                              size: 16,
-                              color: displayReviewColor,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              hasSupportiveDocument
-                                  ? 'Supportive Document: $displayReviewText'
-                                  : 'Supportive Document: Not attached',
-                              style: TextStyle(
-                                color: displayReviewColor,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
+                        _buildInlineInfoPill(
+                          icon: Icons.location_on_outlined,
+                          label: location,
+                          backgroundColor: const Color(0xFFF8FAFC),
+                          borderColor: const Color(0xFFE2E8F0),
+                          textColor: const Color(0xFF475569),
                         ),
-                        if (verificationNotes != null &&
-                            verificationNotes.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Verification notes: $verificationNotes',
-                            style: TextStyle(color: Colors.grey.shade700),
+                        const SizedBox(width: 8),
+                        _buildInlineInfoPill(
+                          icon: statusIcon,
+                          label: statusText,
+                          backgroundColor: statusColor.withValues(alpha: 0.1),
+                          borderColor: statusColor.withValues(alpha: 0.3),
+                          textColor: statusColor,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildInlineActionPill(
+                          icon: Icons.visibility_outlined,
+                          label: 'Preview',
+                          onTap: () => _showApplicationPreview(
+                            Map<String, dynamic>.from(app),
                           ),
-                        ],
-                        const SizedBox(height: 8),
-                        if (hasSupportiveDocument) ...[
-                          Text(
-                            'Supportive document file: $supportiveDocumentName',
-                            style: TextStyle(color: Colors.grey.shade700),
-                          ),
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () => _openFile(
-                                supportiveDocumentUrl,
-                                authenticatedUrl: app['application_id'] == null
-                                    ? null
-                                    : '/api/applications/${app['application_id']}/supportive-document',
-                                fileName: supportiveDocumentName,
-                                invalidMessage:
-                                    'Supportive document link is invalid.',
-                                failureMessage:
-                                    'Unable to open supportive document.',
-                              ),
-                              icon: const Icon(Icons.open_in_new, size: 16),
-                              label: const Text('Open Supportive PDF'),
-                            ),
-                          ),
-                        ] else
-                          Text(
-                            'No supportive document was attached to this application.',
-                            style: TextStyle(color: Colors.grey.shade700),
-                          ),
+                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.location_on,
-                        size: 14,
-                        color: Colors.grey.shade500,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          app['location'] ?? 'Location not specified',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Icon(Icons.work, size: 14, color: Colors.grey.shade500),
-                      const SizedBox(width: 4),
-                      Text(
-                        app['type'] ?? 'Job',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 14,
-                        color: Colors.grey.shade500,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Applied: ${_formatDate(app['applied_date'])}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
                   if (status == 'accepted') ...[
                     const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isConfirmedThisApplication
-                            ? const Color(0xFFEAF7F2)
-                            : hasConfirmedSelection
-                            ? const Color(0xFFFFF4EC)
-                            : const Color(0xFFF5F9FF),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: isConfirmedThisApplication
-                              ? const Color(0xFF0F766E)
-                              : hasConfirmedSelection
-                              ? const Color(0xFFD97706)
-                              : const Color(0xFFBFDBFE),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isConfirmedThisApplication
-                                ? 'Confirmed placement'
-                                : hasConfirmedSelection
-                                ? 'Placement already confirmed elsewhere'
-                                : acceptedApplications.length > 1
-                                ? 'Choose one company'
-                                : 'Confirm this company',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: isConfirmedThisApplication
-                                  ? const Color(0xFF0F766E)
-                                  : hasConfirmedSelection
-                                  ? const Color(0xFFD97706)
-                                  : const Color(0xFF1D4ED8),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            isConfirmedThisApplication
-                                ? 'You selected ${app['company_name'] ?? 'this company'}. The university coordinator can now review this placement.'
-                                : hasConfirmedSelection
-                                ? 'You already confirmed $confirmedCompanyName, so this offer is no longer active.'
-                                : acceptedApplications.length > 1
-                                ? 'You have ${acceptedApplications.length} accepted offers. Confirm the company you will join so the other companies can be notified.'
-                                : 'Confirm this accepted offer to continue with university review.',
-                            style: const TextStyle(
-                              height: 1.45,
-                              color: Color(0xFF36495E),
-                            ),
-                          ),
-                          if (!hasConfirmedSelection) ...[
-                            const SizedBox(height: 10),
-                            ElevatedButton.icon(
-                              onPressed: isConfirming
-                                  ? null
-                                  : () => _confirmCompanySelection(
-                                      Map<String, dynamic>.from(app),
-                                    ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF0F766E),
-                                foregroundColor: Colors.white,
-                              ),
-                              icon: isConfirming
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.check_circle_outline),
-                              label: Text(
-                                isConfirming
-                                    ? 'Confirming...'
-                                    : 'Confirm This Company',
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (companyFeedback != null &&
-                      companyFeedback.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        'Company feedback: $companyFeedback',
-                        style: TextStyle(color: Colors.grey.shade800),
-                      ),
-                    ),
-                  ],
-                  if (responseLetterUrl != null &&
-                      responseLetterUrl.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFD7E0EA)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.picture_as_pdf_outlined),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Response letter: $responseLetterName',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: isDownloadingResponseLetter
-                                ? null
-                                : () => _downloadFile(
-                                    responseLetterUrl,
-                                    authenticatedUrl:
-                                        app['application_id'] == null
-                                        ? null
-                                        : '/api/applications/${app['application_id']}/response-letter',
-                                    fileName: responseLetterName,
-                                    invalidMessage:
-                                        'Response letter link is invalid.',
-                                    failureMessage:
-                                        'Failed to download response letter',
-                                    successLabel:
-                                        'Response letter downloaded to',
-                                    saveToDownloadsOnAndroid: true,
-                                  ),
-                            child: Text(
-                              isDownloadingResponseLetter
-                                  ? 'Downloading...'
-                                  : 'Download',
-                            ),
-                          ),
-                        ],
-                      ),
+                    _buildApplicationActionTile(
+                      icon: isOfferExpired
+                          ? Icons.hourglass_disabled_rounded
+                          : isConfirmedThisApplication
+                          ? Icons.verified_rounded
+                          : hasConfirmedSelection
+                          ? Icons.lock_outline_rounded
+                          : Icons.check_circle_outline_rounded,
+                      label: isOfferExpired
+                          ? 'Confirmation Window Expired'
+                          : isConfirmedThisApplication
+                          ? 'Confirmed Placement'
+                          : hasConfirmedSelection
+                          ? 'Placement Confirmed Elsewhere'
+                          : acceptedApplications.length > 1
+                          ? 'Choose This Company'
+                          : 'Confirm This Company',
+                      subtitle: isOfferExpired
+                          ? offerExpiresAt == null
+                                ? 'This accepted offer expired because it was not confirmed within 48 hours while you had multiple accepted companies.'
+                                : 'This accepted offer expired because it was not confirmed within 48 hours while you had multiple accepted companies. Deadline was ${_formatDate(offerExpiresAt.toIso8601String())}.'
+                          : isConfirmedThisApplication
+                          ? 'You selected ${app['company_name'] ?? 'this company'}.'
+                          : hasConfirmedSelection
+                          ? 'You already confirmed $confirmedCompanyName, so this offer is no longer active.'
+                          : acceptedApplications.length > 1
+                          ? 'You have ${acceptedApplications.length} accepted offers. Confirm the company you will join so the other companies can be notified.'
+                          : 'Confirm this accepted offer to continue with university review.',
+                      backgroundColor: isOfferExpired
+                          ? const Color(0xFFFFF4EC)
+                          : isConfirmedThisApplication
+                          ? const Color(0xFFEAF7F2)
+                          : hasConfirmedSelection
+                          ? const Color(0xFFFFF4EC)
+                          : const Color(0xFFEAF6EE),
+                      borderColor: isOfferExpired
+                          ? const Color(0xFFF2BE8C)
+                          : isConfirmedThisApplication
+                          ? const Color(0xFF7BC9A8)
+                          : hasConfirmedSelection
+                          ? const Color(0xFFF2BE8C)
+                          : const Color(0xFFA7D7BA),
+                      iconColor: isOfferExpired
+                          ? const Color(0xFFD97706)
+                          : isConfirmedThisApplication
+                          ? const Color(0xFF0F766E)
+                          : hasConfirmedSelection
+                          ? const Color(0xFFD97706)
+                          : const Color(0xFF0F766E),
+                      textColor: isOfferExpired
+                          ? const Color(0xFFB45309)
+                          : isConfirmedThisApplication
+                          ? const Color(0xFF0F766E)
+                          : hasConfirmedSelection
+                          ? const Color(0xFFB45309)
+                          : const Color(0xFF0F766E),
+                      onTap: !hasConfirmedSelection && !isOfferExpired
+                          ? () => _confirmCompanySelection(
+                              Map<String, dynamic>.from(app),
+                            )
+                          : null,
+                      isLoading: isConfirming,
+                      trailing: isOfferExpired
+                          ? const Icon(
+                              Icons.lock_clock_rounded,
+                              color: Color(0xFFD97706),
+                              size: 22,
+                            )
+                          : isConfirmedThisApplication
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              color: Color(0xFF0F766E),
+                              size: 22,
+                            )
+                          : hasConfirmedSelection
+                          ? const Icon(
+                              Icons.block_rounded,
+                              color: Color(0xFFD97706),
+                              size: 22,
+                            )
+                          : null,
                     ),
                   ],
                 ],

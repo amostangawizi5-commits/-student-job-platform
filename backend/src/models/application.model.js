@@ -52,6 +52,32 @@ class ApplicationModel {
         return result.rows.length > 0;
     }
 
+    static async getDistinctOrganizationCount(student_id) {
+        const result = await query(
+            `SELECT COUNT(DISTINCT j.company_id) AS total
+             FROM applications a
+             JOIN training j ON a.job_id = j.job_id
+             WHERE a.student_id = $1`,
+            [student_id]
+        );
+
+        return Number.parseInt(`${result.rows[0]?.total ?? 0}`, 10) || 0;
+    }
+
+    static async hasAppliedToOrganization(student_id, company_id) {
+        const result = await query(
+            `SELECT 1
+             FROM applications a
+             JOIN training j ON a.job_id = j.job_id
+             WHERE a.student_id = $1
+               AND j.company_id = $2
+             LIMIT 1`,
+            [student_id, company_id]
+        );
+
+        return result.rows.length > 0;
+    }
+
     // Get applications by student
     static async getByStudent(student_id) {
         const result = await query(
@@ -79,7 +105,7 @@ class ApplicationModel {
                 aw.is_student_of_month AS award_is_student_of_month,
                 aw.certificate_name AS award_certificate_name
              FROM applications a
-             JOIN jobs j ON a.job_id = j.job_id
+             JOIN training j ON a.job_id = j.job_id
              JOIN students s ON a.student_id = s.student_id
              JOIN companies c ON j.company_id = c.company_id
              LEFT JOIN awards aw ON aw.application_id = a.application_id
@@ -116,7 +142,9 @@ class ApplicationModel {
         feedback = null,
         {
             response_letter_url = null,
-            response_letter_name = null
+            response_letter_name = null,
+            reporting_start_date = null,
+            reporting_end_date = null
         } = {}
     ) {
         const result = await query(
@@ -130,14 +158,54 @@ class ApplicationModel {
                     WHEN $3 IS NOT NULL THEN CURRENT_TIMESTAMP
                     ELSE response_letter_sent_at
                 END,
+                reporting_start_date = CASE
+                    WHEN $1 = 'accepted' THEN COALESCE($5::date, reporting_start_date)
+                    ELSE reporting_start_date
+                END,
+                reporting_end_date = CASE
+                    WHEN $1 = 'accepted' THEN COALESCE($6::date, reporting_end_date)
+                    ELSE reporting_end_date
+                END,
+                accepted_at = CASE
+                    WHEN $1 = 'accepted' THEN CURRENT_TIMESTAMP
+                    ELSE accepted_at
+                END,
+                student_confirmation_status = CASE
+                    WHEN $1 = 'accepted' THEN
+                        CASE
+                            WHEN student_confirmation_status = 'confirmed' THEN 'confirmed'
+                            ELSE 'pending'
+                        END
+                    ELSE NULL
+                END,
+                student_confirmed_at = CASE
+                    WHEN $1 = 'accepted' AND student_confirmation_status = 'confirmed'
+                        THEN student_confirmed_at
+                    WHEN $1 = 'accepted'
+                        THEN NULL
+                    ELSE NULL
+                END,
+                student_confirmation_expires_at = CASE
+                    WHEN $1 = 'accepted' AND student_confirmation_status = 'confirmed'
+                        THEN student_confirmation_expires_at
+                    WHEN $1 = 'accepted'
+                        THEN NULL
+                    ELSE NULL
+                END,
+                student_confirmation_released_at = CASE
+                    WHEN $1 = 'accepted' THEN NULL
+                    ELSE NULL
+                END,
                 updated_date = CURRENT_TIMESTAMP
-             WHERE application_id = $5
+             WHERE application_id = $7
              RETURNING *`,
             [
                 status,
                 feedback,
                 response_letter_url,
                 response_letter_name,
+                reporting_start_date,
+                reporting_end_date,
                 application_id
             ]
         );
@@ -151,6 +219,7 @@ class ApplicationModel {
                     a.*,
                     u.full_name,
                     u.email,
+                    u.phone,
                     s.program,
                     s.registration_number AS student_registration_number,
                     s.university_id,
@@ -179,7 +248,7 @@ class ApplicationModel {
                     aw.is_student_of_month AS award_is_student_of_month,
                     aw.certificate_name AS award_certificate_name
              FROM applications a
-             JOIN jobs j ON a.job_id = j.job_id
+             JOIN training j ON a.job_id = j.job_id
              JOIN companies c ON j.company_id = c.company_id
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON s.student_id = u.user_id
@@ -192,13 +261,14 @@ class ApplicationModel {
         return result.rows;
     }
 
-    // Get all applications for a company across all jobs
+    // Get all applications for a company across all training
     static async getByCompany(company_id) {
         const result = await query(
             `SELECT
                     a.*,
                     u.full_name,
                     u.email,
+                    u.phone,
                     s.program,
                     s.registration_number AS student_registration_number,
                     s.university_id,
@@ -227,7 +297,7 @@ class ApplicationModel {
                     aw.is_student_of_month AS award_is_student_of_month,
                     aw.certificate_name AS award_certificate_name
              FROM applications a
-             JOIN jobs j ON a.job_id = j.job_id
+             JOIN training j ON a.job_id = j.job_id
              JOIN companies c ON j.company_id = c.company_id
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON s.student_id = u.user_id

@@ -1,6 +1,6 @@
 const ApplicationModel = require('../models/application.model');
 const NotificationModel = require('../models/notification.model');
-const { query } = require('../config/database');
+const { pool, query } = require('../config/database');
 const { sendApplicationStatusEmail } = require('../services/email.service');
 const {
     uploadAsset,
@@ -10,7 +10,21 @@ const {
 } = require('../services/file-storage.service');
 const { buildAcceptanceLetterPdf } = require('../services/acceptance-letter.service');
 
-function formatInterviewDate(dateValue) {
+const MULTI_OFFER_CONFIRMATION_WINDOW_HOURS = 48;
+const OFFER_CONFIRMATION_PENDING = 'pending';
+const OFFER_CONFIRMATION_CONFIRMED = 'confirmed';
+const OFFER_CONFIRMATION_EXPIRED = 'expired';
+const OFFER_CONFIRMATION_CONFIRMED_ELSEWHERE = 'confirmed_elsewhere';
+
+function getQueryRunner(db = query) {
+    if (typeof db === 'function') {
+        return db;
+    }
+
+    return db.query.bind(db);
+}
+
+function formatDate(dateValue) {
     if (!dateValue) return null;
     const parsed = new Date(dateValue);
     if (Number.isNaN(parsed.getTime())) return null;
@@ -72,9 +86,21 @@ function normalizeText(value) {
     return `${value || ''}`.trim().toLowerCase();
 }
 
+function normalizeConfirmationStatus(value) {
+    const normalized = normalizeText(value);
+    return normalized || OFFER_CONFIRMATION_PENDING;
+}
+
+function isOfferInactiveForSelection(status) {
+    return (
+        status === OFFER_CONFIRMATION_EXPIRED ||
+        status === OFFER_CONFIRMATION_CONFIRMED_ELSEWHERE
+    );
+}
+
 function deriveAcademicYear(studentProfile) {
     const studentType = normalizeText(studentProfile?.student_type);
-    if (studentType === 'graduate') {
+    if (studentType === '') {
         return 4;
     }
 
@@ -286,11 +312,11 @@ function evaluateJobEligibility(job, studentProfile) {
 }
 
 async function ensureStudentProfileExists({ userId, role }) {
-    if (!userId || !['student', 'graduate'].includes(`${role}`)) {
+    if (!userId || !['student', ''].includes(`${role}`)) {
         return;
     }
 
-    const studentType = role === 'graduate' ? 'graduate' : 'current';
+    const studentType = role === '' ? '' : 'current';
 
     await query(
         `INSERT INTO students (student_id, student_type)
@@ -320,7 +346,7 @@ async function getApplicationWithOwnership(applicationId) {
             cu.email as company_email,
             cu.phone as company_phone
          FROM applications a
-         JOIN jobs j ON a.job_id = j.job_id
+         JOIN training j ON a.job_id = j.job_id
          JOIN companies c ON j.company_id = c.company_id
          JOIN students s ON a.student_id = s.student_id
          JOIN users u ON a.student_id = u.user_id
@@ -333,6 +359,218 @@ async function getApplicationWithOwnership(applicationId) {
     return result.rows[0] || null;
 }
 
+async function getJobWithOwnership(jobId) {
+    const result = await query(
+        `SELECT
+            j.job_id,
+            j.company_id,
+            j.title
+         FROM training j
+         WHERE j.job_id = $1
+         LIMIT 1`,
+        [jobId]
+    );
+
+    return result.rows[0] || null;
+}
+
+async function syncStudentOfferSelectionState(studentId, db = query) {
+    if (!studentId) {
+        return;
+    }
+
+    const runQuery = getQueryRunner(db);
+    const { rows } = await runQuery(
+        `SELECT
+            application_id,
+            accepted_at,
+            student_confirmation_status,
+            student_confirmation_expires_at
+         FROM applications
+         WHERE student_id = $1
+           AND status = 'accepted'
+         ORDER BY COALESCE(accepted_at, updated_date, applied_date) DESC, application_id DESC`,
+        [studentId]
+    );
+
+    if (rows.length === 0) {
+        return;
+    }
+
+    const activeOffers = rows.filter((offer) => {
+        const offerStatus = normalizeConfirmationStatus(
+            offer.student_confirmation_status
+        );
+        return !isOfferInactiveForSelection(offerStatus);
+    });
+
+    if (activeOffers.length === 0) {
+        return;
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const confirmedOffer = activeOffers.find(
+        (offer) =>
+            normalizeConfirmationStatus(offer.student_confirmation_status) ===
+            OFFER_CONFIRMATION_CONFIRMED
+    );
+
+    if (confirmedOffer) {
+        const otherOfferIds = activeOffers
+            .filter(
+                (offer) =>
+                    `${offer.application_id}` !== `${confirmedOffer.application_id}`
+            )
+            .map((offer) => offer.application_id);
+
+        await runQuery(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmation_released_at = COALESCE(
+                    student_confirmation_released_at,
+                    CURRENT_TIMESTAMP
+                ),
+                student_confirmation_expires_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE student_id = $1
+               AND status = 'accepted'
+               AND application_id::text = ANY($3::text[])`,
+            [
+                studentId,
+                OFFER_CONFIRMATION_CONFIRMED_ELSEWHERE,
+                otherOfferIds.map((offerId) => `${offerId}`)
+            ]
+        );
+
+        await runQuery(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmed_at = COALESCE(
+                    student_confirmed_at,
+                    CURRENT_TIMESTAMP
+                ),
+                student_confirmation_expires_at = NULL,
+                student_confirmation_released_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE application_id = $1`,
+            [confirmedOffer.application_id, OFFER_CONFIRMATION_CONFIRMED]
+        );
+        return;
+    }
+
+    if (activeOffers.length === 1) {
+        await runQuery(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmation_expires_at = NULL,
+                student_confirmation_released_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE application_id = $1`,
+            [activeOffers[0].application_id, OFFER_CONFIRMATION_PENDING]
+        );
+        return;
+    }
+
+    const parsedExpiries = activeOffers
+        .map((offer) => {
+            const rawValue = `${offer.student_confirmation_expires_at || ''}`.trim();
+            if (!rawValue) {
+                return null;
+            }
+
+            const parsed = new Date(rawValue);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        });
+    const hasMissingExpiry = parsedExpiries.some((value) => value === null);
+    const nextExpiry = hasMissingExpiry
+        ? new Date(
+              now.getTime() +
+                  MULTI_OFFER_CONFIRMATION_WINDOW_HOURS * 60 * 60 * 1000
+          )
+        : parsedExpiries
+              .filter(Boolean)
+              .sort((left, right) => left.getTime() - right.getTime())[0];
+
+    const expiryIso = nextExpiry.toISOString();
+
+    if (hasMissingExpiry) {
+        await runQuery(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmation_expires_at = $3,
+                student_confirmation_released_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE student_id = $1
+               AND status = 'accepted'
+               AND COALESCE(student_confirmation_status, '') <> $4`,
+            [
+                studentId,
+                OFFER_CONFIRMATION_PENDING,
+                expiryIso,
+                OFFER_CONFIRMATION_CONFIRMED
+            ]
+        );
+    }
+
+    if (now > nextExpiry) {
+        await runQuery(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmation_expires_at = $3,
+                student_confirmation_released_at = COALESCE(
+                    student_confirmation_released_at,
+                    CURRENT_TIMESTAMP
+                ),
+                updated_date = CURRENT_TIMESTAMP
+             WHERE student_id = $1
+               AND status = 'accepted'
+               AND COALESCE(student_confirmation_status, '') NOT IN ($2, $4)`,
+            [
+                studentId,
+                OFFER_CONFIRMATION_EXPIRED,
+                expiryIso,
+                OFFER_CONFIRMATION_CONFIRMED
+            ]
+        );
+    } else {
+        await runQuery(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmation_expires_at = $3,
+                student_confirmation_released_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE student_id = $1
+               AND status = 'accepted'
+               AND COALESCE(student_confirmation_status, '') <> $4`,
+            [
+                studentId,
+                OFFER_CONFIRMATION_PENDING,
+                expiryIso,
+                OFFER_CONFIRMATION_CONFIRMED
+            ]
+        );
+    }
+}
+
+async function syncOfferSelectionStateForStudents(studentIds, db = query) {
+    const uniqueStudentIds = [...new Set(
+        (Array.isArray(studentIds) ? studentIds : [])
+            .map((studentId) => `${studentId || ''}`.trim())
+            .filter(Boolean)
+    )];
+
+    for (const studentId of uniqueStudentIds) {
+        await syncStudentOfferSelectionState(studentId, db);
+    }
+}
+
 function canAccessApplication(user, application) {
     if (!user || !application) {
         return false;
@@ -342,11 +580,11 @@ function canAccessApplication(user, application) {
         return true;
     }
 
-    if (['student', 'graduate'].includes(`${user.role}`)) {
+    if (['student', ''].includes(`${user.role}`)) {
         return `${application.student_id}` === `${user.user_id}`;
     }
 
-    if (user.role === 'company') {
+    if (user.role === 'company' || user.role === 'university') {
         return `${application.company_id}` === `${user.user_id}`;
     }
 
@@ -379,11 +617,18 @@ function redirectToStoredAsset(res, fileUrl) {
 
 // Apply for a job
 const applyForJob = async (req, res) => {
+    let uploadedCoverLetter = null;
     let uploadedSupportiveDocument = null;
     try {
         const { job_id, cover_letter } = req.body;
         const student_id = req.user.user_id;
-        const supportiveDocument = req.file;
+        const uploadedFiles = req.files || {};
+        const coverLetterFile = Array.isArray(uploadedFiles.cover_letter_file)
+            ? uploadedFiles.cover_letter_file[0]
+            : null;
+        const supportiveDocument = Array.isArray(uploadedFiles.supportive_document)
+            ? uploadedFiles.supportive_document[0]
+            : null;
 
         await ensureStudentProfileExists({
             userId: student_id,
@@ -392,15 +637,16 @@ const applyForJob = async (req, res) => {
 
         const jobData = await query(
             `SELECT
-                jobs.job_id,
-                jobs.title,
-                jobs.status,
-                jobs.application_deadline,
-                jobs.target_candidates,
-                jobs.eligible_programs,
-                jobs.minimum_gpa,
-                jobs.minimum_academic_year,
-                jobs.eligibility_match_mode,
+                training.job_id,
+                training.company_id,
+                training.title,
+                training.status,
+                training.application_deadline,
+                training.target_candidates,
+                training.eligible_programs,
+                training.minimum_gpa,
+                training.minimum_academic_year,
+                training.eligibility_match_mode,
                 (
                     SELECT json_agg(
                         json_build_object(
@@ -410,9 +656,9 @@ const applyForJob = async (req, res) => {
                     )
                     FROM job_skills js
                     JOIN skills s ON js.skill_id = s.skill_id
-                    WHERE js.job_id = jobs.job_id
+                    WHERE js.job_id = training.job_id
                 ) AS required_skills
-             FROM jobs
+             FROM training
              WHERE job_id = $1`,
             [job_id]
         );
@@ -435,7 +681,7 @@ const applyForJob = async (req, res) => {
         if (job.status !== 'open' || isExpired) {
             if (isExpired && job.status === 'open') {
                 await query(
-                    `UPDATE jobs
+                    `UPDATE training
                      SET status = 'closed', updated_at = CURRENT_TIMESTAMP
                      WHERE job_id = $1`,
                     [job_id]
@@ -457,6 +703,23 @@ const applyForJob = async (req, res) => {
             });
         }
 
+        const hasAppliedToOrganization =
+            await ApplicationModel.hasAppliedToOrganization(
+                student_id,
+                job.company_id
+            );
+        if (!hasAppliedToOrganization) {
+            const distinctOrganizationCount =
+                await ApplicationModel.getDistinctOrganizationCount(student_id);
+            if (distinctOrganizationCount >= 5) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        'You can only apply to up to 5 organizations.'
+                });
+            }
+        }
+
         const studentProfileResult = await query(
             `SELECT
                 s.student_id,
@@ -466,11 +729,11 @@ const applyForJob = async (req, res) => {
                 s.gpa,
                 COALESCE(
                     ARRAY(
-                        SELECT ss.skill_id
+                        SELECT ss.skill_id::text
                         FROM student_skills ss
                         WHERE ss.student_id = s.student_id
                     ),
-                    ARRAY[]::uuid[]
+                    ARRAY[]::text[]
                 ) AS skill_ids
              FROM students s
              WHERE s.student_id = $1
@@ -491,6 +754,25 @@ const applyForJob = async (req, res) => {
             });
         }
 
+        if (coverLetterFile) {
+            uploadedCoverLetter = await uploadAsset({
+                buffer: coverLetterFile.buffer,
+                mimeType: coverLetterFile.mimetype,
+                originalName: coverLetterFile.originalname,
+                localSubdir: 'application-cover-letters',
+                fileNamePrefix: 'cover-letter',
+                cloudinaryFolder: 'student-job-platform/application-cover-letters',
+                cloudinaryResourceType: 'raw'
+            });
+        }
+
+        if (!uploadedCoverLetter && !cleanTextValue(cover_letter)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cover letter is required.'
+            });
+        }
+
         if (supportiveDocument) {
             uploadedSupportiveDocument = await uploadAsset({
                 buffer: supportiveDocument.buffer,
@@ -507,7 +789,7 @@ const applyForJob = async (req, res) => {
         const application = await ApplicationModel.create({
             student_id,
             job_id,
-            cover_letter: cleanTextValue(cover_letter),
+            cover_letter: uploadedCoverLetter?.secureUrl || cleanTextValue(cover_letter),
             supportive_document_url: uploadedSupportiveDocument?.secureUrl || null,
             supportive_document_name: supportiveDocument?.originalname || null
         });
@@ -516,7 +798,7 @@ const applyForJob = async (req, res) => {
         try {
             const companyNotificationData = await query(
                 `SELECT j.company_id, j.title AS job_title, u.full_name AS student_name
-                 FROM jobs j
+                 FROM training j
                  JOIN users u ON u.user_id = $2
                  WHERE j.job_id = $1`,
                 [job_id, student_id]
@@ -628,6 +910,7 @@ const reviewSupportiveDocument = async (req, res) => {
 const getMyApplications = async (req, res) => {
     try {
         const student_id = req.user.user_id;
+        await syncStudentOfferSelectionState(student_id);
         const applications = await ApplicationModel.getByStudent(student_id);
         
         res.json({
@@ -648,7 +931,27 @@ const getMyApplications = async (req, res) => {
 const getJobApplications = async (req, res) => {
     try {
         const { job_id } = req.params;
-        const applications = await ApplicationModel.getByJob(job_id);
+        const training = await getJobWithOwnership(job_id);
+
+        if (!training) {
+            return res.status(404).json({
+                success: false,
+                message: 'Training post not found'
+            });
+        }
+
+        if (`${training.company_id}` !== `${req.user.user_id}`) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to access applications for this training post'
+            });
+        }
+
+        let applications = await ApplicationModel.getByJob(job_id);
+        await syncOfferSelectionStateForStudents(
+            applications.map((application) => application.student_id)
+        );
+        applications = await ApplicationModel.getByJob(job_id);
         
         res.json({
             success: true,
@@ -667,7 +970,11 @@ const getJobApplications = async (req, res) => {
 // Get all company applications
 const getCompanyApplications = async (req, res) => {
     try {
-        const applications = await ApplicationModel.getByCompany(req.user.user_id);
+        let applications = await ApplicationModel.getByCompany(req.user.user_id);
+        await syncOfferSelectionStateForStudents(
+            applications.map((application) => application.student_id)
+        );
+        applications = await ApplicationModel.getByCompany(req.user.user_id);
 
         res.json({
             success: true,
@@ -680,6 +987,181 @@ const getCompanyApplications = async (req, res) => {
             message: 'Failed to fetch company applications',
             error: error.message
         });
+    }
+};
+
+const confirmApplicationSelection = async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+        const { application_id } = req.params;
+        const studentId = req.user.user_id;
+
+        await client.query('BEGIN');
+
+        const applicationResult = await client.query(
+            `SELECT
+                a.application_id,
+                a.student_id,
+                a.status,
+                a.student_confirmation_status,
+                a.student_confirmation_expires_at,
+                j.title AS job_title,
+                c.company_name
+             FROM applications a
+             JOIN training j ON a.job_id = j.job_id
+             JOIN companies c ON j.company_id = c.company_id
+             WHERE a.application_id = $1
+             LIMIT 1`,
+            [application_id]
+        );
+
+        const application = applicationResult.rows[0];
+        if (!application) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({
+                success: false,
+                message: 'Application not found'
+            });
+        }
+
+        if (`${application.student_id}` !== `${studentId}`) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to confirm this placement'
+            });
+        }
+
+        await syncStudentOfferSelectionState(studentId, client);
+
+        const refreshedResult = await client.query(
+            `SELECT
+                a.application_id,
+                a.status,
+                a.student_confirmation_status,
+                a.student_confirmation_expires_at,
+                j.title AS job_title,
+                c.company_name
+             FROM applications a
+             JOIN training j ON a.job_id = j.job_id
+             JOIN companies c ON j.company_id = c.company_id
+             WHERE a.application_id = $1
+             LIMIT 1`,
+            [application_id]
+        );
+
+        const refreshed = refreshedResult.rows[0];
+        if (!refreshed || refreshed.status !== 'accepted') {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: 'Only accepted applications can be confirmed'
+            });
+        }
+
+        const confirmationStatus = normalizeConfirmationStatus(
+            refreshed.student_confirmation_status
+        );
+        if (confirmationStatus === OFFER_CONFIRMATION_EXPIRED) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message:
+                    'This offer expired because it was not confirmed within 48 hours.'
+            });
+        }
+
+        if (confirmationStatus === OFFER_CONFIRMATION_CONFIRMED_ELSEWHERE) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: 'You already confirmed another organization.'
+            });
+        }
+
+        const confirmedElsewhereResult = await client.query(
+            `SELECT application_id
+             FROM applications
+             WHERE student_id = $1
+               AND status = 'accepted'
+               AND application_id <> $2
+               AND student_confirmation_status = $3
+             LIMIT 1`,
+            [studentId, application_id, OFFER_CONFIRMATION_CONFIRMED]
+        );
+
+        if (confirmedElsewhereResult.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                success: false,
+                message: 'You already confirmed another organization.'
+            });
+        }
+
+        await client.query(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $2,
+                student_confirmed_at = CURRENT_TIMESTAMP,
+                student_confirmation_expires_at = NULL,
+                student_confirmation_released_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE application_id = $1`,
+            [application_id, OFFER_CONFIRMATION_CONFIRMED]
+        );
+
+        await client.query(
+            `UPDATE applications
+             SET
+                student_confirmation_status = $3,
+                student_confirmation_released_at = CURRENT_TIMESTAMP,
+                student_confirmation_expires_at = NULL,
+                updated_date = CURRENT_TIMESTAMP
+             WHERE student_id = $1
+               AND status = 'accepted'
+               AND application_id <> $2
+               AND COALESCE(student_confirmation_status, '') <> $4`,
+            [
+                studentId,
+                application_id,
+                OFFER_CONFIRMATION_CONFIRMED_ELSEWHERE,
+                OFFER_CONFIRMATION_CONFIRMED
+            ]
+        );
+
+        await client.query('COMMIT');
+
+        await NotificationModel.create({
+            user_id: studentId,
+            title: 'Placement confirmed',
+            message: `You confirmed ${refreshed.company_name} for ${refreshed.job_title}.`,
+            type: 'student_company_confirmed'
+        });
+
+        return res.json({
+            success: true,
+            message: `You confirmed ${refreshed.company_name} successfully.`,
+            data: {
+                application_id,
+                student_confirmation_status: OFFER_CONFIRMATION_CONFIRMED
+            }
+        });
+    } catch (error) {
+        try {
+            await client.query('ROLLBACK');
+        } catch (rollbackError) {
+            console.error('Confirm placement rollback error:', rollbackError);
+        }
+
+        console.error('Confirm placement error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to confirm placement',
+            error: error.message
+        });
+    } finally {
+        client.release();
     }
 };
 
@@ -790,6 +1272,72 @@ const downloadSupportiveDocument = async (req, res) => {
     }
 };
 
+const downloadCoverLetter = async (req, res) => {
+    try {
+        const { application_id } = req.params;
+        const application = await getApplicationWithOwnership(application_id);
+
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: 'Application not found'
+            });
+        }
+
+        if (!canAccessApplication(req.user, application)) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not allowed to access this cover letter'
+            });
+        }
+
+        const coverLetterUrl = cleanTextValue(application.cover_letter);
+        if (!coverLetterUrl) {
+            return res.status(404).json({
+                success: false,
+                message: 'Cover letter is not available for this application'
+            });
+        }
+
+        const isFileUrl =
+            coverLetterUrl.startsWith('http://') ||
+            coverLetterUrl.startsWith('https://') ||
+            coverLetterUrl.startsWith('/');
+
+        if (!isFileUrl) {
+            return res.status(400).json({
+                success: false,
+                message: 'This application uses a text cover letter, not an uploaded PDF'
+            });
+        }
+
+        try {
+            return await streamPdfAsset(res, {
+                fileUrl: coverLetterUrl,
+                fileName: 'cover_letter.pdf',
+                disposition: 'inline'
+            });
+        } catch (fileError) {
+            console.error('Cover letter file read error:', fileError);
+            if (redirectToStoredAsset(res, coverLetterUrl)) {
+                return;
+            }
+            return res.status(404).json({
+                success: false,
+                message:
+                    'Cover letter file could not be found. Please ask the student to upload it again.'
+            });
+        }
+    } catch (error) {
+        console.error('Download cover letter error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to download cover letter',
+            error: error.message
+        });
+    }
+};
+
 // Update application status (Company only)
 const updateApplicationStatus = async (req, res) => {
     let uploadedResponseLetter = null;
@@ -798,8 +1346,8 @@ const updateApplicationStatus = async (req, res) => {
         const {
             status,
             feedback,
-            interview_date,
-            interview_venue,
+            _date,
+            _venue,
             reporting_start_date,
             reporting_end_date,
             organization_name,
@@ -816,16 +1364,16 @@ const updateApplicationStatus = async (req, res) => {
             letter_date
         } = req.body;
 
-        const interviewVenue = cleanTextValue(interview_venue);
+        const Venue = cleanTextValue(_venue);
         const feedbackText = cleanTextValue(feedback);
         const reportingStart = reporting_start_date ? new Date(reporting_start_date) : null;
         const reportingEnd = reporting_end_date ? new Date(reporting_end_date) : null;
 
-        if (status === 'interview') {
-            if (!interview_date || !interviewVenue) {
+        if (status === '') {
+            if (!_date || !Venue) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Interview date and venue are required before sending interview updates'
+                    message: ' date and venue are required before sending  updates'
                 });
             }
         }
@@ -995,9 +1543,13 @@ const updateApplicationStatus = async (req, res) => {
                 response_letter_url: uploadedResponseLetter?.secureUrl || null,
                 response_letter_name: uploadedResponseLetter
                     ? `${app.student_name || 'student'}-acceptance-letter.pdf`
-                    : null
+                    : null,
+                reporting_start_date: reporting_start_date || null,
+                reporting_end_date: reporting_end_date || null
             }
         );
+
+        await syncStudentOfferSelectionState(app.student_id);
 
         if (
             uploadedResponseLetter?.secureUrl &&
@@ -1017,25 +1569,25 @@ const updateApplicationStatus = async (req, res) => {
         
         switch (status) {
             case 'shortlisted':
-                title = '🎯 You have been shortlisted!';
+                title = ' You have been shortlisted!';
                 message = `Congratulations! You have been shortlisted for the position of **${app.job_title}** at **${app.company_name}**. The company will contact you soon for the next steps. Keep an eye on your email!`;
                 break;
-            case 'interview':
-                title = '📅 Interview Scheduled!';
+            case '':
+                title = ' Scheduled!';
                 {
-                    const interviewDateLabel =
-                        formatInterviewDate(interview_date) ||
-                        formatInterviewDate(updated?.updated_date) ||
-                        formatInterviewDate(new Date());
+                    const DateLabel =
+                        formatDate(_date) ||
+                        formatDate(updated?.updated_date) ||
+                        formatDate(new Date());
                     message =
-                        `Great news! You have been selected for an interview for **${app.job_title}** at **${app.company_name}**.\n` +
-                        `Interview Date: ${interviewDateLabel}\n` +
-                        `Interview Venue: ${interviewVenue}\n` +
+                        `Great news! You have been selected for an  for **${app.job_title}** at **${app.company_name}**.\n` +
+                        ` Date: ${DateLabel}\n` +
+                        ` Venue: ${Venue}\n` +
                         `Please report to the venue above on time and check your email for any extra instructions. Good luck!`;
                 }
                 break;
             case 'accepted':
-                title = '🎉 You have been accepted!';
+                title = ' You have been accepted!';
                 {
                     const reportingStartLabel =
                         formatReportingDate(reporting_start_date) ||
@@ -1050,7 +1602,7 @@ const updateApplicationStatus = async (req, res) => {
                 }
                 break;
             case 'rejected':
-                title = '📝 Application Update';
+                title = ' Application Update';
                 if (feedbackText !== '') {
                     message = `Thank you for applying for **${app.job_title}** at **${app.company_name}**. After careful review, we regret to inform you that your application was not successful. Feedback: "${feedbackText}". Keep improving your skills and apply again!`;
                 } else {
@@ -1110,6 +1662,9 @@ module.exports = {
     getMyApplications,
     getJobApplications,
     getCompanyApplications,
+    confirmApplicationSelection,
+    getOrganizationApplications: getCompanyApplications,
+    downloadCoverLetter,
     downloadSupportiveDocument,
     downloadResponseLetter,
     updateApplicationStatus

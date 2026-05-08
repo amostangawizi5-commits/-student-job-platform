@@ -4,7 +4,7 @@ const { query } = require('../config/database');
 const { authMiddleware, authorize } = require('../middleware/auth.middleware');
 
 // GET - Get student skills
-router.get('/skills', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.get('/skills', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const result = await query(
       `SELECT s.skill_id, s.name, s.category 
@@ -22,7 +22,7 @@ router.get('/skills', authMiddleware, authorize('student', 'graduate'), async (r
 });
 
 // POST - Add student skill
-router.post('/skills', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.post('/skills', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const { skill_id } = req.body;
     const student_id = req.user.user_id;
@@ -50,7 +50,7 @@ router.post('/skills', authMiddleware, authorize('student', 'graduate'), async (
 });
 
 // DELETE - Remove student skill
-router.delete('/skills/:skill_id', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.delete('/skills/:skill_id', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const { skill_id } = req.params;
     const student_id = req.user.user_id;
@@ -68,7 +68,7 @@ router.delete('/skills/:skill_id', authMiddleware, authorize('student', 'graduat
 });
 
 // GET - Get student projects
-router.get('/projects', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.get('/projects', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const result = await query(
       `SELECT * FROM projects 
@@ -84,7 +84,7 @@ router.get('/projects', authMiddleware, authorize('student', 'graduate'), async 
 });
 
 // POST - Add student project
-router.post('/projects', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.post('/projects', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const { title, description, technologies, github_link, live_demo_link } = req.body;
     const student_id = req.user.user_id;
@@ -104,7 +104,7 @@ router.post('/projects', authMiddleware, authorize('student', 'graduate'), async
 });
 
 // DELETE - Remove student project
-router.delete('/projects/:project_id', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.delete('/projects/:project_id', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const { project_id } = req.params;
     const student_id = req.user.user_id;

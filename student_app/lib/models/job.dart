@@ -52,7 +52,7 @@ class Job {
       companyId: _stringValue(json['company_id']),
       companyName: _stringValue(json['company_name'], fallback: 'Company'),
       title: _stringValue(json['title'], fallback: 'Untitled Job'),
-      type: _stringValue(json['type'], fallback: 'graduate_program'),
+      type: _stringValue(json['type'], fallback: '_program'),
       targetCandidates: _stringList(json['target_candidates']),
       description: _stringValue(
         json['description'],

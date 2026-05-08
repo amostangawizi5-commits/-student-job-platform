@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
@@ -10,6 +12,7 @@ import '../../services/api_service.dart';
 import '../../services/coordinator_workspace_service.dart';
 import '../../services/export_file_saver.dart';
 import '../../utils/assets.dart';
+import '../../utils/role_theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../auth/login_screen.dart';
 import 'company_reports_board.dart';
@@ -18,20 +21,17 @@ import 'university_notifications_screen.dart';
 
 const Color _universityNavy = Color(0xFF103B63);
 const Color _universityTeal = Color(0xFF0F766E);
-const Color _universityGold = Color(0xFFD4A017);
 const Color _universityMist = Color(0xFFEAF4FB);
-const Color _universityMilk = Color(0xFFFFFBF5);
 const Color _universityBorder = Color(0xFFD9E6F2);
 const Color _universityInk = Color(0xFF17324D);
 const Color _universityMuted = Color(0xFF5F7288);
-const Color _universityAlert = Color(0xFFC2410C);
+const Color _universityHeaderNavy = AdminRoleTheme.primary;
 const Color _coordinatorPrimary = Color(0xFF1E3A5F);
 const Color _coordinatorSecondary = Color(0xFFF4A261);
 const Color _coordinatorSuccess = Color(0xFF2E9C6E);
 const Color _coordinatorWarning = Color(0xFFE9C46A);
 const Color _coordinatorDanger = Color(0xFFE76F51);
 const Color _coordinatorBackground = Color(0xFFF8F9FA);
-const String _allDepartmentsLabel = 'All Programs';
 
 enum _UniversityMoreAction { settings, language, logout }
 
@@ -62,9 +62,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   bool _hasError = false;
   String _errorMessage = '';
   String _dashboardSearchQuery = '';
-  String _selectedDepartmentFilter = _allDepartmentsLabel;
 
-  List<Map<String, dynamic>> _jobs = const [];
   List<Map<String, dynamic>> _universityStudentsData = const [];
   List<Map<String, dynamic>> _wallOfFame = const [];
   List<Map<String, dynamic>> _recentAnnouncements = const [];
@@ -73,9 +71,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   List<Map<String, dynamic>> _manualPlacementRecords = const [];
   List<Map<String, dynamic>> _companyContacts = const [];
   List<Map<String, dynamic>> _companyReports = const [];
-  List<Map<String, dynamic>> _dashboardNotifications = const [];
-  Map<String, dynamic>? _featuredAward;
-
   List<Map<String, dynamic>> get _awardedStudents {
     final awarded = <Map<String, dynamic>>[];
     awarded.addAll(_recentAnnouncements);
@@ -327,117 +322,9 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       _dashboardStudentRecords.where((record) => record.isPlaced).length;
   int get _dashboardNotPlacedCount =>
       _dashboardStudentRecords.where((record) => !record.isPlaced).length;
-  int get _dashboardActiveCompaniesCount => _activeCompanyNames.length;
   double get _dashboardPlacementRatio {
     if (_dashboardTotalStudentsCount == 0) return 0;
     return _dashboardPlacedCount / _dashboardTotalStudentsCount;
-  }
-
-  List<Map<String, dynamic>> get _openUniversityJobs {
-    final now = DateTime.now();
-    return _jobs
-        .where((job) {
-          final status = _normalizedText(job['status']);
-          if (status.isNotEmpty && status != 'open') return false;
-
-          final deadline = _parseDate(job['application_deadline']);
-          if (deadline == null) return true;
-          return !deadline.isBefore(now);
-        })
-        .toList(growable: false);
-  }
-
-  Set<String> get _activeCompanyNames {
-    return _openUniversityJobs
-        .map((job) => _stringValue(job['company_name'], fallback: ''))
-        .where((name) => name.isNotEmpty)
-        .toSet();
-  }
-
-  List<_ActiveCompanySummary> get _activeCompanySummaries {
-    final grouped = <String, List<Map<String, dynamic>>>{};
-    for (final job in _openUniversityJobs) {
-      final companyName = _stringValue(job['company_name'], fallback: '');
-      if (companyName.isEmpty) continue;
-      grouped.putIfAbsent(companyName, () => <Map<String, dynamic>>[]).add(job);
-    }
-
-    final summaries = grouped.entries
-        .map((entry) {
-          final companyJobs = entry.value;
-          final programs =
-              companyJobs
-                  .expand((job) {
-                    final rawPrograms = job['eligible_programs'];
-                    if (rawPrograms is List) {
-                      return rawPrograms.map(
-                        (item) => _stringValue(item, fallback: ''),
-                      );
-                    }
-                    final single = _stringValue(rawPrograms, fallback: '');
-                    return single.isEmpty ? const <String>[] : <String>[single];
-                  })
-                  .where((program) => program.isNotEmpty)
-                  .toSet()
-                  .toList(growable: false)
-                ..sort();
-          final jobTitles =
-              companyJobs
-                  .map((job) => _stringValue(job['title'], fallback: ''))
-                  .where((title) => title.isNotEmpty)
-                  .toList(growable: false)
-                ..sort();
-
-          DateTime? latestPostedDate;
-          DateTime? nearestDeadline;
-          for (final job in companyJobs) {
-            final candidateDate = _parseDate(
-              job['created_at'] ?? job['updated_at'],
-            );
-            if (candidateDate != null &&
-                (latestPostedDate == null ||
-                    candidateDate.isAfter(latestPostedDate))) {
-              latestPostedDate = candidateDate;
-            }
-
-            final deadline = _parseDate(job['application_deadline']);
-            if (deadline != null &&
-                (nearestDeadline == null ||
-                    deadline.isBefore(nearestDeadline))) {
-              nearestDeadline = deadline;
-            }
-          }
-
-          return _ActiveCompanySummary(
-            companyName: entry.key,
-            openJobsCount: companyJobs.length,
-            programs: programs,
-            jobTitles: jobTitles,
-            latestPostedDate: latestPostedDate,
-            nearestDeadline: nearestDeadline,
-          );
-        })
-        .toList(growable: false);
-
-    summaries.sort((left, right) {
-      final countComparison = right.openJobsCount.compareTo(left.openJobsCount);
-      if (countComparison != 0) return countComparison;
-      return left.companyName.toLowerCase().compareTo(
-        right.companyName.toLowerCase(),
-      );
-    });
-    return summaries;
-  }
-
-  List<String> get _dashboardDepartments {
-    final departments =
-        _dashboardStudentRecords
-            .map((record) => record.department.trim())
-            .where((department) => department.isNotEmpty)
-            .toSet()
-            .toList(growable: false)
-          ..sort();
-    return [_allDepartmentsLabel, ...departments];
   }
 
   List<_CoordinatorStudentRecord> get _dashboardStudentRecords {
@@ -634,21 +521,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         .toList(growable: false);
   }
 
-  List<_CoordinatorCommunicationItem> get _dashboardCommunications {
-    return _dashboardNotifications
-        .take(4)
-        .map((notification) {
-          final title = _stringValue(notification['title'], fallback: 'Update');
-          final message = _stringValue(notification['message'], fallback: '');
-          final summary = message.isEmpty ? title : '$title - $message';
-          return _CoordinatorCommunicationItem(
-            dateLabel: _formatShortMonthDay(notification['created_at']),
-            description: summary,
-          );
-        })
-        .toList(growable: false);
-  }
-
   Map<String, dynamic>? _findCompanyContact(String? companyName) {
     final normalizedCompany = _normalizedText(companyName);
     if (normalizedCompany.isEmpty) return null;
@@ -660,39 +532,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
 
     return null;
-  }
-
-  List<_ProgramPlacementSummary> get _programPlacementSummaries {
-    final grouped = <String, List<_CoordinatorStudentRecord>>{};
-    for (final record in _dashboardStudentRecords) {
-      final program = record.department.trim().isEmpty
-          ? 'Program not set'
-          : record.department.trim();
-      grouped
-          .putIfAbsent(program, () => <_CoordinatorStudentRecord>[])
-          .add(record);
-    }
-
-    final summaries = grouped.entries
-        .map((entry) {
-          final records = entry.value;
-          final placed = records.where((record) => record.isPlaced).length;
-          final waiting = records.length - placed;
-          return _ProgramPlacementSummary(
-            program: entry.key,
-            totalStudents: records.length,
-            placedStudents: placed,
-            waitingStudents: waiting,
-          );
-        })
-        .toList(growable: false);
-
-    summaries.sort((left, right) {
-      final totalComparison = right.totalStudents.compareTo(left.totalStudents);
-      if (totalComparison != 0) return totalComparison;
-      return left.program.toLowerCase().compareTo(right.program.toLowerCase());
-    });
-    return summaries;
   }
 
   List<_CoordinatorDeadlineItem> get _dashboardDeadlines {
@@ -719,6 +558,34 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     return items.take(4).toList(growable: false);
   }
 
+  List<Map<String, dynamic>> get _activeCompanies {
+    final uniqueCompanies = <String, Map<String, dynamic>>{};
+
+    for (final company in _companyContacts) {
+      final companyName = _stringValue(company['company_name'], fallback: '');
+      final normalizedName = _normalizedText(companyName);
+      if (normalizedName.isEmpty ||
+          uniqueCompanies.containsKey(normalizedName)) {
+        continue;
+      }
+      uniqueCompanies[normalizedName] = company;
+    }
+
+    final companies = uniqueCompanies.values.toList(growable: false);
+    companies.sort((left, right) {
+      final leftName = _stringValue(
+        left['company_name'],
+        fallback: '',
+      ).toLowerCase();
+      final rightName = _stringValue(
+        right['company_name'],
+        fallback: '',
+      ).toLowerCase();
+      return leftName.compareTo(rightName);
+    });
+    return companies;
+  }
+
   List<_CoordinatorStudentRecord> get _filteredDashboardStudents {
     Iterable<_CoordinatorStudentRecord> base = _dashboardStudentRecords;
     switch (_selectedDashboardTab) {
@@ -735,15 +602,12 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     final normalizedQuery = _normalizedText(_dashboardSearchQuery);
     return base
         .where((record) {
-          final matchesDepartment =
-              _selectedDepartmentFilter == _allDepartmentsLabel ||
-              record.department == _selectedDepartmentFilter;
           final searchTarget = _normalizedText(
             '${record.studentName} ${record.department} ${record.registrationNumber} ${record.companyName ?? ''}',
           );
           final matchesQuery =
               normalizedQuery.isEmpty || searchTarget.contains(normalizedQuery);
-          return matchesDepartment && matchesQuery;
+          return matchesQuery;
         })
         .toList(growable: false);
   }
@@ -769,7 +633,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
 
     try {
       final responses = await Future.wait<dynamic>([
-        _apiService.getJobs(limit: '80'),
         _apiService.getAwardsHomeData(),
         _apiService.getWallOfFame(limit: 24),
         _apiService.getUniversityStudentsOverview(),
@@ -779,31 +642,18 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _workspaceService.getReportsForUniversity(
           universityName: _universityName,
         ),
-        _workspaceService.getNotificationsForRole(
-          role: 'university',
-          universityId: _universityId,
-          universityName: _universityName,
-        ),
-        _apiService.getNotifications().catchError(
-          (_) => <String, dynamic>{'success': false, 'data': []},
-        ),
       ]);
 
-      final jobsResponse = responses[0] as Map<String, dynamic>;
-      final awardsHomeResponse = responses[1] as Map<String, dynamic>;
-      final wallResponse = responses[2] as Map<String, dynamic>;
-      final studentsResponse = responses[3] as Map<String, dynamic>;
-      final companyContactsResponse = responses[4] as Map<String, dynamic>;
+      final awardsHomeResponse = responses[0] as Map<String, dynamic>;
+      final wallResponse = responses[1] as Map<String, dynamic>;
+      final studentsResponse = responses[2] as Map<String, dynamic>;
+      final companyContactsResponse = responses[3] as Map<String, dynamic>;
       final approvalRecordsResponse =
-          responses[5] as List<Map<String, dynamic>>;
+          responses[4] as List<Map<String, dynamic>>;
       final manualPlacementRecordsResponse =
-          responses[6] as List<Map<String, dynamic>>;
-      final companyReportsResponse = responses[7] as List<Map<String, dynamic>>;
-      final localNotificationsResponse =
-          responses[8] as List<Map<String, dynamic>>;
-      final remoteNotificationsResponse = responses[9] as Map<String, dynamic>;
+          responses[5] as List<Map<String, dynamic>>;
+      final companyReportsResponse = responses[6] as List<Map<String, dynamic>>;
 
-      final jobs = _mapList(jobsResponse['data']);
       final awardsHomeData = awardsHomeResponse['data'] is Map<String, dynamic>
           ? awardsHomeResponse['data'] as Map<String, dynamic>
           : const <String, dynamic>{};
@@ -811,28 +661,9 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           ? studentsResponse['data'] as Map<String, dynamic>
           : const <String, dynamic>{};
       final companyContacts = _mapList(companyContactsResponse['data']);
-      final remoteNotifications = _mapList(remoteNotificationsResponse['data']);
-      final mergedNotifications =
-          [
-            ...localNotificationsResponse.map(
-              (item) => {...item, 'is_local': true},
-            ),
-            ...remoteNotifications.map((item) => {...item, 'is_local': false}),
-          ]..sort((left, right) {
-            final leftDate =
-                _parseDate(left['created_at']) ??
-                DateTime.fromMillisecondsSinceEpoch(0);
-            final rightDate =
-                _parseDate(right['created_at']) ??
-                DateTime.fromMillisecondsSinceEpoch(0);
-            return rightDate.compareTo(leftDate);
-          });
 
       setState(() {
-        _jobs = jobs;
         _universityStudentsData = _mapList(studentsData['students']);
-        _featuredAward =
-            awardsHomeData['featured_award'] as Map<String, dynamic>?;
         _recentAnnouncements = _mapList(awardsHomeData['recent_announcements']);
         _leaderboard = _mapList(awardsHomeData['leaderboard']);
         _wallOfFame = _mapList(wallResponse['data']);
@@ -840,17 +671,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _approvalRecords = approvalRecordsResponse;
         _manualPlacementRecords = manualPlacementRecordsResponse;
         _companyReports = companyReportsResponse;
-        _dashboardNotifications = mergedNotifications;
         _isLoading = false;
         _hasError =
-            jobsResponse['success'] != true &&
             awardsHomeResponse['success'] != true &&
             wallResponse['success'] != true &&
             studentsResponse['success'] != true;
         _errorMessage = _hasError
             ? ApiService.normalizeErrorMessage(
-                jobsResponse['message'] ??
-                    awardsHomeResponse['message'] ??
+                awardsHomeResponse['message'] ??
                     wallResponse['message'] ??
                     studentsResponse['message'],
                 fallback:
@@ -1217,6 +1045,18 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     setState(() {
       _selectedIndex = 1;
       _selectedStudentView = view;
+      switch (view) {
+        case _UniversityStudentView.placed:
+          _selectedDashboardTab = _CoordinatorDashboardTab.placed;
+          break;
+        case _UniversityStudentView.noField:
+          _selectedDashboardTab = _CoordinatorDashboardTab.notPlaced;
+          break;
+        case _UniversityStudentView.all:
+        case _UniversityStudentView.awarded:
+          _selectedDashboardTab = _CoordinatorDashboardTab.all;
+          break;
+      }
     });
   }
 
@@ -1413,235 +1253,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     );
   }
 
-  Future<void> _showActiveCompaniesSheet() async {
-    final companies = _activeCompanySummaries;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        final sheetHeight = MediaQuery.of(context).size.height * 0.72;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-            child: SizedBox(
-              height: sheetHeight,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Active Companies',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: _universityInk,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    companies.isEmpty
-                        ? 'No companies with open application windows found yet.'
-                        : '${companies.length} companies currently accepting applications.',
-                    style: const TextStyle(color: _universityMuted),
-                  ),
-                  const SizedBox(height: 18),
-                  if (companies.isEmpty)
-                    const Expanded(
-                      child: Center(
-                        child: _EmptyStateCard(
-                          title: 'No active companies yet',
-                          message:
-                              'Only companies with open field application windows will appear here.',
-                          icon: Icons.business_center_outlined,
-                        ),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: ListView.separated(
-                        itemCount: companies.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final company = companies[index];
-
-                          return Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: _universityBorder),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: _coordinatorSecondary.withValues(
-                                          alpha: 0.14,
-                                        ),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: const Icon(
-                                        Icons.business_rounded,
-                                        color: _coordinatorSecondary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            company.companyName,
-                                            style: const TextStyle(
-                                              color: _universityInk,
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 16,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            '${company.openJobsCount} open job${company.openJobsCount == 1 ? '' : 's'}',
-                                            style: const TextStyle(
-                                              color: _universityMuted,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: _coordinatorSuccess.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        'Open',
-                                        style: TextStyle(
-                                          color: _coordinatorSuccess,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 14),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    _buildCompanyInfoChip(
-                                      icon: Icons.school_outlined,
-                                      label: company.programs.isEmpty
-                                          ? 'Program not set'
-                                          : company.programs.join(', '),
-                                    ),
-                                    _buildCompanyInfoChip(
-                                      icon: Icons.calendar_today_rounded,
-                                      label: company.nearestDeadline == null
-                                          ? 'No deadline'
-                                          : 'Deadline ${_formatDashboardDate(company.nearestDeadline!.toIso8601String())}',
-                                    ),
-                                    _buildCompanyInfoChip(
-                                      icon: Icons.schedule_rounded,
-                                      label: company.latestPostedDate == null
-                                          ? 'Post date unavailable'
-                                          : 'Posted ${_formatDashboardDate(company.latestPostedDate!.toIso8601String())}',
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 14),
-                                const Text(
-                                  'Open Positions',
-                                  style: TextStyle(
-                                    color: _universityInk,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: company.jobTitles
-                                      .map(
-                                        (title) => Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: _universityMist,
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            title,
-                                            style: const TextStyle(
-                                              color: _coordinatorPrimary,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCompanyInfoChip({
-    required IconData icon,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: _universityMilk,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: _coordinatorPrimary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: _coordinatorPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _formatDateTime(dynamic value) {
     final date = _parseDate(value);
     if (date == null) return '-';
@@ -1738,7 +1349,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                       Expanded(
                         child: ListView.separated(
                           itemCount: reports.length,
-                          separatorBuilder: (_, __) =>
+                          separatorBuilder: (_, _) =>
                               const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             final report = reports[index];
@@ -2003,265 +1614,248 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     );
   }
 
-  Future<void> _showPlacementSummaryReportSheet() async {
-    final summaries = _programPlacementSummaries;
+  Future<void> _showActiveCompaniesSheet() async {
+    final searchController = TextEditingController();
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) {
+          String query = '';
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.74,
-              child: Material(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                clipBehavior: Clip.antiAlias,
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              final filteredCompanies = _activeCompanies
+                  .where((company) {
+                    if (query.trim().isEmpty) return true;
+                    final target = _normalizedText(
+                      '${company['company_name'] ?? ''} ${company['industry'] ?? ''} ${company['location'] ?? ''}',
+                    );
+                    return target.contains(_normalizedText(query));
+                  })
+                  .toList(growable: false);
+
+              return SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Placement Summary Report',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: _universityInk,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Overview of current student placement progress and program distribution.',
-                        style: TextStyle(color: _universityMuted),
-                      ),
-                      const SizedBox(height: 14),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: ElevatedButton.icon(
-                          onPressed: _downloadPlacementSummaryReport,
-                          icon: const Icon(Icons.download_rounded),
-                          label: const Text('Download Report'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _universityNavy,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          _buildReportStatTile(
-                            title: 'Total Students',
-                            value: '$_dashboardTotalStudentsCount',
-                            color: _coordinatorPrimary,
-                          ),
-                          _buildReportStatTile(
-                            title: 'Placed',
-                            value: '$_dashboardPlacedCount',
-                            color: _coordinatorSuccess,
-                          ),
-                          _buildReportStatTile(
-                            title: 'Waiting',
-                            value: '$_dashboardNotPlacedCount',
-                            color: _coordinatorDanger,
-                          ),
-                          _buildReportStatTile(
-                            title: 'Active Companies',
-                            value: '$_dashboardActiveCompaniesCount',
-                            color: _coordinatorSecondary,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      const Text(
-                        'Program Breakdown',
-                        style: TextStyle(
-                          color: _universityInk,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (summaries.isEmpty)
-                        const Expanded(
-                          child: Center(
-                            child: _EmptyStateCard(
-                              title: 'No report data available',
-                              message:
-                                  'Placement summary will appear here once students are available.',
-                              icon: Icons.assessment_outlined,
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.72,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Active Organizations',
+                              style: TextStyle(
+                                color: _universityInk,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: ListView.separated(
-                            itemCount: summaries.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final item = summaries[index];
-                              return Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(color: _universityBorder),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item.program,
-                                      style: const TextStyle(
-                                        color: _universityInk,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 16,
+                            const SizedBox(height: 6),
+                            Text(
+                              '${filteredCompanies.length} organizations available for coordinator follow-up.',
+                              style: const TextStyle(color: _universityMuted),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: searchController,
+                              onChanged: (value) {
+                                setModalState(() => query = value);
+                              },
+                              decoration: InputDecoration(
+                                hintText:
+                                    'Filter by organization, industry, or location',
+                                prefixIcon: const Icon(Icons.search_rounded),
+                                suffixIcon: query.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        onPressed: () {
+                                          searchController.clear();
+                                          setModalState(() => query = '');
+                                        },
+                                        icon: const Icon(Icons.close_rounded),
                                       ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      children: [
-                                        _buildCompanyInfoChip(
-                                          icon: Icons.groups_rounded,
-                                          label: 'Total ${item.totalStudents}',
-                                        ),
-                                        _buildCompanyInfoChip(
-                                          icon: Icons.work_history_rounded,
-                                          label:
-                                              'Placed ${item.placedStudents}',
-                                        ),
-                                        _buildCompanyInfoChip(
-                                          icon: Icons.schedule_rounded,
-                                          label:
-                                              'Waiting ${item.waitingStudents}',
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: const BorderSide(
+                                    color: _universityBorder,
+                                  ),
                                 ),
-                              );
-                            },
-                          ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: const BorderSide(
+                                    color: _universityBorder,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Expanded(
+                              child: filteredCompanies.isEmpty
+                                  ? const Center(
+                                      child: _EmptyStateCard(
+                                        title:
+                                            'No organizations match your filter',
+                                        message:
+                                            'Try a different organization keyword.',
+                                        icon: Icons.business_center_outlined,
+                                      ),
+                                    )
+                                  : ListView.separated(
+                                      itemCount: filteredCompanies.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(height: 12),
+                                      itemBuilder: (context, index) {
+                                        final company =
+                                            filteredCompanies[index];
+                                        final companyName = _stringValue(
+                                          company['company_name'],
+                                          fallback: 'Unknown company',
+                                        );
+                                        final industry = _stringValue(
+                                          company['industry'],
+                                          fallback: '',
+                                        );
+                                        final location = _stringValue(
+                                          company['location'],
+                                          fallback: '',
+                                        );
+                                        final phone = _stringValue(
+                                          company['phone'],
+                                          fallback: 'No phone',
+                                        );
+
+                                        return InkWell(
+                                          onTap: () async {
+                                            Navigator.of(context).pop();
+                                            await _showCompanyContactSheet(
+                                              companyName,
+                                            );
+                                          },
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(16),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius:
+                                                  BorderRadius.circular(18),
+                                              border: Border.all(
+                                                color: _universityBorder,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Container(
+                                                  width: 44,
+                                                  height: 44,
+                                                  decoration: BoxDecoration(
+                                                    color: _universityMist,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          14,
+                                                        ),
+                                                  ),
+                                                  child: const Icon(
+                                                    Icons.apartment_rounded,
+                                                    color: _coordinatorPrimary,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        companyName,
+                                                        style: const TextStyle(
+                                                          color: _universityInk,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                        ),
+                                                      ),
+                                                      if (industry
+                                                          .isNotEmpty) ...[
+                                                        const SizedBox(
+                                                          height: 4,
+                                                        ),
+                                                        Text(
+                                                          industry,
+                                                          style: const TextStyle(
+                                                            color:
+                                                                _universityMuted,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                      if (location
+                                                          .isNotEmpty) ...[
+                                                        const SizedBox(
+                                                          height: 4,
+                                                        ),
+                                                        Text(
+                                                          location,
+                                                          style: const TextStyle(
+                                                            color:
+                                                                _universityMuted,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                      const SizedBox(height: 6),
+                                                      Text(
+                                                        phone,
+                                                        style: const TextStyle(
+                                                          color:
+                                                              _coordinatorPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                const Icon(
+                                                  Icons.chevron_right_rounded,
+                                                  color: _universityMuted,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ],
                         ),
-                    ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _downloadPlacementSummaryReport() async {
-    final summaries = _programPlacementSummaries;
-    final buffer = StringBuffer()
-      ..writeln('Metric,Value')
-      ..writeln('${_csvCell('University')},${_csvCell(_universityName)}')
-      ..writeln('${_csvCell('Coordinator')},${_csvCell(_coordinatorName)}')
-      ..writeln(
-        '${_csvCell('Generated At')},${_csvCell(DateTime.now().toIso8601String())}',
-      )
-      ..writeln(
-        '${_csvCell('Total Students')},${_csvCell('$_dashboardTotalStudentsCount')}',
-      )
-      ..writeln(
-        '${_csvCell('Placed Students')},${_csvCell('$_dashboardPlacedCount')}',
-      )
-      ..writeln(
-        '${_csvCell('Waiting Students')},${_csvCell('$_dashboardNotPlacedCount')}',
-      )
-      ..writeln(
-        '${_csvCell('Active Companies')},${_csvCell('$_dashboardActiveCompaniesCount')}',
-      )
-      ..writeln()
-      ..writeln('Program,Total Students,Placed,Waiting,Placement Rate');
-
-    for (final summary in summaries) {
-      final placementRate = summary.totalStudents == 0
-          ? 0
-          : ((summary.placedStudents / summary.totalStudents) * 100).round();
-      buffer.writeln(
-        [
-          _csvCell(summary.program),
-          _csvCell('${summary.totalStudents}'),
-          _csvCell('${summary.placedStudents}'),
-          _csvCell('${summary.waitingStudents}'),
-          _csvCell('$placementRate%'),
-        ].join(','),
+              );
+            },
+          );
+        },
       );
+    } finally {
+      searchController.dispose();
     }
-
-    final dateLabel = DateTime.now().toIso8601String().split('T').first;
-    final fileName =
-        'placement_summary_${_slugifyFilePart(_universityName)}_$dateLabel.csv';
-
-    try {
-      final savedPath = await saveExportFile(
-        fileName: fileName,
-        bytes: Uint8List.fromList(utf8.encode(buffer.toString())),
-        mimeType: 'text/csv',
-      );
-      if (!mounted) return;
-      _showCoordinatorMessage(
-        'Report downloaded to $savedPath',
-        backgroundColor: _coordinatorSuccess,
-      );
-    } catch (error) {
-      if (!mounted) return;
-      _showCoordinatorMessage(
-        'Failed to download report: $error',
-        backgroundColor: _coordinatorDanger,
-      );
-    }
-  }
-
-  Widget _buildReportStatTile({
-    required String title,
-    required String value,
-    required Color color,
-  }) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: _universityMuted,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 22,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _openPlacementAssignmentDialog(
@@ -2425,7 +2019,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         universityName: _universityName,
                         coordinatorName: _coordinatorName,
                         companyName: companyName,
-                        jobTitle: role,
+                        trainingTitle: role,
                         placementLocation: location,
                         startDate: startDate?.toIso8601String(),
                         endDate: endDate?.toIso8601String(),
@@ -2461,7 +2055,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
 
   void _showCoordinatorMessage(String message, {Color? backgroundColor}) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: backgroundColor ?? _coordinatorPrimary,
@@ -2538,7 +2132,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             'Export successful',
@@ -2560,7 +2154,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Failed to export students: $error'),
           backgroundColor: Colors.red,
@@ -2570,15 +2164,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   }
 
   String _csvCell(String value) => '"${value.replaceAll('"', '""')}"';
-
-  String _slugifyFilePart(String value) {
-    final normalized = value
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
-        .replaceAll(RegExp(r'_+'), '_')
-        .replaceAll(RegExp(r'^_|_$'), '');
-    return normalized.isEmpty ? 'university' : normalized;
-  }
 
   List<_UniversityNavigationItem> _navigationItems() {
     return const [
@@ -2602,11 +2187,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         icon: Icons.campaign_rounded,
         subtitle: '',
       ),
-      _UniversityNavigationItem(
-        label: 'Profile',
-        icon: Icons.settings_rounded,
-        subtitle: '',
-      ),
     ];
   }
 
@@ -2622,9 +2202,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
     if (icon == Icons.campaign_rounded) {
       return Icons.campaign_outlined;
-    }
-    if (icon == Icons.settings_rounded) {
-      return Icons.settings_outlined;
     }
     return icon;
   }
@@ -2692,10 +2269,10 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         studentView: _UniversityStudentView.noField,
       ),
       _MetricCardData(
-        title: 'Active Companies',
-        value: '$_dashboardActiveCompaniesCount',
-        caption: 'Companies hosting students',
-        icon: Icons.business_center_rounded,
+        title: 'Active Organizations',
+        value: '${_activeCompanies.length}',
+        caption: 'Tap to filter organization contacts',
+        icon: Icons.apartment_rounded,
         color: _coordinatorSecondary,
         onTap: _showActiveCompaniesSheet,
       ),
@@ -2713,18 +2290,10 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _buildPlacementProgressSection(),
         const SizedBox(height: 12),
         _buildCompanyFeedbackTracker(),
-        const SizedBox(height: 12),
-        _buildQuickActions(isDesktop),
       ],
     );
 
-    final sideColumn = Column(
-      children: [
-        _buildRecentCommunicationsSection(),
-        const SizedBox(height: 12),
-        _buildUpcomingDeadlinesSection(),
-      ],
-    );
+    final sideColumn = Column(children: [_buildUpcomingDeadlinesSection()]);
 
     return RefreshIndicator(
       onRefresh: _loadUniversityPortal,
@@ -2744,6 +2313,15 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           const SizedBox(height: 16),
           _buildDashboardSpotlight(),
           const SizedBox(height: 16),
+          const Text(
+            'Overview',
+            style: TextStyle(
+              color: _universityInk,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
           _buildMetricGrid(stats, isDesktop: isDesktop),
           const SizedBox(height: 12),
           if (isWideLayout)
@@ -2857,8 +2435,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         value: '$placementPercentage%',
                       ),
                       _buildHeroStat(
-                        label: 'Companies',
-                        value: '$_dashboardActiveCompaniesCount',
+                        label: 'Waiting',
+                        value: '$_dashboardNotPlacedCount',
                       ),
                     ],
                   );
@@ -2890,8 +2468,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                     ),
                     Expanded(
                       child: _buildHeroStat(
-                        label: 'Companies',
-                        value: '$_dashboardActiveCompaniesCount',
+                        label: 'Waiting',
+                        value: '$_dashboardNotPlacedCount',
                       ),
                     ),
                   ],
@@ -3200,82 +2778,29 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     );
   }
 
-  Widget _buildQuickActions(bool isDesktop) {
-    final actions = [
-      _QuickActionData(
-        title: 'NEW PLACEMENT',
-        caption: 'Assign a student to available field placement',
-        icon: Icons.add_business_rounded,
-        onTap: () {
-          _openStudentsView(_UniversityStudentView.noField);
-          _showCoordinatorMessage(
-            'Open the not placed list to assign a new placement.',
-          );
-        },
-      ),
-      _QuickActionData(
-        title: 'GENERATE REPORT',
-        caption: 'Prepare placement summary for departments',
-        icon: Icons.assessment_rounded,
-        onTap: _showPlacementSummaryReportSheet,
-      ),
-      _QuickActionData(
-        title: 'BROADCAST EMAIL',
-        caption: 'Send updates to companies or students',
-        icon: Icons.email_outlined,
-        onTap: () => _openNavigationItem(3),
-      ),
-      _QuickActionData(
-        title: 'EXPORT DATA',
-        caption: 'Download the current student placement data',
-        icon: Icons.download_rounded,
-        onTap: () {
-          setState(() => _selectedStudentView = _UniversityStudentView.all);
-          _exportStudents();
-        },
-      ),
-    ];
-
-    return _buildSectionCard(
-      title: 'Quick Actions',
-      subtitle: '',
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: actions
-            .map(
-              (action) => _DashboardQuickActionButton(
-                data: action,
-                width: isDesktop ? 220 : null,
-              ),
-            )
-            .toList(growable: false),
-      ),
-    );
-  }
-
-  Widget _buildDashboardStudentsSection(bool isDesktop) {
+  Widget _buildDashboardStudentsSection() {
     final filteredStudents = _filteredDashboardStudents;
 
     return _buildSectionCard(
       title: 'Students Management',
       subtitle: '',
-      trailing: Text(
-        '${filteredStudents.length} visible',
-        style: const TextStyle(
-          color: _universityMuted,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 18,
+            runSpacing: 8,
             children: [
               _DashboardTabButton(
-                label: 'PLACED ($_dashboardPlacedCount)',
+                label: 'All ($_dashboardTotalStudentsCount)',
+                isSelected:
+                    _selectedDashboardTab == _CoordinatorDashboardTab.all,
+                onTap: () => setState(
+                  () => _selectedDashboardTab = _CoordinatorDashboardTab.all,
+                ),
+              ),
+              _DashboardTabButton(
+                label: 'Placed ($_dashboardPlacedCount)',
                 isSelected:
                     _selectedDashboardTab == _CoordinatorDashboardTab.placed,
                 onTap: () => setState(
@@ -3283,7 +2808,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 ),
               ),
               _DashboardTabButton(
-                label: 'NOT PLACED ($_dashboardNotPlacedCount)',
+                label: 'Not Placed ($_dashboardNotPlacedCount)',
                 isSelected:
                     _selectedDashboardTab == _CoordinatorDashboardTab.notPlaced,
                 onTap: () => setState(
@@ -3291,23 +2816,15 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                       _CoordinatorDashboardTab.notPlaced,
                 ),
               ),
-              _DashboardTabButton(
-                label: 'ALL STUDENTS',
-                isSelected:
-                    _selectedDashboardTab == _CoordinatorDashboardTab.all,
-                onTap: () => setState(
-                  () => _selectedDashboardTab = _CoordinatorDashboardTab.all,
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 14),
-          _buildDashboardStudentFilters(isDesktop),
+          _buildDashboardStudentFilters(),
           const SizedBox(height: 14),
           if (filteredStudents.isEmpty)
             const _EmptyStateCard(
               title: 'No students match your filters',
-              message: 'Try another program or clear the search keyword.',
+              message: 'Try another search keyword.',
               icon: Icons.search_off_rounded,
             )
           else
@@ -3317,8 +2834,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     );
   }
 
-  Widget _buildDashboardStudentFilters(bool isDesktop) {
-    final searchField = TextField(
+  Widget _buildDashboardStudentFilters() {
+    return TextField(
       controller: _dashboardSearchController,
       onChanged: (value) {
         setState(() => _dashboardSearchQuery = value);
@@ -3346,59 +2863,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           borderSide: const BorderSide(color: _universityBorder),
         ),
       ),
-    );
-
-    final departmentFilter = DropdownButtonFormField<String>(
-      isExpanded: true,
-      initialValue: _selectedDepartmentFilter,
-      items: _dashboardDepartments
-          .map(
-            (department) => DropdownMenuItem(
-              value: department,
-              child: Text(
-                department,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          )
-          .toList(growable: false),
-      decoration: InputDecoration(
-        labelText: 'Program',
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: _universityBorder),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: _universityBorder),
-        ),
-      ),
-      onChanged: (value) {
-        if (value == null) return;
-        setState(() => _selectedDepartmentFilter = value);
-      },
-    );
-
-    if (isDesktop) {
-      return Row(
-        children: [
-          Expanded(flex: 3, child: searchField),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 260),
-              child: departmentFilter,
-            ),
-          ),
-        ],
-      );
-    }
-
-    return Column(
-      children: [searchField, const SizedBox(height: 12), departmentFilter],
     );
   }
 
@@ -3437,8 +2901,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 DataCell(Text(record.lastFeedback ?? '-')),
                 DataCell(
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [
                       _ActionPillButton(
                         label: 'View',
@@ -3487,8 +2951,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 ),
                 DataCell(
                   Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [
                       _ActionPillButton(
                         label: 'Assign',
@@ -3542,8 +3006,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 DataCell(
                   record.isPlaced
                       ? Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: 10,
+                          runSpacing: 10,
                           children: [
                             _ActionPillButton(
                               label: 'View',
@@ -3561,8 +3025,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                           ],
                         )
                       : Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: 10,
+                          runSpacing: 10,
                           children: [
                             _ActionPillButton(
                               label: 'Assign',
@@ -3592,35 +3056,42 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     required List<DataRow> rows,
     required double minWidth,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFD6E2EE)),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minWidth: minWidth),
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFDCEAF7)),
-            headingTextStyle: const TextStyle(
-              color: _coordinatorPrimary,
-              fontWeight: FontWeight.w800,
-            ),
-            dataTextStyle: const TextStyle(color: _universityInk),
-            dataRowMinHeight: 72,
-            dataRowMaxHeight: 72,
-            headingRowHeight: 66,
-            columnSpacing: 28,
-            horizontalMargin: 16,
-            dividerThickness: 0.6,
-            showBottomBorder: true,
-            columns: columns,
-            rows: rows,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tableWidth = math.max(minWidth, constraints.maxWidth);
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFD6E2EE)),
+            borderRadius: BorderRadius.circular(20),
           ),
-        ),
-      ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: tableWidth),
+              child: DataTable(
+                headingRowColor: WidgetStateProperty.all(
+                  const Color(0xFFDCEAF7),
+                ),
+                headingTextStyle: const TextStyle(
+                  color: _coordinatorPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+                dataTextStyle: const TextStyle(color: _universityInk),
+                dataRowMinHeight: 72,
+                dataRowMaxHeight: 88,
+                headingRowHeight: 66,
+                columnSpacing: 28,
+                horizontalMargin: 16,
+                dividerThickness: 0.6,
+                showBottomBorder: true,
+                columns: columns,
+                rows: rows,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -3633,30 +3104,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         return null;
       }),
       cells: cells,
-    );
-  }
-
-  Widget _buildRecentCommunicationsSection() {
-    final communications = _dashboardCommunications;
-    return _buildSectionCard(
-      title: 'Recent Communications',
-      subtitle: '',
-      child: communications.isEmpty
-          ? const Text(
-              'No recent communications found yet.',
-              style: TextStyle(color: _universityMuted),
-            )
-          : Column(
-              children: communications
-                  .map(
-                    (item) => _TimelineTile(
-                      dateLabel: item.dateLabel,
-                      description: item.description,
-                      accent: _coordinatorPrimary,
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
     );
   }
 
@@ -3686,55 +3133,16 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
 
   Widget _buildStudentsPage() {
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth >= 980;
     final pagePadding = screenWidth < 400
         ? const EdgeInsets.all(12)
         : const EdgeInsets.all(20);
-    Widget currentContent;
-    String sectionTitle;
-    String sectionSubtitle;
-
-    switch (_selectedStudentView) {
-      case _UniversityStudentView.all:
-        currentContent = _StudentListView(students: _trackedStudents);
-        sectionTitle = 'All';
-        sectionSubtitle = 'All tracked students.';
-        break;
-      case _UniversityStudentView.awarded:
-        currentContent = _SelectedStudentList(records: _awardedStudents);
-        sectionTitle = 'Awarded';
-        sectionSubtitle = 'Students with awards or recognition.';
-        break;
-      case _UniversityStudentView.placed:
-        currentContent = _SelectedStudentList(
-          records: _fieldPlacedStudents,
-          emptyTitle: 'No placed students yet',
-          emptyMessage:
-              'Students will appear here immediately after they confirm a placement.',
-          emptyIcon: Icons.work_history_rounded,
-        );
-        sectionTitle = 'Placed';
-        sectionSubtitle = 'Students who already confirmed their placements.';
-        break;
-      case _UniversityStudentView.noField:
-        currentContent = _SelectedStudentList(
-          records: _studentsWithoutField,
-          emptyTitle: 'No students waiting for placement',
-          emptyMessage:
-              'All tracked students already appear in placement records.',
-          emptyIcon: Icons.assignment_late_rounded,
-        );
-        sectionTitle = 'Not Placed';
-        sectionSubtitle = 'Tracked students without placement records.';
-        break;
-    }
 
     return ListView(
       padding: pagePadding,
       children: [
         _PageHeader(
           title: 'Students',
-          subtitle: 'Student lists and placement status.',
+          subtitle: '',
           trailing: ElevatedButton.icon(
             onPressed: _exportStudents,
             icon: const Icon(Icons.download),
@@ -3746,13 +3154,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           ),
         ),
         const SizedBox(height: 16),
-        _buildDashboardStudentsSection(isDesktop),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          title: sectionTitle,
-          subtitle: sectionSubtitle,
-          child: currentContent,
-        ),
+        _buildDashboardStudentsSection(),
       ],
     );
   }
@@ -3761,16 +3163,11 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _PageHeader(
-          title: 'Reports / Complaints',
-          subtitle:
-              'Company behavior issues and compliance alerts for student follow-up.',
-        ),
+        _PageHeader(title: 'Reports / Complaints', subtitle: ''),
         const SizedBox(height: 16),
         _buildSectionCard(
           title: 'Company Reports',
-          subtitle:
-              'Companies can escalate attendance and workplace conduct issues directly to the university.',
+          subtitle: '',
           child: CompanyReportsBoard(universityName: _universityName),
         ),
       ],
@@ -3781,16 +3178,11 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _PageHeader(
-          title: 'Announcements',
-          subtitle:
-              'Award highlights and student recognition visible to the platform.',
-        ),
+        _PageHeader(title: 'Announcements', subtitle: ''),
         const SizedBox(height: 16),
         _buildSectionCard(
           title: 'Coordinator Announcement Center',
-          subtitle:
-              'Publish updates to students, companies, or both directly from the university portal.',
+          subtitle: '',
           child: CoordinatorAnnouncementCenter(
             universityId: _universityId,
             universityName: _universityName,
@@ -3800,8 +3192,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         const SizedBox(height: 16),
         _buildSectionCard(
           title: 'Recent Announcements',
-          subtitle:
-              'These published award cards can also be surfaced to admin views.',
+          subtitle: '',
           child: _AnnouncementList(announcements: _recentAnnouncements),
         ),
       ],
@@ -3812,119 +3203,186 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     final user = context.watch<AuthProvider>().user;
     final universityData = user?['university_data'] as Map<String, dynamic>?;
     final universityLogoUrls = _getUniversityLogoUrls();
+    final institutionName = _stringValue(
+      universityData?['college_name'],
+      fallback: 'University',
+    );
+    final coordinatorName = _stringValue(
+      universityData?['coordinator_name'],
+      fallback: 'Coordinator',
+    );
+    final email = _stringValue(user?['email'], fallback: 'Not available');
 
     final settings = [
       {
         'label': 'University name',
-        'value': _stringValue(universityData?['college_name']),
+        'value': institutionName,
+        'icon': Icons.account_balance_rounded,
       },
       {
         'label': 'Registration number',
         'value': _stringValue(universityData?['registration_number']),
+        'icon': Icons.badge_outlined,
       },
       {
         'label': 'Coordinator',
-        'value': _stringValue(universityData?['coordinator_name']),
+        'value': coordinatorName,
+        'icon': Icons.person_outline_rounded,
       },
       {
         'label': 'Coordinator phone',
         'value': _stringValue(universityData?['coordinator_phone']),
+        'icon': Icons.phone_outlined,
       },
-      {'label': 'Email', 'value': _stringValue(user?['email'])},
+      {'label': 'Email', 'value': email, 'icon': Icons.mail_outline_rounded},
       {
         'label': 'Location',
         'value':
             '${_stringValue(universityData?['district'])}, ${_stringValue(universityData?['region'])}',
+        'icon': Icons.location_on_outlined,
       },
     ];
 
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        const _PageHeader(
-          title: 'Settings',
-          subtitle:
-              'University profile, coordinator details, and session controls.',
-        ),
+        const _PageHeader(title: 'Settings', subtitle: ''),
         const SizedBox(height: 16),
         _buildSectionCard(
           title: 'University Profile',
-          subtitle: 'Core account and institution data.',
+          subtitle: '',
           child: Column(
             children: [
-              Row(
-                children: [
-                  _UniversityHeroAvatar(imageUrls: universityLogoUrls),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _stringValue(
-                            universityData?['college_name'],
-                            fallback: 'University',
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: _universityMist,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: _universityBorder),
+                ),
+                child: Row(
+                  children: [
+                    _UniversityHeroAvatar(imageUrls: universityLogoUrls),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            institutionName,
+                            style: const TextStyle(
+                              color: _universityInk,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                          style: const TextStyle(
-                            color: _universityInk,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
+                          const SizedBox(height: 4),
+                          Text(
+                            coordinatorName,
+                            style: const TextStyle(
+                              color: _universityMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _stringValue(
-                            universityData?['coordinator_name'],
-                            fallback: 'Coordinator',
+                          const SizedBox(height: 8),
+                          Text(
+                            email,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _universityInk,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                          style: const TextStyle(
-                            color: _universityMuted,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 18),
-              ...settings.map((item) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          (item['label'] ?? '').toString(),
-                          style: const TextStyle(
-                            color: _universityMuted,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          (item['value'] ?? '').toString(),
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: _universityInk,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
+              const SizedBox(height: 16),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 720;
+                  final spacing = 12.0;
+                  final itemWidth = compact
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - spacing) / 2;
+
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: settings
+                        .map((item) {
+                          return SizedBox(
+                            width: itemWidth,
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: _universityBorder),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: _universityMist,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Icon(
+                                      item['icon'] as IconData,
+                                      color: _universityNavy,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          (item['label'] ?? '').toString(),
+                                          style: const TextStyle(
+                                            color: _universityMuted,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          (item['value'] ?? '').toString(),
+                                          style: const TextStyle(
+                                            color: _universityInk,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        })
+                        .toList(growable: false),
+                  );
+                },
+              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
         _buildSectionCard(
           title: 'Security',
-          subtitle: 'Update your password or leave the portal securely.',
+          subtitle: '',
           child: Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -3934,6 +3392,13 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _universityNavy,
                   foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 icon: const Icon(Icons.lock_reset_rounded),
                 label: const Text('Change Password'),
@@ -3941,8 +3406,15 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
               ElevatedButton.icon(
                 onPressed: _logout,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _universityTeal,
+                  backgroundColor: _coordinatorDanger,
                   foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 icon: const Icon(Icons.logout_rounded),
                 label: const Text('Logout'),
@@ -4134,59 +3606,15 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     return Scaffold(
       backgroundColor: _coordinatorBackground,
       appBar: AppBar(
-        backgroundColor: _universityNavy,
+        backgroundColor: _universityHeaderNavy,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         foregroundColor: Colors.white,
         centerTitle: true,
-        toolbarHeight: 84,
-        flexibleSpace: Stack(
-          fit: StackFit.expand,
-          children: [
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    _universityNavy,
-                    _coordinatorPrimary,
-                    _universityTeal,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-            ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    _universityGold.withValues(alpha: 0.22),
-                    _coordinatorSecondary.withValues(alpha: 0.18),
-                    Colors.transparent,
-                  ],
-                  stops: const [0.0, 0.24, 0.7],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                ),
-              ),
-            ),
-          ],
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(4),
-          child: Container(
-            height: 4,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  _coordinatorSecondary.withValues(alpha: 0.95),
-                  _universityGold.withValues(alpha: 0.9),
-                  _universityTeal.withValues(alpha: 0.95),
-                ],
-              ),
-            ),
-          ),
+        toolbarHeight: 96,
+        flexibleSpace: const DecoratedBox(
+          decoration: BoxDecoration(color: _universityHeaderNavy),
         ),
         leadingWidth: isDesktop ? 90 : 72,
         leading: Padding(
@@ -4199,12 +3627,9 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.98),
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: _universityGold.withValues(alpha: 0.35),
-                ),
                 boxShadow: [
                   BoxShadow(
-                    color: _universityNavy.withValues(alpha: 0.18),
+                    color: Colors.black.withValues(alpha: 0.16),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -4219,7 +3644,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                     errorBuilder: (context, error, stackTrace) {
                       return const Icon(
                         Icons.account_balance_rounded,
-                        color: _universityNavy,
+                        color: _universityHeaderNavy,
                         size: 24,
                       );
                     },
@@ -4233,7 +3658,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              _universityName,
+              'INDUSTRIAL PRACTICAL TRAING SYSTEM',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -4248,8 +3673,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
               today,
               style: const TextStyle(
                 fontSize: 12,
-                color: Color(0xFFFFE3A1),
-                fontWeight: FontWeight.w600,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
               ),
               textAlign: TextAlign.center,
               maxLines: 1,
@@ -4281,7 +3706,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                       fit: BoxFit.contain,
                       emptyChild: const Icon(
                         Icons.account_balance_rounded,
-                        color: _universityNavy,
+                        color: _universityHeaderNavy,
                         size: 22,
                       ),
                     ),
@@ -4353,19 +3778,23 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           ],
         ),
       ),
-      floatingActionButton: _selectedIndex == 0 && !_isLoading
-          ? FloatingActionButton(
-              onPressed: _loadUniversityPortal,
-              backgroundColor: _universityNavy,
-              foregroundColor: Colors.white,
-              child: const Icon(Icons.refresh_rounded),
-            )
+      floatingActionButton: !_isLoading
+          ? (_selectedIndex == 0
+                ? FloatingActionButton(
+                    onPressed: _loadUniversityPortal,
+                    backgroundColor: _universityNavy,
+                    foregroundColor: Colors.white,
+                    child: const Icon(Icons.refresh_rounded),
+                  )
+                : null)
           : null,
       bottomNavigationBar: isDesktop
           ? null
           : BottomNavigationBar(
               type: BottomNavigationBarType.fixed,
-              currentIndex: _selectedIndex,
+              currentIndex: _selectedIndex < _navigationItems().length
+                  ? _selectedIndex
+                  : 0,
               onTap: _openNavigationItem,
               selectedItemColor: _universityNavy,
               unselectedItemColor: _universityMuted,
@@ -4600,48 +4029,6 @@ class _CoordinatorCompanyFeedback {
   final String detail;
 }
 
-class _ActiveCompanySummary {
-  const _ActiveCompanySummary({
-    required this.companyName,
-    required this.openJobsCount,
-    required this.programs,
-    required this.jobTitles,
-    this.latestPostedDate,
-    this.nearestDeadline,
-  });
-
-  final String companyName;
-  final int openJobsCount;
-  final List<String> programs;
-  final List<String> jobTitles;
-  final DateTime? latestPostedDate;
-  final DateTime? nearestDeadline;
-}
-
-class _ProgramPlacementSummary {
-  const _ProgramPlacementSummary({
-    required this.program,
-    required this.totalStudents,
-    required this.placedStudents,
-    required this.waitingStudents,
-  });
-
-  final String program;
-  final int totalStudents;
-  final int placedStudents;
-  final int waitingStudents;
-}
-
-class _CoordinatorCommunicationItem {
-  const _CoordinatorCommunicationItem({
-    required this.dateLabel,
-    required this.description,
-  });
-
-  final String dateLabel;
-  final String description;
-}
-
 class _CoordinatorDeadlineItem {
   const _CoordinatorDeadlineItem({
     required this.dateLabel,
@@ -4708,7 +4095,10 @@ class _ActionPillButton extends StatelessWidget {
       style: TextButton.styleFrom(
         foregroundColor: color,
         backgroundColor: color.withValues(alpha: 0.12),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       icon: Icon(icon, size: 16),
@@ -4732,66 +4122,24 @@ class _DashboardTabButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
         decoration: BoxDecoration(
-          color: isSelected ? _coordinatorPrimary : _universityMist,
-          borderRadius: BorderRadius.circular(14),
+          border: Border(
+            bottom: BorderSide(
+              color: isSelected ? _coordinatorPrimary : Colors.transparent,
+              width: 2.4,
+            ),
+          ),
         ),
         child: Text(
           label,
+          textAlign: TextAlign.center,
           style: TextStyle(
-            color: isSelected ? Colors.white : _universityInk,
-            fontWeight: FontWeight.w800,
+            color: isSelected ? _coordinatorPrimary : _universityMuted,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w700,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DashboardQuickActionButton extends StatelessWidget {
-  const _DashboardQuickActionButton({required this.data, this.width});
-
-  final _QuickActionData data;
-  final double? width;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: FilledButton.icon(
-        onPressed: data.onTap,
-        style: FilledButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: _coordinatorPrimary,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          side: const BorderSide(color: _universityBorder),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        icon: Icon(data.icon, size: 18),
-        label: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              data.title,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            Text(
-              data.caption,
-              style: const TextStyle(
-                fontSize: 12,
-                color: _universityMuted,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -4956,7 +4304,7 @@ class _PageHeader extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing case final trailingWidget?) trailingWidget,
+        if (trailing != null) ...<Widget>[trailing!],
       ],
     );
   }
@@ -5072,78 +4420,6 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-class _QuickActionData {
-  const _QuickActionData({
-    required this.title,
-    required this.caption,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String title;
-  final String caption;
-  final IconData icon;
-  final VoidCallback onTap;
-}
-
-class _QuickActionCard extends StatelessWidget {
-  const _QuickActionCard({required this.data});
-
-  final _QuickActionData data;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: data.onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Ink(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [_universityMist, Colors.white],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                color: _universityNavy.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Icon(data.icon, color: _universityNavy, size: 14),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              data.title,
-              style: const TextStyle(
-                color: _universityInk,
-                fontWeight: FontWeight.w800,
-                fontSize: 11,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 1),
-            Text(
-              data.caption,
-              style: const TextStyle(color: _universityMuted, fontSize: 9),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _InlineBanner extends StatelessWidget {
   const _InlineBanner({
     required this.color,
@@ -5194,84 +4470,6 @@ class _InlineBanner extends StatelessWidget {
   }
 }
 
-class _OpportunityTable extends StatelessWidget {
-  const _OpportunityTable({required this.jobs});
-
-  final List<Map<String, dynamic>> jobs;
-
-  String _stringValue(dynamic value, {String fallback = '-'}) {
-    final text = '$value'.trim();
-    if (text.isEmpty || text == 'null') return fallback;
-    return text;
-  }
-
-  int _intValue(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse('$value') ?? 0;
-  }
-
-  DateTime? _parseDate(dynamic value) {
-    final raw = '$value'.trim();
-    if (raw.isEmpty || raw == 'null') return null;
-    try {
-      return DateTime.parse(raw).toLocal();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (jobs.isEmpty) {
-      return const _EmptyStateCard(
-        title: 'No open opportunities available',
-        message: 'Companies will appear here as soon as they publish jobs.',
-        icon: Icons.work_outline_rounded,
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        columns: const [
-          DataColumn(label: Text('Company')),
-          DataColumn(label: Text('Position')),
-          DataColumn(label: Text('Slots')),
-          DataColumn(label: Text('Deadline')),
-        ],
-        rows: jobs
-            .map((job) {
-              final date = _parseDate(job['application_deadline']);
-              final deadline = date == null
-                  ? 'No deadline'
-                  : MaterialLocalizations.of(context).formatShortDate(date);
-
-              return DataRow(
-                cells: [
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 180),
-                      child: Text(_stringValue(job['company_name'])),
-                    ),
-                  ),
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: Text(_stringValue(job['title'])),
-                    ),
-                  ),
-                  DataCell(Text('${_intValue(job['required_applicants'])}')),
-                  DataCell(Text(deadline)),
-                ],
-              );
-            })
-            .toList(growable: false),
-      ),
-    );
-  }
-}
-
 class _AnnouncementList extends StatelessWidget {
   const _AnnouncementList({required this.announcements});
 
@@ -5309,7 +4507,7 @@ class _AnnouncementList extends StatelessWidget {
     if (announcements.isEmpty) {
       return const _EmptyStateCard(
         title: 'No announcements published yet',
-        message: 'Award announcements will appear here automatically.',
+        message: '',
         icon: Icons.campaign_rounded,
       );
     }
@@ -5367,345 +4565,6 @@ class _AnnouncementList extends StatelessWidget {
             );
           })
           .toList(growable: false),
-    );
-  }
-}
-
-class _StudentSpotlightGrid extends StatelessWidget {
-  const _StudentSpotlightGrid({required this.students});
-
-  final List<Map<String, dynamic>> students;
-
-  String _stringValue(dynamic value, {String fallback = '-'}) {
-    final text = '$value'.trim();
-    if (text.isEmpty || text == 'null') return fallback;
-    return text;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (students.isEmpty) {
-      return const _EmptyStateCard(
-        title: 'No student spotlight data yet',
-        message:
-            'Students will appear here after announcements and recognition records become available.',
-        icon: Icons.school_rounded,
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final crossAxisCount = constraints.maxWidth >= 980
-            ? 3
-            : constraints.maxWidth >= 640
-            ? 2
-            : 1;
-
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: students.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 5.0,
-          ),
-          itemBuilder: (context, index) {
-            final student = students[index];
-            return Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _universityMist,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.person_rounded,
-                      color: _universityNavy,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    _stringValue(student['student_name']),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: _universityInk,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _stringValue(student['company_name']),
-                    style: const TextStyle(color: _universityMuted),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _stringValue(student['title']),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: _universityMuted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _SelectedStudentList extends StatelessWidget {
-  const _SelectedStudentList({
-    required this.records,
-    this.emptyTitle = 'No selected student records yet',
-    this.emptyMessage =
-        'Published student selections will appear here after companies issue visible recognitions or placement records.',
-    this.emptyIcon = Icons.verified_user_rounded,
-  });
-
-  final List<Map<String, dynamic>> records;
-  final String emptyTitle;
-  final String emptyMessage;
-  final IconData emptyIcon;
-
-  String _stringValue(dynamic value, {String fallback = '-'}) {
-    final text = '$value'.trim();
-    if (text.isEmpty || text == 'null') return fallback;
-    return text;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (records.isEmpty) {
-      return _EmptyStateCard(
-        title: emptyTitle,
-        message: emptyMessage,
-        icon: emptyIcon,
-      );
-    }
-
-    return Column(
-      children: records
-          .map((record) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF6DF),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.workspace_premium_rounded,
-                        color: _universityGold,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _stringValue(record['student_name']),
-                            style: const TextStyle(
-                              color: _universityInk,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _stringValue(record['email']),
-                            style: const TextStyle(color: _universityMuted),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _stringValue(record['company_name']),
-                            style: const TextStyle(
-                              color: _universityMuted,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _stringValue(record['title']),
-                            style: const TextStyle(
-                              color: _universityMuted,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          })
-          .toList(growable: false),
-    );
-  }
-}
-
-class _StudentListView extends StatelessWidget {
-  const _StudentListView({required this.students});
-
-  final List<Map<String, dynamic>> students;
-
-  String _stringValue(dynamic value, {String fallback = '-'}) {
-    final text = '$value'.trim();
-    if (text.isEmpty || text == 'null') return fallback;
-    return text;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (students.isEmpty) {
-      return const _EmptyStateCard(
-        title: 'No students yet',
-        message: 'Tracked students will appear here.',
-        icon: Icons.school_rounded,
-      );
-    }
-
-    return Column(
-      children: students
-          .map((student) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: _universityMist,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.person_rounded,
-                        color: _universityNavy,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _stringValue(student['student_name']),
-                            style: const TextStyle(
-                              color: _universityInk,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _stringValue(student['email']),
-                            style: const TextStyle(color: _universityMuted),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _stringValue(student['phone']),
-                            style: const TextStyle(
-                              color: _universityMuted,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          })
-          .toList(growable: false),
-    );
-  }
-}
-
-class _ReportHintCard extends StatelessWidget {
-  const _ReportHintCard({
-    required this.title,
-    required this.description,
-    required this.icon,
-  });
-
-  final String title;
-  final String description;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF4EC),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: _universityAlert),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: _universityInk,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: const TextStyle(color: _universityMuted, height: 1.4),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -5771,7 +4630,7 @@ class _UniversityChangePasswordDialogState
   void _showError(String message) {
     widget.messenger
       ..hideCurrentSnackBar()
-      ..showSnackBar(
+      ..showAppSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
   }
@@ -5809,7 +4668,7 @@ class _UniversityChangePasswordDialogState
         Navigator.of(context).pop();
         widget.messenger
           ..hideCurrentSnackBar()
-          ..showSnackBar(
+          ..showAppSnackBar(
             const SnackBar(
               content: Text('Password changed successfully'),
               backgroundColor: _coordinatorSuccess,
@@ -5905,66 +4764,6 @@ class _UniversityChangePasswordDialogState
               : const Text('Update Password'),
         ),
       ],
-    );
-  }
-}
-
-class _FeaturedAnnouncementCard extends StatelessWidget {
-  const _FeaturedAnnouncementCard({required this.award});
-
-  final Map<String, dynamic> award;
-
-  String _stringValue(dynamic value, {String fallback = '-'}) {
-    final text = '$value'.trim();
-    if (text.isEmpty || text == 'null') return fallback;
-    return text;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [_universityNavy, _universityTeal],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _stringValue(award['title'], fallback: 'Award'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '${_stringValue(award['student_name'])} • ${_stringValue(award['company_name'])}',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.9),
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            _stringValue(
-              award['description'],
-              fallback:
-                  'This highlight will help universities and administrators see standout student recognition.',
-            ),
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.88),
-              height: 1.45,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

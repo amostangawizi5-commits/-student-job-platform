@@ -7,11 +7,26 @@ const sslRequestedViaEnv =
     'true';
 const sslRequestedViaUrl = /(?:^|[?&])ssl(?:mode)?=(?:require|true)/i.test(databaseUrl);
 const useSsl = sslRequestedViaEnv || sslRequestedViaUrl;
+const parseInteger = (value, fallback) => {
+    const parsed = Number.parseInt(`${value || ''}`, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+};
+const poolSize = parseInteger(process.env.DB_POOL_MAX, 30);
+const idleTimeoutMillis = parseInteger(process.env.DB_IDLE_TIMEOUT_MS, 30000);
+const connectionTimeoutMillis = parseInteger(
+    process.env.DB_CONNECTION_TIMEOUT_MS,
+    10000
+);
 
 const poolConfig = process.env.DATABASE_URL
     ? {
           connectionString: process.env.DATABASE_URL,
           ssl: useSsl ? { rejectUnauthorized: false } : false,
+          max: poolSize,
+          idleTimeoutMillis,
+          connectionTimeoutMillis,
+          keepAlive: true,
+          application_name: process.env.DB_APPLICATION_NAME || 'iptkiganjani-api',
       }
     : {
           user: process.env.DB_USER,
@@ -20,10 +35,18 @@ const poolConfig = process.env.DATABASE_URL
           port: process.env.DB_PORT,
           database: process.env.DB_NAME,
           ssl: useSsl ? { rejectUnauthorized: false } : false,
+          max: poolSize,
+          idleTimeoutMillis,
+          connectionTimeoutMillis,
+          keepAlive: true,
+          application_name: process.env.DB_APPLICATION_NAME || 'iptkiganjani-api',
       };
 
 // Create PostgreSQL connection pool
 const pool = new Pool(poolConfig);
+pool.on('error', (error) => {
+    console.error('Unexpected PostgreSQL pool error:', error);
+});
 
 const tableExists = async (tableName) => {
     const result = await pool.query('SELECT to_regclass($1) AS table_name', [
@@ -70,8 +93,106 @@ const ensureApplicationWorkflowSchema = async () => {
         ADD COLUMN IF NOT EXISTS supportive_document_reviewed_at TIMESTAMP,
         ADD COLUMN IF NOT EXISTS response_letter_url TEXT,
         ADD COLUMN IF NOT EXISTS response_letter_name TEXT,
-        ADD COLUMN IF NOT EXISTS response_letter_sent_at TIMESTAMP
+        ADD COLUMN IF NOT EXISTS response_letter_sent_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS reporting_start_date DATE,
+        ADD COLUMN IF NOT EXISTS reporting_end_date DATE,
+        ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS student_confirmation_status VARCHAR(40),
+        ADD COLUMN IF NOT EXISTS student_confirmed_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS student_confirmation_expires_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS student_confirmation_released_at TIMESTAMP
     `);
+};
+
+const ensureApplicationJobForeignKeySchema = async () => {
+    const requiredTables = ['applications', 'training'];
+    const availability = await Promise.all(requiredTables.map((table) => tableExists(table)));
+
+    if (availability.includes(false)) {
+        console.warn(
+            'Skipping applications.job_id foreign key update because "applications" or "training" does not exist yet.'
+        );
+        return;
+    }
+
+    const [applicationJobIdType, trainingJobIdType] = await Promise.all([
+        getFormattedColumnType('applications', 'job_id'),
+        getFormattedColumnType('training', 'job_id')
+    ]);
+
+    if (!applicationJobIdType || !trainingJobIdType) {
+        console.warn(
+            'Skipping applications.job_id foreign key update because one of the column types could not be resolved.'
+        );
+        return;
+    }
+
+    if (applicationJobIdType !== trainingJobIdType) {
+        throw new Error(
+            `applications.job_id type (${applicationJobIdType}) does not match training.job_id type (${trainingJobIdType}).`
+        );
+    }
+
+    const constraintResult = await pool.query(
+        `
+        SELECT c.conname,
+               c.confrelid::regclass::text AS referenced_table
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'public'
+          AND t.relname = 'applications'
+          AND c.contype = 'f'
+          AND EXISTS (
+              SELECT 1
+              FROM unnest(c.conkey) AS key_col(attnum)
+              JOIN pg_attribute a
+                ON a.attrelid = t.oid
+               AND a.attnum = key_col.attnum
+              WHERE a.attname = 'job_id'
+          )
+        `
+    );
+
+    for (const row of constraintResult.rows) {
+        const referencedTable = `${row.referenced_table || ''}`.trim();
+        if (
+            referencedTable === 'training' ||
+            referencedTable === 'public.training'
+        ) {
+            return;
+        }
+
+        await pool.query(
+            `ALTER TABLE applications DROP CONSTRAINT IF EXISTS ${row.conname}`
+        );
+    }
+
+    await pool.query(`
+        ALTER TABLE applications
+        DROP CONSTRAINT IF EXISTS applications_job_id_fkey
+    `);
+
+    await pool.query(`
+        ALTER TABLE applications
+        ADD CONSTRAINT applications_job_id_fkey
+        FOREIGN KEY (job_id)
+        REFERENCES training(job_id)
+        ON DELETE CASCADE
+        NOT VALID
+    `);
+
+    try {
+        await pool.query(`
+            ALTER TABLE applications
+            VALIDATE CONSTRAINT applications_job_id_fkey
+        `);
+    } catch (error) {
+        console.warn(
+            'applications.job_id foreign key now points to training(job_id), but legacy rows still need cleanup before validation succeeds:',
+            error.message
+        );
+    }
 };
 
 const ensureCompanyProfileSchema = async () => {
@@ -88,7 +209,45 @@ const ensureCompanyProfileSchema = async () => {
         ADD COLUMN IF NOT EXISTS logo_url TEXT,
         ADD COLUMN IF NOT EXISTS stamp_url TEXT,
         ADD COLUMN IF NOT EXISTS signature_url TEXT,
+        ADD COLUMN IF NOT EXISTS organization_subtype VARCHAR(40),
+        ADD COLUMN IF NOT EXISTS government_category VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS tin_number VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS brela_number VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS business_license_number VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS department VARCHAR(160),
+        ADD COLUMN IF NOT EXISTS sector VARCHAR(160),
+        ADD COLUMN IF NOT EXISTS region VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS district VARCHAR(120),
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    `);
+
+    await pool.query(`
+        UPDATE companies
+        SET organization_subtype = CASE
+                WHEN organization_subtype IS NULL OR BTRIM(organization_subtype) = ''
+                    THEN NULL
+                ELSE LOWER(REPLACE(BTRIM(organization_subtype), ' ', '_'))
+            END,
+            government_category = NULLIF(BTRIM(government_category), ''),
+            tin_number = NULLIF(BTRIM(tin_number), ''),
+            brela_number = NULLIF(BTRIM(brela_number), ''),
+            business_license_number = NULLIF(BTRIM(business_license_number), ''),
+            department = NULLIF(BTRIM(department), ''),
+            sector = NULLIF(BTRIM(sector), '')
+    `);
+
+    await pool.query(`
+        ALTER TABLE companies
+        DROP CONSTRAINT IF EXISTS companies_organization_subtype_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE companies
+        ADD CONSTRAINT companies_organization_subtype_check
+        CHECK (
+            organization_subtype IS NULL OR
+            organization_subtype IN ('private_sector', 'government_sector')
+        )
     `);
 };
 
@@ -112,7 +271,8 @@ const ensureStudentRegistrationSchema = async () => {
         UPDATE students
         SET student_type = CASE
             WHEN student_type IS NULL OR BTRIM(student_type) = '' THEN 'current'
-            ELSE LOWER(BTRIM(student_type))
+            WHEN LOWER(BTRIM(student_type)) = 'current' THEN 'current'
+            ELSE ''
         END
     `);
 
@@ -124,7 +284,7 @@ const ensureStudentRegistrationSchema = async () => {
     await pool.query(`
         ALTER TABLE students
         ADD CONSTRAINT students_student_type_check
-        CHECK (student_type IN ('current', 'graduate'))
+        CHECK (student_type IN ('current', ''))
     `);
 
     await pool.query(`
@@ -146,15 +306,52 @@ const ensureStudentRegistrationSchema = async () => {
 };
 
 const ensureJobEligibilitySchema = async () => {
-    if (!(await tableExists('jobs'))) {
-        console.warn(
-            'Skipping job eligibility schema update because table "jobs" does not exist yet.'
-        );
-        return;
+    const companyIdType = await getFormattedColumnType('companies', 'company_id');
+    const applicationJobIdType = await getFormattedColumnType(
+        'applications',
+        'job_id'
+    );
+
+    if (!(await tableExists('training'))) {
+        if (!companyIdType) {
+            console.warn(
+                'Skipping training schema creation because companies.company_id type could not be resolved.'
+            );
+            return;
+        }
+
+        const jobIdType = applicationJobIdType || 'uuid';
+        const jobIdDefinition =
+            jobIdType === 'uuid'
+                ? `${jobIdType} PRIMARY KEY DEFAULT gen_random_uuid()`
+                : `${jobIdType} PRIMARY KEY`;
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS training (
+                job_id ${jobIdDefinition},
+                company_id ${companyIdType} NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
+                title VARCHAR(255) NOT NULL,
+                type VARCHAR(120) NOT NULL DEFAULT '_program',
+                target_candidates TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+                description TEXT NOT NULL,
+                location TEXT NOT NULL,
+                salary_range TEXT,
+                required_applicants INTEGER NOT NULL DEFAULT 1,
+                application_deadline TIMESTAMP NOT NULL,
+                eligible_programs TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+                minimum_gpa NUMERIC(4,2),
+                minimum_academic_year INTEGER,
+                eligibility_notes TEXT,
+                eligibility_match_mode VARCHAR(10) NOT NULL DEFAULT 'all',
+                status VARCHAR(20) NOT NULL DEFAULT 'open',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
     }
 
     await pool.query(`
-        ALTER TABLE jobs
+        ALTER TABLE training
         ADD COLUMN IF NOT EXISTS eligible_programs TEXT[] DEFAULT ARRAY[]::text[],
         ADD COLUMN IF NOT EXISTS minimum_gpa NUMERIC(4,2),
         ADD COLUMN IF NOT EXISTS minimum_academic_year INTEGER,
@@ -163,53 +360,93 @@ const ensureJobEligibilitySchema = async () => {
     `);
 
     await pool.query(`
-        UPDATE jobs
+        UPDATE training
         SET eligibility_match_mode = LOWER(BTRIM(COALESCE(eligibility_match_mode, 'all')))
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        DROP CONSTRAINT IF EXISTS jobs_required_applicants_check
+        ALTER TABLE training
+        DROP CONSTRAINT IF EXISTS training_required_applicants_check
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        ADD CONSTRAINT jobs_required_applicants_check
+        ALTER TABLE training
+        ADD CONSTRAINT training_required_applicants_check
         CHECK (required_applicants >= 1)
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        DROP CONSTRAINT IF EXISTS jobs_minimum_gpa_check
+        ALTER TABLE training
+        DROP CONSTRAINT IF EXISTS training_minimum_gpa_check
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        ADD CONSTRAINT jobs_minimum_gpa_check
+        ALTER TABLE training
+        ADD CONSTRAINT training_minimum_gpa_check
         CHECK (minimum_gpa IS NULL OR (minimum_gpa >= 0 AND minimum_gpa <= 5))
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        DROP CONSTRAINT IF EXISTS jobs_minimum_academic_year_check
+        ALTER TABLE training
+        DROP CONSTRAINT IF EXISTS training_minimum_academic_year_check
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        ADD CONSTRAINT jobs_minimum_academic_year_check
+        ALTER TABLE training
+        ADD CONSTRAINT training_minimum_academic_year_check
         CHECK (minimum_academic_year IS NULL OR minimum_academic_year >= 1)
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        DROP CONSTRAINT IF EXISTS jobs_eligibility_match_mode_check
+        ALTER TABLE training
+        DROP CONSTRAINT IF EXISTS training_eligibility_match_mode_check
     `);
 
     await pool.query(`
-        ALTER TABLE jobs
-        ADD CONSTRAINT jobs_eligibility_match_mode_check
+        ALTER TABLE training
+        ADD CONSTRAINT training_eligibility_match_mode_check
         CHECK (eligibility_match_mode IN ('all', 'any'))
     `);
+
+    await pool.query(`
+        ALTER TABLE training
+        DROP CONSTRAINT IF EXISTS training_status_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE training
+        ADD CONSTRAINT training_status_check
+        CHECK (status IN ('open', 'closed'))
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS training_company_id_idx
+        ON training (company_id)
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS training_status_deadline_idx
+        ON training (status, application_deadline)
+    `);
+
+    const jobIdType = await getFormattedColumnType('training', 'job_id');
+    const skillIdType = await getFormattedColumnType('skills', 'skill_id');
+
+    if (jobIdType && skillIdType && (await tableExists('skills'))) {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS job_skills (
+                job_id ${jobIdType} NOT NULL REFERENCES training(job_id) ON DELETE CASCADE,
+                skill_id ${skillIdType} NOT NULL REFERENCES skills(skill_id) ON DELETE CASCADE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (job_id, skill_id)
+            )
+        `);
+
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS job_skills_skill_id_idx
+            ON job_skills (skill_id)
+        `);
+    }
 };
 
 const ensureUniversityProfileSchema = async () => {
@@ -362,7 +599,7 @@ const ensureAwardsSchema = async () => {
         getFormattedColumnType('applications', 'application_id'),
         getFormattedColumnType('companies', 'company_id'),
         getFormattedColumnType('students', 'student_id'),
-        getFormattedColumnType('jobs', 'job_id')
+        getFormattedColumnType('training', 'job_id')
     ]);
 
     if (!applicationIdType || !companyIdType || !studentIdType || !jobIdType) {
@@ -378,7 +615,7 @@ const ensureAwardsSchema = async () => {
             application_id ${applicationIdType} NOT NULL UNIQUE REFERENCES applications(application_id) ON DELETE CASCADE,
             company_id ${companyIdType} NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
             student_id ${studentIdType} NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
-            job_id ${jobIdType} REFERENCES jobs(job_id) ON DELETE SET NULL,
+            job_id ${jobIdType} REFERENCES training(job_id) ON DELETE SET NULL,
             title VARCHAR(255) NOT NULL,
             award_type VARCHAR(120),
             category VARCHAR(120),
@@ -555,6 +792,25 @@ const ensureUserAuthVersionSchema = async () => {
     `);
 };
 
+const ensureUserLookupSchema = async () => {
+    if (!(await tableExists('users'))) {
+        console.warn(
+            'Skipping user lookup schema update because table "users" does not exist yet.'
+        );
+        return;
+    }
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS users_email_normalized_idx
+        ON users ((LOWER(BTRIM(email))))
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS users_role_is_active_idx
+        ON users (role, is_active)
+    `);
+};
+
 const ensureUserRoleSchema = async () => {
     if (!(await tableExists('users'))) {
         console.warn(
@@ -566,18 +822,18 @@ const ensureUserRoleSchema = async () => {
     if (await tableExists('students')) {
         await pool.query(`
             UPDATE students AS s
-            SET student_type = 'graduate'
+            SET student_type = ''
             FROM users AS u
             WHERE u.user_id = s.student_id
-              AND u.role = 'graduate'
-              AND COALESCE(NULLIF(TRIM(s.student_type), ''), 'current') <> 'graduate'
+              AND u.role = ''
+              AND COALESCE(NULLIF(TRIM(s.student_type), ''), 'current') <> ''
         `);
     }
 
     await pool.query(`
         UPDATE users
         SET role = 'student'
-        WHERE role = 'graduate'
+        WHERE role = ''
     `);
 
     await pool.query(`
@@ -600,10 +856,12 @@ const connectDB = async () => {
         client.release();
         await ensureUserRoleSchema();
         await ensureUserAuthVersionSchema();
+        await ensureUserLookupSchema();
         await ensureApplicationWorkflowSchema();
         await ensureCompanyProfileSchema();
         await ensureStudentRegistrationSchema();
         await ensureJobEligibilitySchema();
+        await ensureApplicationJobForeignKeySchema();
         await ensureUniversityProfileSchema();
         await ensureAwardsSchema();
         return true;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
@@ -149,7 +150,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             (item) => '${item['notification_id']}' == notificationId,
           );
         });
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Notification deleted'),
             backgroundColor: Colors.green,
@@ -168,7 +169,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           );
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Notification deleted'),
             backgroundColor: Colors.green,
@@ -177,7 +178,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             response['message']?.toString() ?? 'Failed to delete notification',
@@ -187,7 +188,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Error deleting notification: $e'),
           backgroundColor: Colors.red,
@@ -210,7 +211,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.report_gmailerrorred_rounded;
       case 'shortlisted':
         return Icons.star;
-      case 'interview':
+      case '':
         return Icons.calendar_today;
       case 'accepted':
         return Icons.check_circle;
@@ -235,7 +236,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.red;
       case 'shortlisted':
         return Colors.blue;
-      case 'interview':
+      case '':
         return Colors.purple;
       case 'accepted':
         return AppTheme.primaryGreen;
@@ -267,10 +268,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  String? _extractInterviewDate(String? message) {
+  String? _extractDate(String? message) {
     if (message == null || message.isEmpty) return null;
     final match = RegExp(
-      r'Interview Date:\s*(.+)',
+      r' Date:\s*(.+)',
       caseSensitive: false,
       multiLine: true,
     ).firstMatch(message);
@@ -278,10 +279,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return match.group(1)?.trim();
   }
 
-  String? _extractInterviewVenue(String? message) {
+  String? _extractVenue(String? message) {
     if (message == null || message.isEmpty) return null;
     final match = RegExp(
-      r'Interview Venue:\s*(.+)',
+      r' Venue:\s*(.+)',
       caseSensitive: false,
       multiLine: true,
     ).firstMatch(message);
@@ -293,8 +294,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (message == null) return '';
     return message
         .replaceAll('**', '')
-        .replaceAll(RegExp(r'Interview Date:\s*.+', multiLine: true), '')
-        .replaceAll(RegExp(r'Interview Venue:\s*.+', multiLine: true), '')
+        .replaceAll(RegExp(r' Date:\s*.+', multiLine: true), '')
+        .replaceAll(RegExp(r' Venue:\s*.+', multiLine: true), '')
         .trim();
   }
 
@@ -386,9 +387,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 final type = notification['type'];
                 final iconColor = _getColorForType(type);
                 final rawMessage = '${notification['message'] ?? ''}';
-                final interviewDate = _extractInterviewDate(rawMessage);
-                final interviewVenue = _extractInterviewVenue(rawMessage);
-                final message = interviewDate == null
+                final scheduledDate = _extractDate(rawMessage);
+                final scheduledVenue = _extractVenue(rawMessage);
+                final message = scheduledDate == null
                     ? rawMessage
                     : _cleanNotificationMessage(rawMessage);
 
@@ -467,8 +468,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       color: Colors.grey.shade600,
                                     ),
                                   ),
-                                  if (type == 'interview' &&
-                                      interviewDate != null)
+                                  if (type == '' && scheduledDate != null)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8),
                                       child: Row(
@@ -481,7 +481,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                           const SizedBox(width: 6),
                                           Expanded(
                                             child: Text(
-                                              'Interview Date: $interviewDate',
+                                              ' Date: $scheduledDate',
                                               style: const TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.black87,
@@ -492,8 +492,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                         ],
                                       ),
                                     ),
-                                  if (type == 'interview' &&
-                                      interviewVenue != null)
+                                  if (type == '' && scheduledVenue != null)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 6),
                                       child: Row(
@@ -506,7 +505,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                           const SizedBox(width: 6),
                                           Expanded(
                                             child: Text(
-                                              'Interview Venue: $interviewVenue',
+                                              ' Venue: $scheduledVenue',
                                               style: const TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.black87,

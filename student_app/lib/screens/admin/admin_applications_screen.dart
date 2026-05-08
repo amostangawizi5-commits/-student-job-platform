@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
 import 'admin_application_filter.dart';
 import 'admin_export_utils.dart';
@@ -68,7 +69,7 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Failed to load applications: $e'),
           backgroundColor: Colors.red,
@@ -116,7 +117,7 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
     if (response['success'] == true) {
       await _fetchApplications();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             notifyUser
@@ -127,7 +128,7 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             response['message']?.toString() ?? 'Failed to update application',
@@ -198,7 +199,11 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
                       runSpacing: 8,
                       children: [
                         Chip(label: Text('Status: $status')),
-                        Chip(label: Text('Applied: ${_formatDate('${app['applied_date'] ?? ''}')}')),
+                        Chip(
+                          label: Text(
+                            'Applied: ${_formatDate('${app['applied_date'] ?? ''}')}',
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 18),
@@ -330,7 +335,10 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
                       const SizedBox(height: 4),
                       Text(
                         'Applied on ${_formatDate('${app['applied_date'] ?? ''}')}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
@@ -393,10 +401,8 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
                   ),
                 if (status == 'pending')
                   OutlinedButton(
-                    onPressed: () => _updateStatus(
-                      '${app['application_id']}',
-                      'rejected',
-                    ),
+                    onPressed: () =>
+                        _updateStatus('${app['application_id']}', 'rejected'),
                     child: const Text('Reject'),
                   ),
               ],
@@ -427,7 +433,10 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
                     children: [
                       _buildFilterChip(AdminApplicationFilter.all, 'All'),
                       const SizedBox(width: 8),
-                      _buildFilterChip(AdminApplicationFilter.pending, 'Pending'),
+                      _buildFilterChip(
+                        AdminApplicationFilter.pending,
+                        'Pending',
+                      ),
                       const SizedBox(width: 8),
                       _buildFilterChip(
                         AdminApplicationFilter.approved,

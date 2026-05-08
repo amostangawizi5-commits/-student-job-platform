@@ -7,11 +7,13 @@ String normalizeUserRole(Object? role) {
 
   switch (normalized) {
     case 'student':
-    case 'graduate':
+    case '':
     case 'company':
+    case 'organization':
     case 'admin':
     case 'university':
-      return normalized;
+    case 'institution':
+      return normalized == 'organization' ? 'company' : normalized;
     case 'university coordinator':
     case 'college coordinator':
     case 'institution coordinator':
@@ -33,11 +35,14 @@ String normalizeUserRole(Object? role) {
 
 bool isStudentRole(Object? role) {
   final normalized = normalizeUserRole(role);
-  return normalized == 'student' || normalized == 'graduate';
+  return normalized == 'student' || normalized == '';
 }
 
 bool isCompanyRole(Object? role) => normalizeUserRole(role) == 'company';
 
-bool isUniversityRole(Object? role) => normalizeUserRole(role) == 'university';
+bool isUniversityRole(Object? role) {
+  final normalized = normalizeUserRole(role);
+  return normalized == 'university' || normalized == 'institution';
+}
 
 bool isAdminRole(Object? role) => normalizeUserRole(role) == 'admin';

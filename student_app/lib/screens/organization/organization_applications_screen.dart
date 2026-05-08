@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
 
 class CompanyApplicationsScreen extends StatefulWidget {
@@ -94,7 +95,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
 
       if (!mounted) return;
       if (response['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text('Application ${_getStatusText(status)}'),
             backgroundColor: status == 'rejected' ? Colors.red : Colors.green,
@@ -102,7 +103,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
         );
         _loadApplications();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(response['message'] ?? 'Update failed'),
             backgroundColor: Colors.red,
@@ -111,7 +112,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(_formatErrorMessage(e)),
           backgroundColor: Colors.red,
@@ -158,8 +159,8 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
         return 'Pending Review';
       case 'shortlisted':
         return 'Shortlisted';
-      case 'interview':
-        return 'Interview Scheduled';
+      case '':
+        return ' Scheduled';
       case 'accepted':
         return 'Accepted';
       case 'rejected':
@@ -175,7 +176,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
         return const Color(0xFFB38A45);
       case 'shortlisted':
         return const Color(0xFF5C7FA3);
-      case 'interview':
+      case '':
         return const Color(0xFF7D6AA8);
       case 'accepted':
         return const Color(0xFF5D8D73);
@@ -192,7 +193,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
         return const Color(0xFFF8F1E3);
       case 'shortlisted':
         return const Color(0xFFEAF1F7);
-      case 'interview':
+      case '':
         return const Color(0xFFF1ECF8);
       case 'accepted':
         return const Color(0xFFEAF4EE);
@@ -210,7 +211,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
   }
 
   bool _hasReachedStatus(String currentStatus, String targetStatus) {
-    const order = ['pending', 'shortlisted', 'interview', 'accepted'];
+    const order = ['pending', 'shortlisted', '', 'accepted'];
     final currentIndex = order.indexOf(currentStatus);
     final targetIndex = order.indexOf(targetStatus);
     if (currentStatus == 'rejected') return false;
@@ -400,7 +401,7 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        'My Jobs',
+                        'My training',
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: Colors.grey.shade800,
@@ -615,12 +616,11 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                       final status = app['status'] ?? 'pending';
                       final statusColor = _getStatusColor(status);
                       final canShortlist = status == 'pending';
-                      final canAccept =
-                          status == 'shortlisted' || status == 'interview';
+                      final canAccept = status == 'shortlisted' || status == '';
                       final canReject =
                           status == 'pending' ||
                           status == 'shortlisted' ||
-                          status == 'interview';
+                          status == '';
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),

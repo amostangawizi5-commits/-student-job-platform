@@ -9,6 +9,7 @@ class CoordinatorWorkspaceService {
   static const String _reportsKey = 'company_reports_to_university_v1';
   static const String _studentSelectionsKey = 'student_company_selections_v1';
   static const String _manualPlacementsKey = 'coordinator_manual_placements_v1';
+  static const Duration _studentChoiceWindow = Duration(hours: 48);
 
   Future<List<Map<String, dynamic>>> getAnnouncements({
     String? audience,
@@ -156,6 +157,7 @@ class CoordinatorWorkspaceService {
   }
 
   Future<List<Map<String, dynamic>>> getStudentSelections() async {
+    await _expirePendingMultiOfferSelections();
     final selections = await _readList(_studentSelectionsKey);
     selections.sort(
       (left, right) => _sortByDateDesc(left['updated_at'], right['updated_at']),
@@ -180,7 +182,7 @@ class CoordinatorWorkspaceService {
     required String universityName,
     required String chosenApplicationId,
     required String chosenCompanyName,
-    required String chosenJobTitle,
+    required String chosenTrainingTitle,
     String? reportingStartDate,
     String? reportingEndDate,
     required List<Map<String, dynamic>> acceptedApplications,
@@ -208,7 +210,7 @@ class CoordinatorWorkspaceService {
       'university_name': universityName.trim(),
       'selected_application_id': chosenApplicationId,
       'selected_company_name': chosenCompanyName.trim(),
-      'selected_job_title': chosenJobTitle.trim(),
+      'selected_training_title': chosenTrainingTitle.trim(),
       'confirmed_at': alreadyConfirmedSameSelection
           ? (existing['confirmed_at'] ?? now)
           : now,
@@ -249,7 +251,7 @@ class CoordinatorWorkspaceService {
       'student_email': normalizedEmail,
       'university_name': universityName.trim(),
       'company_name': chosenCompanyName.trim(),
-      'job_title': chosenJobTitle.trim(),
+      'training_title': chosenTrainingTitle.trim(),
       'company_selection_status': 'accepted',
       'student_choice_status': 'confirmed',
       'coordinator_status': normalizedCoordinatorStatus,
@@ -285,7 +287,7 @@ class CoordinatorWorkspaceService {
       'source_id': chosenApplicationId,
       'title': 'Company confirmation received',
       'message':
-          'You confirmed $chosenCompanyName for $chosenJobTitle. Your choice has been sent to the university coordinator.',
+          'You confirmed $chosenCompanyName for $chosenTrainingTitle.',
       'type': 'student_company_confirmed',
       'audience': 'student',
       'target_email': normalizedEmail,
@@ -299,7 +301,7 @@ class CoordinatorWorkspaceService {
       'source_id': chosenApplicationId,
       'title': 'Student confirmed your company',
       'message':
-          '$studentName has confirmed $chosenCompanyName for $chosenJobTitle and the university coordinator has been notified.',
+          '$studentName has confirmed $chosenCompanyName for $chosenTrainingTitle and the university coordinator has been notified.',
       'type': 'student_company_confirmed',
       'audience': 'company',
       'target_company_name': chosenCompanyName.trim(),
@@ -312,7 +314,7 @@ class CoordinatorWorkspaceService {
       'source_id': chosenApplicationId,
       'title': 'Student confirmed a company placement',
       'message':
-          '$studentName confirmed $chosenCompanyName for $chosenJobTitle. Review the selection in the coordinator queue.',
+          '$studentName confirmed $chosenCompanyName for $chosenTrainingTitle. Review the selection in the coordinator queue.',
       'type': 'student_company_confirmed',
       'audience': 'university',
       'target_email': normalizedEmail,
@@ -349,6 +351,7 @@ class CoordinatorWorkspaceService {
   Future<List<Map<String, dynamic>>> getApprovalRecords({
     String? universityName,
   }) async {
+    await _expirePendingMultiOfferSelections();
     final approvals = await _readList(_approvalsKey);
     final filtered = approvals
         .where((approval) {
@@ -402,7 +405,7 @@ class CoordinatorWorkspaceService {
     required String universityName,
     required String coordinatorName,
     required String companyName,
-    required String jobTitle,
+    required String trainingTitle,
     required String placementLocation,
     String? startDate,
     String? endDate,
@@ -434,7 +437,7 @@ class CoordinatorWorkspaceService {
       'university_name': universityName.trim(),
       'coordinator_name': coordinatorName.trim(),
       'company_name': companyName.trim(),
-      'job_title': jobTitle.trim(),
+      'training_title': trainingTitle.trim(),
       'placement_location': placementLocation.trim(),
       'start_date': startDate?.trim() ?? '',
       'end_date': endDate?.trim() ?? '',
@@ -458,7 +461,7 @@ class CoordinatorWorkspaceService {
 
     final message = StringBuffer()
       ..write(
-        '$coordinatorName from $universityName assigned you to $companyName as $jobTitle',
+        '$coordinatorName from $universityName assigned you to $companyName as $trainingTitle',
       );
     if (placementLocation.trim().isNotEmpty) {
       message.write(' at $placementLocation');
@@ -493,7 +496,7 @@ class CoordinatorWorkspaceService {
       'source_id': record['id'],
       'title': 'Placement assigned to $studentName',
       'message':
-          '$coordinatorName assigned $studentName to $companyName as $jobTitle.',
+          '$coordinatorName assigned $studentName to $companyName as $trainingTitle.',
       'type': 'coordinator_manual_assignment',
       'audience': 'university',
       'university_name': universityName.trim(),
@@ -510,7 +513,7 @@ class CoordinatorWorkspaceService {
     required String studentEmail,
     required String universityName,
     required String companyName,
-    required String jobTitle,
+    required String trainingTitle,
     String? reportingStartDate,
     String? reportingEndDate,
   }) async {
@@ -519,6 +522,24 @@ class CoordinatorWorkspaceService {
     final existingIndex = approvals.indexWhere(
       (approval) => '${approval['application_id'] ?? ''}' == applicationId,
     );
+    final existingApproval = existingIndex == -1
+        ? null
+        : approvals[existingIndex];
+    final existingChoiceStatus = _normalizedStatus(
+      existingApproval?['student_choice_status'],
+      fallback: 'pending',
+    );
+    final acceptedAt =
+        '${existingApproval?['accepted_at'] ?? existingApproval?['created_at'] ?? now}';
+    final acceptedAtDate =
+        _parseDateTimeValue(acceptedAt) ?? DateTime.now().toUtc();
+    final confirmationExpiresAt = acceptedAtDate
+        .toUtc()
+        .add(_studentChoiceWindow)
+        .toIso8601String();
+    final nextChoiceStatus = existingChoiceStatus == 'confirmed'
+        ? 'confirmed'
+        : 'pending';
 
     final record = {
       'id': existingIndex == -1
@@ -529,14 +550,20 @@ class CoordinatorWorkspaceService {
       'student_email': studentEmail.trim(),
       'university_name': universityName.trim(),
       'company_name': companyName.trim(),
-      'job_title': jobTitle.trim(),
+      'training_title': trainingTitle.trim(),
       'company_selection_status': 'accepted',
+      'student_choice_status': nextChoiceStatus,
       'coordinator_status': 'pending',
       'coordinator_notes': existingIndex == -1
           ? ''
           : '${approvals[existingIndex]['coordinator_notes'] ?? ''}',
       'reporting_start_date': reportingStartDate?.trim() ?? '',
       'reporting_end_date': reportingEndDate?.trim() ?? '',
+      'accepted_at': acceptedAtDate.toUtc().toIso8601String(),
+      'confirmation_expires_at': confirmationExpiresAt,
+      'expired_at': nextChoiceStatus == 'pending'
+          ? ''
+          : '${existingApproval?['expired_at'] ?? ''}',
       'created_at': existingIndex == -1
           ? now
           : '${approvals[existingIndex]['created_at'] ?? now}',
@@ -550,6 +577,122 @@ class CoordinatorWorkspaceService {
     }
 
     await _writeList(_approvalsKey, approvals);
+  }
+
+  Future<void> queueApprovalFromOrganization({
+    required String applicationId,
+    required String studentName,
+    required String studentEmail,
+    required String universityName,
+    required String organizationName,
+    required String jobTitle,
+    String? reportingStartDate,
+    String? reportingEndDate,
+  }) async {
+    // Delegate to queueApprovalFromCompany with organization name mapped to company name
+    return queueApprovalFromCompany(
+      applicationId: applicationId,
+      studentName: studentName,
+      studentEmail: studentEmail,
+      universityName: universityName,
+      companyName: organizationName,
+      trainingTitle: jobTitle,
+      reportingStartDate: reportingStartDate,
+      reportingEndDate: reportingEndDate,
+    );
+  }
+
+  Future<void> _expirePendingMultiOfferSelections() async {
+    final approvals = await _readList(_approvalsKey);
+    if (approvals.isEmpty) return;
+
+    final selections = await _readList(_studentSelectionsKey);
+    final confirmedEmails = selections
+        .map(
+          (selection) =>
+              '${selection['student_email'] ?? ''}'.trim().toLowerCase(),
+        )
+        .where((email) => email.isNotEmpty)
+        .toSet();
+
+    final pendingOfferIndexesByStudent = <String, List<int>>{};
+    for (var index = 0; index < approvals.length; index++) {
+      final approval = approvals[index];
+      final studentEmail = '${approval['student_email'] ?? ''}'
+          .trim()
+          .toLowerCase();
+      if (studentEmail.isEmpty || confirmedEmails.contains(studentEmail)) {
+        continue;
+      }
+
+      final companySelectionStatus = _normalizedStatus(
+        approval['company_selection_status'],
+      );
+      final studentChoiceStatus = _normalizedStatus(
+        approval['student_choice_status'],
+        fallback: 'pending',
+      );
+
+      if (companySelectionStatus != 'accepted' ||
+          studentChoiceStatus != 'pending') {
+        continue;
+      }
+
+      pendingOfferIndexesByStudent
+          .putIfAbsent(studentEmail, () => <int>[])
+          .add(index);
+    }
+
+    final now = DateTime.now().toUtc();
+    final nowIso = now.toIso8601String();
+    var hasChanges = false;
+
+    for (final entry in pendingOfferIndexesByStudent.entries) {
+      if (entry.value.length <= 1) {
+        continue;
+      }
+
+      for (final index in entry.value) {
+        final approval = approvals[index];
+        final acceptedAt = _parseDateTimeValue(
+          approval['accepted_at'] ??
+              approval['created_at'] ??
+              approval['updated_at'],
+        );
+        if (acceptedAt == null) {
+          continue;
+        }
+
+        final expiresAt = acceptedAt.toUtc().add(_studentChoiceWindow);
+        final expiresAtIso = expiresAt.toIso8601String();
+        final currentExpiresAt = '${approval['confirmation_expires_at'] ?? ''}'
+            .trim();
+
+        if (now.isAfter(expiresAt)) {
+          approvals[index] = {
+            ...approval,
+            'company_selection_status': 'expired',
+            'student_choice_status': 'expired',
+            'confirmation_expires_at': expiresAtIso,
+            'expired_at': '${approval['expired_at'] ?? ''}'.trim().isEmpty
+                ? nowIso
+                : '${approval['expired_at']}',
+            'updated_at': nowIso,
+          };
+          hasChanges = true;
+        } else if (currentExpiresAt != expiresAtIso) {
+          approvals[index] = {
+            ...approval,
+            'confirmation_expires_at': expiresAtIso,
+          };
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      await _writeList(_approvalsKey, approvals);
+    }
   }
 
   Future<void> updateApprovalStatus({
@@ -580,7 +723,7 @@ class CoordinatorWorkspaceService {
 
     final studentName = '${current['student_name'] ?? 'Student'}'.trim();
     final companyName = '${current['company_name'] ?? 'Company'}'.trim();
-    final jobTitle = '${current['job_title'] ?? 'placement'}'.trim();
+    final trainingTitle = '${current['training_title'] ?? 'placement'}'.trim();
     final universityName = '${current['university_name'] ?? 'University'}'
         .trim();
     final notesText = (coordinatorNotes ?? '').trim();
@@ -589,7 +732,7 @@ class CoordinatorWorkspaceService {
         : 'rejected';
     final message = StringBuffer()
       ..write(
-        'University coordinator has $outcomeText $studentName for $jobTitle at $companyName.',
+        'University coordinator has $outcomeText $studentName for $trainingTitle at $companyName.',
       );
     if (notesText.isNotEmpty) {
       message.write(' Notes: $notesText');
@@ -616,7 +759,7 @@ class CoordinatorWorkspaceService {
       'source_id': approvalId,
       'title': 'University decision for company selection',
       'message':
-          '$universityName coordinator has $outcomeText the selection for $studentName on $jobTitle.',
+          '$universityName coordinator has $outcomeText the selection for $studentName on $trainingTitle.',
       'type': normalizedStatus == 'approved'
           ? 'university_approval_approved'
           : 'university_approval_rejected',
@@ -743,7 +886,7 @@ class CoordinatorWorkspaceService {
     required String studentEmail,
     required String universityName,
     required String companyName,
-    required String jobTitle,
+    required String trainingTitle,
     required String issueType,
     required String description,
   }) async {
@@ -757,7 +900,7 @@ class CoordinatorWorkspaceService {
       'student_email': studentEmail.trim(),
       'university_name': universityName.trim(),
       'company_name': companyName.trim(),
-      'job_title': jobTitle.trim(),
+      'training_title': trainingTitle.trim(),
       'issue_type': issueType.trim(),
       'description': description.trim(),
       'status': 'new',
@@ -772,7 +915,7 @@ class CoordinatorWorkspaceService {
       'source_id': applicationId,
       'title': 'Student report from company',
       'message':
-          '$companyName reported $studentName for $jobTitle. Issue: $issueType. $description',
+          '$companyName reported $studentName for $trainingTitle. Issue: $issueType. $description',
       'type': 'company_report',
       'audience': 'university',
       'university_name': universityName.trim(),
@@ -781,6 +924,29 @@ class CoordinatorWorkspaceService {
       'created_at': now,
       'is_read': false,
     });
+  }
+
+  Future<void> submitOrganizationReport({
+    required String applicationId,
+    required String studentName,
+    required String studentEmail,
+    required String universityName,
+    required String organizationName,
+    required String jobTitle,
+    required String issueType,
+    required String description,
+  }) async {
+    // Delegate to submitCompanyReport with organization name mapped to company name
+    return submitCompanyReport(
+      applicationId: applicationId,
+      studentName: studentName,
+      studentEmail: studentEmail,
+      universityName: universityName,
+      companyName: organizationName,
+      trainingTitle: jobTitle,
+      issueType: issueType,
+      description: description,
+    );
   }
 
   Future<List<Map<String, dynamic>>> getReportsForUniversity({
@@ -996,6 +1162,11 @@ class CoordinatorWorkspaceService {
     return '$left'.trim().toLowerCase() == '$right'.trim().toLowerCase();
   }
 
+  String _normalizedStatus(Object? value, {String fallback = ''}) {
+    final normalized = '$value'.trim().toLowerCase();
+    return normalized.isEmpty ? fallback : normalized;
+  }
+
   bool _matchesAnyValue(Object? value, List<String> candidates) {
     for (final candidate in candidates) {
       if (_sameValue(value, candidate)) {
@@ -1063,6 +1234,12 @@ class CoordinatorWorkspaceService {
     final left = DateTime.tryParse('${leftDate ?? ''}') ?? DateTime(1970);
     final right = DateTime.tryParse('${rightDate ?? ''}') ?? DateTime(1970);
     return right.compareTo(left);
+  }
+
+  DateTime? _parseDateTimeValue(Object? value) {
+    final normalized = '$value'.trim();
+    if (normalized.isEmpty) return null;
+    return DateTime.tryParse(normalized);
   }
 
   String _generateId(String prefix) {

@@ -6,12 +6,16 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Android phones on Wi-Fi must use the laptop LAN IP, not localhost.
-  static const String _productionApiBaseUrl = 'http://192.168.180.219:5000';
-  // Keep Android debug aligned with the LAN backend unless overridden.
-  static const String _androidDebugBaseUrl = _productionApiBaseUrl;
-  // Flutter web running on the same laptop should hit the local backend directly.
-  static const String _webBaseUrl = 'http://127.0.0.1:5000';
+  // Local backend for browser-based development on this machine.
+  static const String _webDebugBaseUrl = 'http://localhost:5000';
+  // Hosted backend used by production builds and non-web defaults.
+  static const String _renderApiBaseUrl =
+      'https://student-job-platform-api.onrender.com';
+  static const String _productionApiBaseUrl = _renderApiBaseUrl;
+  // Android now defaults to Render unless explicitly overridden at build/run time.
+  static const String _androidDebugBaseUrl = _renderApiBaseUrl;
+  // Web release builds default to the hosted API unless overridden.
+  static const String _webBaseUrl = _renderApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -19,14 +23,20 @@ class ApiService {
   );
   static List<dynamic>? _universitiesCache;
   static DateTime? _universitiesCacheTime;
+  static List<dynamic>? _institutionsCache;
+  static DateTime? _institutionsCacheTime;
+  static List<dynamic>? _governmentCache;
+  static DateTime? _governmentCacheTime;
+  static List<dynamic>? _organizationDirectoryCache;
+  static DateTime? _organizationDirectoryCacheTime;
   static Map<String, dynamic>? _unreadNotificationsCache;
   static DateTime? _unreadNotificationsCacheTime;
   static Map<String, dynamic>? _profileCache;
   static DateTime? _profileCacheTime;
-  static final Map<String, Map<String, dynamic>> _jobsCache = {};
-  static final Map<String, DateTime> _jobsCacheTime = {};
-  static Map<String, dynamic>? _companyJobsCache;
-  static DateTime? _companyJobsCacheTime;
+  static final Map<String, Map<String, dynamic>> _trainingCache = {};
+  static final Map<String, DateTime> _trainingCacheTime = {};
+  static Map<String, dynamic>? _organizationtrainingCache;
+  static DateTime? _organizationtrainingCacheTime;
   static final Dio _sharedDio = Dio();
   static const FlutterSecureStorage _sharedStorage = FlutterSecureStorage();
   static bool _isDioConfigured = false;
@@ -62,7 +72,7 @@ class ApiService {
     }
 
     if (kIsWeb) {
-      return _normalizeBaseUrl(_webBaseUrl);
+      return _normalizeBaseUrl(kDebugMode ? _webDebugBaseUrl : _webBaseUrl);
     }
 
     if (kDebugMode && defaultTargetPlatform == TargetPlatform.android) {
@@ -72,7 +82,7 @@ class ApiService {
     return _normalizeBaseUrl(_productionApiBaseUrl);
   }
 
-  // Native apps can still be overridden with --dart-define=API_BASE_URL=...
+  // Any platform can still be overridden with --dart-define=API_BASE_URL=...
   final String baseUrl = _resolveBaseUrl();
 
   final Dio _dio = _sharedDio;
@@ -81,7 +91,7 @@ class ApiService {
   ApiService() {
     if (_isDioConfigured) return;
 
-    _log('🌐 ApiService baseUrl: $baseUrl');
+    _log('ApiService baseUrl: $baseUrl');
 
     _dio.options.connectTimeout = kIsWeb
         ? const Duration(seconds: 25)
@@ -95,17 +105,17 @@ class ApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          _log('🚀 ${options.method} ${options.path}');
+          _log('${options.method} ${options.path}');
           return handler.next(options);
         },
         onResponse: (response, handler) {
           _log(
-            '✅ ${response.statusCode} ${response.requestOptions.method} ${response.requestOptions.path}',
+            ' ${response.statusCode} ${response.requestOptions.method} ${response.requestOptions.path}',
           );
           return handler.next(response);
         },
         onError: (DioException e, handler) {
-          _log('❌ ${e.type} ${e.requestOptions.path}: ${e.message}');
+          _log(' ${e.type} ${e.requestOptions.path}: ${e.message}');
           return handler.next(e);
         },
       ),
@@ -132,7 +142,7 @@ class ApiService {
   }
 
   List<String> resolveAssetUrlCandidates(String? assetPath, {int? cacheBust}) {
-    final trimmed = '${assetPath ?? ''}'.trim();
+    final trimmed = (assetPath ?? '').trim();
     if (trimmed.isEmpty) {
       return const [];
     }
@@ -202,11 +212,11 @@ class ApiService {
     _profileCacheTime = null;
   }
 
-  static void _invalidateJobsCache() {
-    _jobsCache.clear();
-    _jobsCacheTime.clear();
-    _companyJobsCache = null;
-    _companyJobsCacheTime = null;
+  static void _invalidatetrainingCache() {
+    _trainingCache.clear();
+    _trainingCacheTime.clear();
+    _organizationtrainingCache = null;
+    _organizationtrainingCacheTime = null;
   }
 
   static void _invalidateCachesForPath(String path) {
@@ -215,8 +225,9 @@ class ApiService {
       _invalidateProfileCache();
     }
 
-    if (path.startsWith('/api/jobs') || path.startsWith('/api/applications')) {
-      _invalidateJobsCache();
+    if (path.startsWith('/api/training') ||
+        path.startsWith('/api/applications')) {
+      _invalidatetrainingCache();
     }
 
     if (path.startsWith('/api/notifications')) {
@@ -225,7 +236,7 @@ class ApiService {
     }
   }
 
-  static String _jobsCacheKey({
+  static String _trainingCacheKey({
     String? type,
     String? location,
     String? limit,
@@ -405,6 +416,11 @@ class ApiService {
     if (lowerMessage.contains('status code 500') ||
         lowerMessage.contains('status code 502') ||
         lowerMessage.contains('status code 503') ||
+        lowerMessage.contains('<!doctype html') ||
+        lowerMessage.contains('<html') ||
+        lowerMessage.contains('</html>') ||
+        lowerMessage.contains('<body') ||
+        lowerMessage.contains('</body>') ||
         lowerMessage.contains('internal server error') ||
         lowerMessage.contains('unexpected error') ||
         lowerMessage.contains('null check operator') ||
@@ -517,7 +533,7 @@ class ApiService {
         return token;
       }
     } catch (error) {
-      _log('⚠️ Secure token read failed: $error');
+      _log('Secure token read failed: $error');
     }
 
     try {
@@ -527,7 +543,7 @@ class ApiService {
         return token;
       }
     } catch (error) {
-      _log('⚠️ SharedPreferences token read failed: $error');
+      _log(' SharedPreferences token read failed: $error');
     }
 
     return null;
@@ -537,7 +553,7 @@ class ApiService {
     try {
       await _storage.write(key: _tokenStorageKey, value: token);
     } catch (error) {
-      _log('⚠️ Secure token write failed: $error');
+      _log(' Secure token write failed: $error');
     }
 
     try {
@@ -545,7 +561,7 @@ class ApiService {
       await preferences.setString(_tokenStorageKey, token);
       return;
     } catch (error) {
-      _log('⚠️ SharedPreferences token write failed: $error');
+      _log(' SharedPreferences token write failed: $error');
     }
 
     throw Exception(
@@ -643,6 +659,24 @@ class ApiService {
     return null;
   }
 
+  void _cacheProfileFromAuthResponse(Map<String, dynamic> response) {
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) return;
+
+    final nestedData = data['data'];
+    final user = nestedData is Map<String, dynamic>
+        ? nestedData['user']
+        : data['user'];
+
+    if (user is! Map<String, dynamic>) return;
+
+    _profileCache = {
+      'success': true,
+      'data': {'user': user},
+    };
+    _profileCacheTime = DateTime.now();
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -659,10 +693,12 @@ class ApiService {
     );
 
     Future<Response<dynamic>> sendRequest() async {
+      final token = requiresAuth ? await getToken() : null;
       final options = Options(
         method: normalizedMethod,
         headers: {
-          if (requiresAuth) 'Authorization': 'Bearer ${await getToken()}',
+          if (requiresAuth && token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
           if (data is FormData) 'Content-Type': 'multipart/form-data',
         },
       );
@@ -679,7 +715,7 @@ class ApiService {
       final response = await sendRequest();
       return response.data;
     } on DioException catch (e) {
-      _log('❌ DioException ${e.type}: ${e.message}');
+      _log('DioException ${e.type}: ${e.message}');
 
       if (e.type == DioExceptionType.connectionTimeout) {
         if (shouldRetryOnWakeup) {
@@ -690,7 +726,7 @@ class ApiService {
             return retryResponse.data;
           } on DioException catch (retryError) {
             _log(
-              '❌ Timeout retry failed ${retryError.type}: ${retryError.message}',
+              ' Timeout retry failed ${retryError.type}: ${retryError.message}',
             );
           }
         }
@@ -727,13 +763,13 @@ class ApiService {
             final retryResponse = await sendRequest();
             return retryResponse.data;
           } on DioException catch (retryError) {
-            _log('❌ Retry failed ${retryError.type}: ${retryError.message}');
+            _log(' Retry failed ${retryError.type}: ${retryError.message}');
           }
         }
 
         final overrideHint = kIsWeb
             ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
-            : 'If you are testing on an Android phone over Wi-Fi, use --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use http://localhost:5000.';
+            : 'This app now uses the Render API by default. If you intentionally want a local Android backend, use --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use http://localhost:5000.';
         throw Exception(
           kIsWeb
               ? 'Cannot connect to server at $baseUrl. Render may still be waking up. Please wait a few seconds and refresh. $overrideHint'
@@ -763,7 +799,7 @@ class ApiService {
         normalizeErrorMessage(e, fallback: 'Network error. Please try again.'),
       );
     } catch (e) {
-      _log('❌ Unexpected error: $e');
+      _log('Unexpected error: $e');
       throw Exception(normalizeErrorMessage(e));
     }
   }
@@ -845,6 +881,8 @@ class ApiService {
           await setToken(token);
         }
 
+        _cacheProfileFromAuthResponse(response);
+
         return {'success': true, 'data': response};
       }
 
@@ -855,7 +893,7 @@ class ApiService {
         ),
       };
     } catch (e) {
-      _log('❌ Login error: $e');
+      _log('Login error: $e');
       return {'success': false, 'message': _normalizeLoginErrorMessage(e)};
     }
   }
@@ -882,7 +920,7 @@ class ApiService {
         ),
       };
     } catch (e) {
-      _log('❌ Verify account password error: $e');
+      _log('Verify account password error: $e');
       return {'success': false, 'message': _normalizeLoginErrorMessage(e)};
     }
   }
@@ -922,7 +960,7 @@ class ApiService {
         },
       );
     } catch (e) {
-      _log('❌ Complete password reset error: $e');
+      _log(' Complete password reset error: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(
@@ -992,9 +1030,11 @@ class ApiService {
         await setToken(token);
       }
 
+      _cacheProfileFromAuthResponse(response);
+
       return {'success': true, 'data': response};
     } catch (e) {
-      _log('❌ Registration error: $e');
+      _log('Registration error: $e');
       return {
         'success': false,
         'message': _sanitizeAuthResponseMessage(
@@ -1106,10 +1146,12 @@ class ApiService {
     }
     _unreadNotificationsCache = null;
     _unreadNotificationsCacheTime = null;
+    _invalidateProfileCache();
+    _invalidatetrainingCache();
   }
 
   // ==================== JOB METHODS ====================
-  Future<Map<String, dynamic>> getJobs({
+  Future<Map<String, dynamic>> gettraining({
     String? type,
     String? location,
     String? limit,
@@ -1123,7 +1165,7 @@ class ApiService {
     if (limit != null) query['limit'] = limit;
     if (search != null && search.isNotEmpty) query['search'] = search;
     if (view != null && view.isNotEmpty) query['view'] = view;
-    final cacheKey = _jobsCacheKey(
+    final cacheKey = _trainingCacheKey(
       type: query['type']?.toString(),
       location: query['location']?.toString(),
       limit: query['limit']?.toString(),
@@ -1132,8 +1174,8 @@ class ApiService {
     );
 
     if (!forceRefresh &&
-        _isFresh(_jobsCacheTime[cacheKey], const Duration(seconds: 30))) {
-      final cached = _jobsCache[cacheKey];
+        _isFresh(_trainingCacheTime[cacheKey], const Duration(seconds: 30))) {
+      final cached = _trainingCache[cacheKey];
       if (cached != null) {
         return cached;
       }
@@ -1141,31 +1183,31 @@ class ApiService {
 
     final response = await _request(
       'GET',
-      '/api/jobs',
+      '/api/training',
       queryParams: query,
       requiresAuth: true,
     );
     if (response['success'] == true) {
-      _jobsCache[cacheKey] = response;
-      _jobsCacheTime[cacheKey] = DateTime.now();
+      _trainingCache[cacheKey] = response;
+      _trainingCacheTime[cacheKey] = DateTime.now();
     }
     return response;
   }
 
-  Future<Map<String, dynamic>> getJobsWithLimit(String limit) async {
-    return await getJobs(limit: limit);
+  Future<Map<String, dynamic>> gettrainingWithLimit(String limit) async {
+    return await gettraining(limit: limit);
   }
 
   Future<Map<String, dynamic>> getJobById(String jobId) async {
-    return await _request('GET', '/api/jobs/$jobId', requiresAuth: true);
+    return await _request('GET', '/api/training/$jobId', requiresAuth: true);
   }
 
-  Future<Map<String, dynamic>> getCompanyJobs({
+  Future<Map<String, dynamic>> getorganizationtraining({
     bool forceRefresh = false,
   }) async {
     if (!forceRefresh &&
-        _isFresh(_companyJobsCacheTime, const Duration(seconds: 20))) {
-      final cached = _companyJobsCache;
+        _isFresh(_organizationtrainingCacheTime, const Duration(seconds: 20))) {
+      final cached = _organizationtrainingCache;
       if (cached != null) {
         return cached;
       }
@@ -1173,24 +1215,31 @@ class ApiService {
 
     final response = await _request(
       'GET',
-      '/api/jobs/company/my-jobs',
+      '/api/training/organization/my-training',
       requiresAuth: true,
     );
     if (response['success'] == true) {
-      _companyJobsCache = response;
-      _companyJobsCacheTime = DateTime.now();
+      _organizationtrainingCache = response;
+      _organizationtrainingCacheTime = DateTime.now();
     }
     return response;
+  }
+
+  // Alias method for backward compatibility
+  Future<Map<String, dynamic>> getOrganizationtraining({
+    bool forceRefresh = false,
+  }) async {
+    return getorganizationtraining(forceRefresh: forceRefresh);
   }
 
   Future<Map<String, dynamic>> postJob(Map<String, dynamic> jobData) async {
     final response = await _request(
       'POST',
-      '/api/jobs',
+      '/api/training',
       data: jobData,
       requiresAuth: true,
     );
-    _invalidateJobsCache();
+    _invalidatetrainingCache();
     return response;
   }
 
@@ -1200,21 +1249,21 @@ class ApiService {
   ) async {
     final response = await _request(
       'PUT',
-      '/api/jobs/$jobId',
+      '/api/training/$jobId',
       data: data,
       requiresAuth: true,
     );
-    _invalidateJobsCache();
+    _invalidatetrainingCache();
     return response;
   }
 
   Future<Map<String, dynamic>> deleteJob(String jobId) async {
     final response = await _request(
       'DELETE',
-      '/api/jobs/$jobId',
+      '/api/training/$jobId',
       requiresAuth: true,
     );
-    _invalidateJobsCache();
+    _invalidatetrainingCache();
     return response;
   }
 
@@ -1222,6 +1271,9 @@ class ApiService {
   Future<Map<String, dynamic>> applyForJob({
     required String jobId,
     String coverLetter = '',
+    String? coverLetterPath,
+    Uint8List? coverLetterBytes,
+    String? coverLetterFileName,
     String? supportiveDocumentPath,
     Uint8List? supportiveDocumentBytes,
     String? supportiveDocumentName,
@@ -1232,6 +1284,19 @@ class ApiService {
         'job_id': jobId,
         'cover_letter': coverLetter,
       };
+
+      final hasCoverLetterFile =
+          (coverLetterPath != null && coverLetterPath.isNotEmpty) ||
+          coverLetterBytes != null;
+      if (hasCoverLetterFile &&
+          coverLetterFileName != null &&
+          coverLetterFileName.trim().isNotEmpty) {
+        data['cover_letter_file'] = await _createMultipartFile(
+          filePath: coverLetterPath,
+          fileBytes: coverLetterBytes,
+          fileName: coverLetterFileName,
+        );
+      }
 
       final hasSupportiveDocument =
           (supportiveDocumentPath != null &&
@@ -1260,10 +1325,10 @@ class ApiService {
           },
         ),
       );
-      _invalidateJobsCache();
+      _invalidatetrainingCache();
       return response.data;
     } on DioException catch (e) {
-      _log('❌ Error applying for job: $e');
+      _log('Error applying for job: $e');
       final errorData = e.response?.data;
       if (errorData is Map &&
           (errorData['message'] != null || errorData['error'] != null)) {
@@ -1295,10 +1360,25 @@ class ApiService {
     );
   }
 
-  Future<Map<String, dynamic>> getCompanyApplications() async {
+  Future<Map<String, dynamic>> getorganizationApplications() async {
     return await _request(
       'GET',
-      '/api/applications/company',
+      '/api/applications/organization',
+      requiresAuth: true,
+    );
+  }
+
+  // Alias method for backward compatibility
+  Future<Map<String, dynamic>> getOrganizationApplications() async {
+    return getorganizationApplications();
+  }
+
+  Future<Map<String, dynamic>> confirmApplicationSelection(
+    String applicationId,
+  ) async {
+    return await _request(
+      'POST',
+      '/api/applications/$applicationId/confirm-selection',
       requiresAuth: true,
     );
   }
@@ -1335,8 +1415,8 @@ class ApiService {
     required String applicationId,
     required String status,
     String? feedback,
-    String? interviewDate,
-    String? interviewVenue,
+    String? scheduledDate,
+    String? scheduledVenue,
     String? reportingStartDate,
     String? reportingEndDate,
     Map<String, dynamic>? acceptanceLetterData,
@@ -1349,12 +1429,8 @@ class ApiService {
       final data = <String, dynamic>{
         'status': status,
         ...(feedback == null ? const {} : {'feedback': feedback}),
-        ...(interviewDate == null
-            ? const {}
-            : {'interview_date': interviewDate}),
-        ...(interviewVenue == null
-            ? const {}
-            : {'interview_venue': interviewVenue}),
+        ...(scheduledDate == null ? const {} : {'_date': scheduledDate}),
+        ...(scheduledVenue == null ? const {} : {'_venue': scheduledVenue}),
         ...(reportingStartDate == null
             ? const {}
             : {'reporting_start_date': reportingStartDate}),
@@ -1396,7 +1472,7 @@ class ApiService {
       );
       return response.data;
     } on DioException catch (e) {
-      _log('❌ Error updating application status: $e');
+      _log(' Error updating application status: $e');
       final errorData = e.response?.data;
       if (errorData is Map &&
           (errorData['message'] != null || errorData['error'] != null)) {
@@ -1430,7 +1506,7 @@ class ApiService {
         queryParams: {'limit': '$limit'},
       );
     } catch (e) {
-      _log('❌ Error loading wall of fame: $e');
+      _log('Error loading wall of fame: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),
@@ -1447,7 +1523,7 @@ class ApiService {
         queryParams: {'limit': '$limit'},
       );
     } catch (e) {
-      _log('❌ Error loading awards leaderboard: $e');
+      _log('Error loading awards leaderboard: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),
@@ -1586,7 +1662,7 @@ class ApiService {
 
       return response;
     } catch (e) {
-      _log('❌ Error getting universities: $e');
+      _log(' Error getting universities: $e');
       if (_universitiesCache != null) {
         return {'success': true, 'data': _universitiesCache};
       }
@@ -1601,12 +1677,148 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> getInstitutions({
+    bool forceRefresh = false,
+  }) async {
+    final hasFreshCache =
+        _institutionsCache != null &&
+        _institutionsCacheTime != null &&
+        DateTime.now().difference(_institutionsCacheTime!) <
+            const Duration(hours: 6);
+
+    if (!forceRefresh && hasFreshCache) {
+      return {'success': true, 'data': _institutionsCache};
+    }
+
+    try {
+      final response = await _request('GET', '/api/auth/', requiresAuth: false);
+
+      final data = response['data'];
+      if (response['success'] == true && data is List) {
+        _institutionsCache = List<dynamic>.from(data);
+        _institutionsCacheTime = DateTime.now();
+      }
+
+      return response;
+    } catch (e) {
+      _log('Error getting institutions: $e');
+      if (_institutionsCache != null) {
+        return {'success': true, 'data': _institutionsCache};
+      }
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(
+          e,
+          fallback: 'Failed to load institutions right now.',
+        ),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getGovernment({
+    bool forceRefresh = false,
+  }) async {
+    final hasFreshCache =
+        _governmentCache != null &&
+        _governmentCacheTime != null &&
+        DateTime.now().difference(_governmentCacheTime!) <
+            const Duration(hours: 6);
+
+    if (!forceRefresh && hasFreshCache) {
+      return {'success': true, 'data': _governmentCache};
+    }
+
+    try {
+      final response = await _request(
+        'GET',
+        '/api/auth/government-',
+        requiresAuth: false,
+      );
+
+      final data = response['data'];
+      if (response['success'] == true && data is List) {
+        _governmentCache = List<dynamic>.from(data);
+        _governmentCacheTime = DateTime.now();
+      }
+
+      return response;
+    } catch (e) {
+      _log('Error getting government : $e');
+      if (_governmentCache != null) {
+        return {'success': true, 'data': _governmentCache};
+      }
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(
+          e,
+          fallback: 'Failed to load government  right now.',
+        ),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getorganizationDirectory({
+    bool forceRefresh = false,
+    String? region,
+    String? district,
+  }) async {
+    final normalizedRegion = region?.trim() ?? '';
+    final normalizedDistrict = district?.trim() ?? '';
+    final hasLocationFilter =
+        normalizedRegion.isNotEmpty || normalizedDistrict.isNotEmpty;
+    final hasFreshCache =
+        !hasLocationFilter &&
+        _organizationDirectoryCache != null &&
+        _organizationDirectoryCacheTime != null &&
+        DateTime.now().difference(_organizationDirectoryCacheTime!) <
+            const Duration(hours: 6);
+
+    if (!forceRefresh && hasFreshCache) {
+      return {'success': true, 'data': _organizationDirectoryCache};
+    }
+
+    try {
+      final response = await _request(
+        'GET',
+        '/api/auth/organization-directory',
+        queryParams: {
+          if (normalizedRegion.isNotEmpty) 'region': normalizedRegion,
+          if (normalizedDistrict.isNotEmpty) 'district': normalizedDistrict,
+        },
+        requiresAuth: false,
+      );
+
+      final data = response['data'];
+      if (!hasLocationFilter && response['success'] == true && data is List) {
+        _organizationDirectoryCache = List<dynamic>.from(data);
+        _organizationDirectoryCacheTime = DateTime.now();
+      }
+
+      return response;
+    } catch (e) {
+      _log(' Error getting organization directory: $e');
+      if (!hasLocationFilter && _organizationDirectoryCache != null) {
+        return {'success': true, 'data': _organizationDirectoryCache};
+      }
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(
+          e,
+          fallback: 'Failed to load organization directory right now.',
+        ),
+        'data': [],
+      };
+    }
+  }
+
   // ==================== PROJECT METHODS ====================
   Future<Map<String, dynamic>> getStudentProjects() async {
     try {
       return await _request('GET', '/api/projects/student', requiresAuth: true);
     } catch (e) {
-      _log('❌ Error getting projects: $e');
+      _log(' Error getting projects: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1622,7 +1834,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error adding project: $e');
+      _log('Error adding project: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1635,7 +1847,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error removing project: $e');
+      _log(' Error removing project: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1713,7 +1925,7 @@ class ApiService {
       _invalidateProfileCache();
       return response;
     } catch (e) {
-      _log('❌ Error deleting resume: $e');
+      _log(' Error deleting resume: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1741,7 +1953,7 @@ class ApiService {
       _invalidateProfileCache();
       return response.data;
     } on DioException catch (e) {
-      _log('❌ Error uploading student profile image: $e');
+      _log(' Error uploading student profile image: $e');
       throw Exception(
         normalizeErrorMessage(
           e,
@@ -1761,22 +1973,22 @@ class ApiService {
       _invalidateProfileCache();
       return response;
     } catch (e) {
-      _log('❌ Error deleting student profile image: $e');
+      _log(' Error deleting student profile image: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
-  // ==================== COMPANY METHODS ====================
-  Future<Map<String, dynamic>> getCompanyProfile() async {
+  // ==================== ORGANIZATION METHODS ====================
+  Future<Map<String, dynamic>> getorganizationProfile() async {
     try {
       return await _request('GET', '/api/auth/profile', requiresAuth: true);
     } catch (e) {
-      _log('❌ Error getting company profile: $e');
+      _log(' Error getting organization profile: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
-  Future<Map<String, dynamic>> updateCompanyProfile(
+  Future<Map<String, dynamic>> updateorganizationProfile(
     Map<String, dynamic> data,
   ) async {
     try {
@@ -1789,14 +2001,15 @@ class ApiService {
       _invalidateProfileCache();
       return response;
     } catch (e) {
-      _log('❌ Error updating company profile: $e');
+      _log(' Error updating organization profile: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
 
-  // ==================== COMPANY LOGO METHODS ====================
-  Future<Map<String, dynamic>> _uploadCompanyImageAsset({
+  // ==================== ORGANIZATION LOGO METHODS ====================
+  Future<Map<String, dynamic>> _uploadorganizationImageAsset({
     required String endpoint,
+    String? fallbackEndpoint,
     required String fieldName,
     required String fileName,
     String? filePath,
@@ -1813,15 +2026,35 @@ class ApiService {
         ),
       });
 
-      final response = await _dio.post(
-        '$baseUrl$endpoint',
-        data: formData,
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      Future<Response<dynamic>> sendUpload(String targetEndpoint) {
+        return _dio.post(
+          '$baseUrl$targetEndpoint',
+          data: formData,
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'multipart/form-data',
+            },
+          ),
+        );
+      }
+
+      Response<dynamic> response;
+      try {
+        response = await sendUpload(endpoint);
+      } on DioException catch (e) {
+        final statusCode = e.response?.statusCode;
+        if (statusCode == 404 && fallbackEndpoint != null) {
+          response = await sendUpload(fallbackEndpoint);
+        } else {
+          rethrow;
+        }
+      }
+
       _invalidateProfileCache();
       return response.data;
     } on DioException catch (e) {
-      _log('❌ Error uploading $errorLabel: $e');
+      _log(' Error uploading $errorLabel: $e');
       throw Exception(
         normalizeErrorMessage(
           e,
@@ -1831,13 +2064,14 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadCompanyLogo({
+  Future<Map<String, dynamic>> uploadorganizationLogo({
     String? filePath,
     Uint8List? fileBytes,
     required String fileName,
   }) async {
-    return _uploadCompanyImageAsset(
-      endpoint: '/api/company/logo',
+    return _uploadorganizationImageAsset(
+      endpoint: '/api/organization/logo',
+      fallbackEndpoint: '/api/company/logo',
       fieldName: 'logo',
       filePath: filePath,
       fileBytes: fileBytes,
@@ -1846,13 +2080,27 @@ class ApiService {
     );
   }
 
-  Future<Map<String, dynamic>> uploadCompanyStamp({
+  // Alias method for backward compatibility
+  Future<Map<String, dynamic>> uploadCompanyLogo({
     String? filePath,
     Uint8List? fileBytes,
     required String fileName,
   }) async {
-    return _uploadCompanyImageAsset(
-      endpoint: '/api/company/stamp',
+    return uploadorganizationLogo(
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+    );
+  }
+
+  Future<Map<String, dynamic>> uploadorganizationStamp({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    return _uploadorganizationImageAsset(
+      endpoint: '/api/organization/stamp',
+      fallbackEndpoint: '/api/company/stamp',
       fieldName: 'stamp',
       filePath: filePath,
       fileBytes: fileBytes,
@@ -1861,13 +2109,27 @@ class ApiService {
     );
   }
 
-  Future<Map<String, dynamic>> uploadCompanySignature({
+  // Alias method for backward compatibility
+  Future<Map<String, dynamic>> uploadCompanyStamp({
     String? filePath,
     Uint8List? fileBytes,
     required String fileName,
   }) async {
-    return _uploadCompanyImageAsset(
-      endpoint: '/api/company/signature',
+    return uploadorganizationStamp(
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+    );
+  }
+
+  Future<Map<String, dynamic>> uploadorganizationSignature({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    return _uploadorganizationImageAsset(
+      endpoint: '/api/organization/signature',
+      fallbackEndpoint: '/api/company/signature',
       fieldName: 'signature',
       filePath: filePath,
       fileBytes: fileBytes,
@@ -1876,12 +2138,25 @@ class ApiService {
     );
   }
 
+  // Alias method for backward compatibility
+  Future<Map<String, dynamic>> uploadCompanySignature({
+    String? filePath,
+    Uint8List? fileBytes,
+    required String fileName,
+  }) async {
+    return uploadorganizationSignature(
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+    );
+  }
+
   // ==================== ADMIN METHODS ====================
   Future<Map<String, dynamic>> getAdminStats() async {
     try {
       return await _request('GET', '/api/admin/stats', requiresAuth: true);
     } catch (e) {
-      _log('❌ Error getting admin stats: $e');
+      _log(' Error getting admin stats: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1895,11 +2170,11 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getAdminJobs() async {
+  Future<Map<String, dynamic>> getAdmintraining() async {
     try {
-      return await _request('GET', '/api/admin/jobs', requiresAuth: true);
+      return await _request('GET', '/api/admin/training', requiresAuth: true);
     } catch (e) {
-      _log('❌ Error getting admin jobs: $e');
+      _log('❌ Error getting admin training: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1929,7 +2204,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error updating user role: $e');
+      _log(' Error updating user role: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1944,7 +2219,7 @@ class ApiService {
           : '/api/admin/users/$userId/suspend';
       return await _request('PUT', path, data: {}, requiresAuth: true);
     } catch (e) {
-      _log('❌ Error toggling user status: $e');
+      _log(' Error toggling user status: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1957,7 +2232,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error sending reset link: $e');
+      _log('Error sending reset link: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1970,7 +2245,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error verifying user: $e');
+      _log('t Error verifying user: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -1983,7 +2258,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error deleting user: $e');
+      _log(' Error deleting user: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -2001,7 +2276,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error updating application status: $e');
+      _log(' Error updating application status: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }
@@ -2010,7 +2285,7 @@ class ApiService {
     try {
       return await _request('GET', '/api/admin/logs', requiresAuth: true);
     } catch (e) {
-      _log('❌ Error getting admin logs: $e');
+      _log(' Error getting admin logs: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),
@@ -2045,7 +2320,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error getting students with university: $e');
+      _log(' Error getting students with university: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),
@@ -2096,7 +2371,7 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error getting university students overview: $e');
+      _log(' Error getting university students overview: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),
@@ -2122,7 +2397,7 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getUniversityCompanyContacts() async {
+  Future<Map<String, dynamic>> getUniversityorganizationContacts() async {
     try {
       return await _request(
         'GET',
@@ -2130,13 +2405,18 @@ class ApiService {
         requiresAuth: true,
       );
     } catch (e) {
-      _log('❌ Error getting university company contacts: $e');
+      _log(' Error getting university organization contacts: $e');
       return {
         'success': false,
         'message': normalizeErrorMessage(e),
         'data': [],
       };
     }
+  }
+
+  // Alias for getUniversityorganizationContacts with alternative naming
+  Future<Map<String, dynamic>> getUniversityCompanyContacts() async {
+    return getUniversityorganizationContacts();
   }
 
   // ==================== GENERIC METHODS ====================

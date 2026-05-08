@@ -2,9 +2,9 @@
 const { query } = require('../config/database');
 
 class JobModel {
-    static async closeExpiredJobs() {
+    static async closeExpiredtraining() {
         await query(
-            `UPDATE jobs
+            `UPDATE training
              SET status = 'closed', updated_at = CURRENT_TIMESTAMP
              WHERE status = 'open' AND application_deadline < CURRENT_TIMESTAMP`
         );
@@ -31,7 +31,7 @@ class JobModel {
         } = jobData;
 
         const result = await query(
-            `INSERT INTO jobs (
+            `INSERT INTO training (
                 company_id, title, type, target_candidates, description, 
                 location, salary_range, required_applicants, application_deadline,
                 eligible_programs, minimum_gpa, minimum_academic_year, eligibility_notes,
@@ -60,9 +60,9 @@ class JobModel {
         return result.rows[0];
     }
 
-    // Get all jobs with filters
+    // Get all training with filters
     static async getAll(filters = {}) {
-        await this.closeExpiredJobs();
+        await this.closeExpiredtraining();
 
         let sql = `
             SELECT 
@@ -76,7 +76,7 @@ class JobModel {
                     JOIN skills s ON js.skill_id = s.skill_id
                     WHERE js.job_id = j.job_id
                 ) as required_skills
-            FROM jobs j
+            FROM training j
             JOIN companies c ON j.company_id = c.company_id
             WHERE 1 = 1
         `;
@@ -104,7 +104,14 @@ class JobModel {
         }
         
         if (filters.search) {
-            sql += ` AND (j.title ILIKE $${paramCount} OR j.description ILIKE $${paramCount})`;
+            sql += ` AND (
+                j.title ILIKE $${paramCount}
+                OR j.description ILIKE $${paramCount}
+                OR COALESCE(j.location, '') ILIKE $${paramCount}
+                OR COALESCE(c.company_name, '') ILIKE $${paramCount}
+                OR COALESCE(c.location, '') ILIKE $${paramCount}
+                OR COALESCE(j.type, '') ILIKE $${paramCount}
+            )`;
             values.push(`%${filters.search}%`);
             paramCount++;
         }
@@ -124,7 +131,7 @@ class JobModel {
 
     // Get job by ID with company details
     static async getById(jobId) {
-        await this.closeExpiredJobs();
+        await this.closeExpiredtraining();
 
         const result = await query(
             `SELECT 
@@ -140,7 +147,7 @@ class JobModel {
                     JOIN skills s ON js.skill_id = s.skill_id
                     WHERE js.job_id = j.job_id
                 ) as required_skills
-            FROM jobs j
+            FROM training j
             JOIN companies c ON j.company_id = c.company_id
             WHERE j.job_id = $1`,
             [jobId]
@@ -149,9 +156,9 @@ class JobModel {
         return result.rows[0];
     }
 
-    // Get jobs by company
+    // Get training by company
     static async getByCompany(companyId) {
-        await this.closeExpiredJobs();
+        await this.closeExpiredtraining();
 
         const result = await query(
             `SELECT 
@@ -165,7 +172,7 @@ class JobModel {
                 (
                     SELECT COUNT(*) FROM applications WHERE job_id = j.job_id
                 ) as applications_count
-            FROM jobs j
+            FROM training j
             WHERE j.company_id = $1
               AND j.status = 'open'
               AND j.application_deadline >= CURRENT_TIMESTAMP
@@ -193,7 +200,7 @@ class JobModel {
         values.push(jobId);
         
         const result = await query(
-            `UPDATE jobs SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP 
+            `UPDATE training SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP 
              WHERE job_id = $${index} RETURNING *`,
             values
         );
@@ -204,14 +211,14 @@ class JobModel {
     // Delete job
     static async delete(jobId) {
         const result = await query(
-            'DELETE FROM jobs WHERE job_id = $1 RETURNING job_id',
+            'DELETE FROM training WHERE job_id = $1 RETURNING job_id',
             [jobId]
         );
         return result.rows[0];
     }
 
     // Get job skills
-    static async addJobSkill(jobId, skillId) {
+    static async addtrainingkill(jobId, skillId) {
         await query(
             'INSERT INTO job_skills (job_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [jobId, skillId]
@@ -219,18 +226,18 @@ class JobModel {
     }
 
     // Remove job skill
-    static async removeJobSkill(jobId, skillId) {
+    static async removetrainingkill(jobId, skillId) {
         await query(
             'DELETE FROM job_skills WHERE job_id = $1 AND skill_id = $2',
             [jobId, skillId]
         );
     }
 
-    static async replaceJobSkills(jobId, skillIds = []) {
+    static async replacetrainingkills(jobId, skillIds = []) {
         await query('DELETE FROM job_skills WHERE job_id = $1', [jobId]);
 
         for (const skillId of skillIds) {
-            await this.addJobSkill(jobId, skillId);
+            await this.addtrainingkill(jobId, skillId);
         }
     }
 }

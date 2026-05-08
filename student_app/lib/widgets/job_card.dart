@@ -16,64 +16,12 @@ class JobCard extends StatelessWidget {
     this.onApplyNow,
   });
 
-  String _getTypeLabel(String type) => 'Industrial Practical Training';
-
-  String _formatDeadline(DateTime deadline) {
-    final day = deadline.day.toString().padLeft(2, '0');
-    final month = deadline.month.toString().padLeft(2, '0');
-    final hour = deadline.hour.toString().padLeft(2, '0');
-    final minute = deadline.minute.toString().padLeft(2, '0');
-    return '$day/$month/${deadline.year} $hour:$minute';
-  }
-
-  Widget _buildMetaChip({
-    required IconData icon,
-    required String label,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final difference = job.applicationDeadline.difference(now);
-    final daysLeft = difference.inDays;
-    final isExpired = difference.isNegative;
+    final isExpired = job.applicationDeadline.isBefore(DateTime.now());
     final isClosed = job.status != 'open' || isExpired;
-    final descriptionPreview = job.description.trim().isEmpty
-        ? 'No description provided.'
-        : job.description.trim().replaceAll(RegExp(r'\s+'), ' ');
-    final deadlineLabel = isClosed
-        ? 'Closed'
-        : daysLeft > 0
-        ? '$daysLeft days left'
-        : 'Closes today';
-    final primaryActionLabel = isClosed ? 'View Details' : 'Apply Now';
-    final primaryAction = isClosed
-        ? onViewDetails
-        : (onApplyNow ?? onViewDetails);
+    final statusLabel = isClosed ? 'Closed' : 'Open';
+    final primaryAction = isClosed ? null : (onApplyNow ?? onViewDetails);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -97,210 +45,180 @@ class JobCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Center(
-                    child: Text(
-                      job.companyName.isEmpty
-                          ? '?'
-                          : job.companyName[0].toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.primaryBlue,
-                      ),
+                Expanded(
+                  child: Text(
+                    job.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        job.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        job.companyName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                    horizontal: 12,
+                    vertical: 7,
                   ),
                   decoration: BoxDecoration(
                     color: isClosed
-                        ? Colors.grey.shade100
+                        ? const Color(0xFFF1F5F9)
                         : const Color(0xFFE9F7EF),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    isClosed ? 'History' : 'Open',
+                    statusLabel,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: isClosed
-                          ? Colors.grey.shade700
+                          ? const Color(0xFF64748B)
                           : const Color(0xFF15803D),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F7FC),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                _getTypeLabel(job.type),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.primaryBlue,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              descriptionPreview,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.45,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
+            const SizedBox(height: 6),
+            Row(
               children: [
-                _buildMetaChip(
-                  icon: Icons.location_on_outlined,
-                  label: job.location,
-                  color: const Color(0xFF2563EB),
+                Icon(
+                  Icons.business_outlined,
+                  size: 14,
+                  color: Colors.grey.shade600,
                 ),
-                _buildMetaChip(
-                  icon: Icons.groups_rounded,
-                  label: 'Needed: ${job.requiredApplicants}',
-                  color: const Color(0xFF0F766E),
-                ),
-                _buildMetaChip(
-                  icon: Icons.schedule_rounded,
-                  label: deadlineLabel,
-                  color: isClosed
-                      ? const Color(0xFF6B7280)
-                      : daysLeft > 0
-                      ? const Color(0xFFD97706)
-                      : const Color(0xFFDC2626),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    job.companyName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
-            if (job.requiredSkills.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: job.requiredSkills.take(3).map((skill) {
-                  return Container(
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.location_on_outlined,
+                        size: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          job.location,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
+                      horizontal: 10,
+                      vertical: 7,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(10),
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: const Color(0xFFD9E2EC)),
                     ),
-                    child: Text(
-                      '${skill['name']}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.groups_outlined,
+                          size: 14,
+                          color: Colors.grey.shade700,
+                        ),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            '${job.requiredApplicants} needed',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  );
-                }).toList(),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Text(
-              'Deadline: ${_formatDeadline(job.applicationDeadline)}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
+                OutlinedButton(
                   onPressed: onViewDetails,
-                  style: TextButton.styleFrom(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(92, 40),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
+                      horizontal: 12,
+                      vertical: 7,
                     ),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    side: BorderSide(
+                      color: AppTheme.primaryBlue.withValues(alpha: 0.35),
+                    ),
+                    foregroundColor: AppTheme.primaryBlue,
+                    backgroundColor: const Color(0xFFF8FBFF),
                   ),
                   child: const Text(
                     'Details',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
                   onPressed: primaryAction,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isClosed
-                        ? const Color(0xFF475569)
-                        : AppTheme.primaryBlue,
+                    backgroundColor: AppTheme.primaryBlue,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFFCBD5E1),
+                    disabledForegroundColor: Colors.white,
+                    minimumSize: const Size(104, 40),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 10,
+                      horizontal: 14,
+                      vertical: 7,
                     ),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    elevation: isClosed ? 0 : 1,
                   ),
-                  child: Text(
-                    primaryActionLabel,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  child: const Text(
+                    'Apply Now',
+                    style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
               ],

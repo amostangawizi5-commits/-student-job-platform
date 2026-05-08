@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/role_theme.dart';
-import '../../widgets/change_pin_dialog.dart';
 import '../../widgets/language_picker_dialog.dart';
-import '../../widgets/reset_pin_dialog.dart';
 import '../auth/login_screen.dart';
 import 'admin_application_filter.dart';
 import 'admin_applications_screen.dart';
@@ -153,9 +152,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     await context.read<LanguageProvider>().setLocaleCode(selectedLanguage);
     if (!mounted) return;
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Language changed successfully.')));
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      SnackBar(content: Text('Language changed successfully.')),
+    );
   }
 
   Future<void> _showSettingsSheet() async {
@@ -189,46 +188,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       leading: const Icon(Icons.account_circle_outlined),
                       title: const Text('Admin Profile'),
                       subtitle: Text(_adminName),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.pin_outlined),
-                      title: const Text('Change PIN'),
-                      subtitle: const Text('Update your 4-digit app PIN.'),
-                      onTap: () async {
-                        Navigator.of(sheetContext).pop();
-                        final changed = await showChangePinDialog(context);
-                        if (!mounted || changed != true) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text('PIN updated successfully.'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      },
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.lock_reset_rounded),
-                      title: const Text('Reset PIN'),
-                      subtitle: const Text(
-                        'Verify with your password and create a new PIN.',
-                      ),
-                      onTap: () async {
-                        final email =
-                            context
-                                .read<AuthProvider>()
-                                .user?['email']
-                                ?.toString() ??
-                            '';
-                        Navigator.of(sheetContext).pop();
-                        if (email.isEmpty) return;
-                        final changed = await showResetPinDialog(
-                          context,
-                          email: email,
-                        );
-                        if (!mounted || changed != true) return;
-                      },
                     ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -420,10 +379,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final isDesktop = _isDesktopWidth(MediaQuery.sizeOf(context).width);
-    final adminName =
-        '${auth.user?['full_name'] ?? auth.user?['email'] ?? 'Admin'}'.trim();
     final adminEmail = '${auth.user?['email'] ?? 'admin@example.com'}';
-    final firstName = adminName.isEmpty ? 'Admin' : adminName.split(' ').first;
     final navigationItems = _navigationItems();
     final today = _formatToday(context);
 
@@ -434,14 +390,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
         surfaceTintColor: _adminBrandNavy,
         elevation: 0,
         toolbarHeight: 104,
+        leadingWidth: 84,
         titleSpacing: 12,
+        centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
         flexibleSpace: const DecoratedBox(
           decoration: BoxDecoration(color: _adminBrandNavy),
         ),
-        title: Row(
-          children: [
-            Container(
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: Center(
+            child: Container(
               height: 56,
               width: 56,
               decoration: BoxDecoration(
@@ -471,85 +430,85 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ),
               ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Welcome back, $firstName',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        title: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              'INDUSTRIAL PRACTICAL TRAINING',
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              adminEmail,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.82),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.16),
+                    ),
+                  ),
+                  child: Text(
+                    navigationItems[_currentIndex].label,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    adminEmail,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.82),
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w500,
+                ),
+                if (isDesktop)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.16),
-                          ),
-                        ),
-                        child: Text(
-                          navigationItems[_currentIndex].label,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.16),
                       ),
-                      if (isDesktop)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.16),
-                            ),
-                          ),
-                          child: Text(
-                            today,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
+                    child: Text(
+                      today,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                ],
-              ),
+              ],
             ),
           ],
         ),

@@ -11,7 +11,11 @@ const {
 const { logAuditEvent } = require('../services/audit-log.service');
 const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
 
-const TCU_REGISTERED_INSTITUTIONS = [
+const queueAuditEvent = (payload) => {
+    void logAuditEvent(payload);
+};
+
+const TCU_REGISTERED_ = [
     { name: 'University of Dar es Salaam (UDSM)', location: 'Dar es Salaam' },
     { name: 'Sokoine University of Agriculture (SUA)', location: 'Morogoro' },
     { name: 'Open University of Tanzania (OUT)', location: 'Dar es Salaam' },
@@ -53,6 +57,7 @@ const TCU_REGISTERED_INSTITUTIONS = [
         location: 'Mwanza'
     },
     { name: 'University of Arusha (UoA)', location: 'Arusha' },
+    { name: 'St. Augustine University of Tanzania, Arusha Centre', location: 'Arusha' },
     { name: 'St. Joseph University in Tanzania (SJUIT)', location: 'Dar es Salaam' },
     { name: 'Teofilo Kisanji University (TEKU)', location: 'Mbeya' },
     { name: 'Mwenge Catholic University (MWECAU)', location: 'Moshi' },
@@ -80,11 +85,17 @@ const TCU_REGISTERED_INSTITUTIONS = [
         location: 'Dar es Salaam'
     },
     { name: 'Islamic University of East Africa (IUEA)', location: 'Dar es Salaam' },
+    { name: 'Hikmah University of East Africa (HUEA)', location: 'Dar es Salaam' },
     { name: 'KCMC University', location: 'Moshi' },
     { name: 'Dar es Salaam University College of Education (DUCE)', location: 'Dar es Salaam' },
+    { name: 'Institute of Marine Sciences (IMS)', location: 'Zanzibar' },
     { name: 'Mkwawa University College of Education (MUCE)', location: 'Iringa' },
     {
         name: 'Mzumbe University - Dar es Salaam Campus College (MU - Dar es Salaam Campus College)',
+        location: 'Dar es Salaam'
+    },
+    {
+        name: 'St. Augustine University of Tanzania, Dar es Salaam Centre',
         location: 'Dar es Salaam'
     },
     {
@@ -111,6 +122,10 @@ const TCU_REGISTERED_INSTITUTIONS = [
         name: 'St. Francis University College of Health and Allied Sciences (SFUCHAS)',
         location: 'Morogoro'
     },
+    {
+        name: 'Stefano Moshi Memorial University College, Mwika Centre',
+        location: 'Moshi'
+    },
     { name: 'Stella Maris Mtwara University College (STeMMUCo)', location: 'Mtwara' },
     { name: 'Marian University College (MARUCo)', location: 'Bagamoyo' },
     {
@@ -118,18 +133,75 @@ const TCU_REGISTERED_INSTITUTIONS = [
         location: 'Dar es Salaam'
     },
     {
+        name: 'Kizumbi Institute of Cooperative Business Education (KICoB)',
+        location: 'Shinyanga'
+    },
+    {
         name: 'Mwenge Catholic University, Hedaru Campus College (MWECAU-HCC)',
         location: 'Same, Kilimanjaro'
     }
 ];
 
-const OFFICIAL_INSTITUTION_NAMES = TCU_REGISTERED_INSTITUTIONS.map(({ name }) =>
+const GOVERNMENT_REGISTERED_ = [
+    { name: "President's Office - Regional Administration and Local Government", location: 'Dodoma' },
+    { name: "President's Office - Public Service Management and Good Governance", location: 'Dodoma' },
+    { name: "Prime Minister's Office", location: 'Dodoma' },
+    { name: 'Ministry Headquarters', location: 'Dodoma' },
+    { name: 'Regional Secretariat', location: 'All Regions' },
+    { name: 'Regional Commissioner Office', location: 'All Regions' },
+    { name: 'District Commissioner Office', location: 'All Districts' },
+    { name: 'District Executive Director Office', location: 'All District Councils' },
+    { name: 'City Council Headquarters', location: 'City Councils' },
+    { name: 'Municipal Council Headquarters', location: 'Municipal Councils' },
+    { name: 'Town Council Headquarters', location: 'Town Councils' },
+    { name: 'District Council Headquarters', location: 'District Councils' },
+    { name: 'Ward Executive Office', location: 'All Wards' },
+    { name: 'Village Executive Office', location: 'All Villages' },
+    { name: 'Government Agency Headquarters', location: 'Nationwide' },
+    { name: 'Government Authority Headquarters', location: 'Nationwide' },
+    { name: 'Government Commission Office', location: 'Nationwide' },
+    { name: 'Public Institution Headquarters', location: 'Nationwide' },
+    { name: 'Public Hospital Administration', location: 'Nationwide' },
+    { name: 'Regional Referral Hospital Administration', location: 'Regional Hospitals' },
+    { name: 'District Hospital Administration', location: 'District Hospitals' },
+    { name: 'Police Regional Office', location: 'All Regions' },
+    { name: 'Police District Office', location: 'All Districts' },
+    { name: 'Immigration Regional Office', location: 'All Regions' },
+    { name: 'TRA Regional Office', location: 'All Regions' },
+    { name: 'Public School Administration', location: 'Nationwide' }
+];
+
+const UNIVERSITY_INSTITUTION_NAMES = TCU_REGISTERED_.map(({ name }) =>
     name.toLowerCase()
 );
+const GOVERNMENT_INSTITUTION_NAMES = GOVERNMENT_REGISTERED_.map(({ name }) =>
+    name.toLowerCase()
+);
+const REGISTERABLE_INSTITUTION_NAMES = [
+    ...UNIVERSITY_INSTITUTION_NAMES,
+    ...GOVERNMENT_INSTITUTION_NAMES
+];
+const DEFAULT_REGISTERABLE_ = [
+    ...TCU_REGISTERED_,
+    ...GOVERNMENT_REGISTERED_
+];
 
 const PDF_FILE_SIGNATURE = Buffer.from('%PDF-', 'utf8');
 const IDENTIFICATION_CARD_PDF_ONLY_MESSAGE =
     'Only PDF files are allowed for identification cards.';
+const ORGANIZATION_SUBTYPES = new Set(['private_sector', 'government_sector']);
+const GOVERNMENT_SECTOR_CATEGORIES = new Set([
+    'Ministry',
+    'Department / Agency',
+    'Authority',
+    'Commission',
+    'Regional Secretariat',
+    'Local Government Authority',
+    'Public Institution',
+    'Hospital / Health Facility',
+    'School / College',
+    'Security / Immigration / Revenue'
+]);
 
 const isPdfFileUpload = (file) => {
     if (!file) {
@@ -152,8 +224,101 @@ const isPdfFileUpload = (file) => {
     return hasPdfExtension && hasPdfMimeType && hasPdfHeader;
 };
 
-const ensureDefaultUniversities = async () => {
-    for (const institution of TCU_REGISTERED_INSTITUTIONS) {
+const normalizeNamePart = (value) => `${value || ''}`.trim();
+const normalizeCompanySubtype = (value) => {
+    const normalized = `${value || ''}`
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+
+    return normalized || '';
+};
+
+const buildFullName = ({ firstName, secondName, fallbackFullName }) => {
+    const parts = [normalizeNamePart(firstName), normalizeNamePart(secondName)].filter(Boolean);
+    if (parts.length > 0) {
+        return parts.join(' ');
+    }
+
+    return normalizeNamePart(fallbackFullName);
+};
+
+const splitFullName = (value) => {
+    const normalized = normalizeNamePart(value);
+    if (!normalized) {
+        return {
+            first_name: '',
+            second_name: ''
+        };
+    }
+
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    return {
+        first_name: parts[0] || '',
+        second_name: parts.slice(1).join(' ')
+    };
+};
+
+const annotateInstitution = (institution) => {
+    const name = `${institution?.name || ''}`.trim();
+    const normalizedName = name.toLowerCase();
+    const category = UNIVERSITY_INSTITUTION_NAMES.includes(normalizedName)
+        ? 'university'
+        : GOVERNMENT_INSTITUTION_NAMES.includes(normalizedName)
+          ? 'government'
+          : 'institution';
+
+    return {
+        ...institution,
+        category,
+        ...splitFullName(name)
+    };
+};
+
+const fetchOfficial = async (institutionNames) => {
+    const result = await query(
+        `SELECT university_id, name, location
+         FROM (
+             SELECT DISTINCT ON (LOWER(name))
+                 university_id,
+                 name,
+                 location
+             FROM universities
+             WHERE LOWER(name) = ANY($1::text[])
+             ORDER BY LOWER(name), university_id
+         ) official_
+         ORDER BY name`,
+        [institutionNames]
+    );
+
+    return result.rows.map(annotateInstitution);
+};
+
+const fetchAllUniversity = async () => {
+    const result = await query(
+        `SELECT university_id, name, location
+         FROM (
+             SELECT DISTINCT ON (LOWER(name))
+                 university_id,
+                 name,
+                 location
+             FROM universities
+             WHERE LOWER(name) <> ALL($1::text[])
+               AND TRIM(COALESCE(name, '')) <> ''
+             ORDER BY LOWER(name), university_id
+         ) official_
+         ORDER BY name`,
+        [GOVERNMENT_INSTITUTION_NAMES]
+    );
+
+    return result.rows.map((institution) => ({
+        ...annotateInstitution(institution),
+        category: 'university'
+    }));
+};
+
+const ensureDefault = async () => {
+    for (const institution of DEFAULT_REGISTERABLE_) {
         const matchNames = [institution.name, ...(institution.aliases || [])].map((value) =>
             value.toLowerCase()
         );
@@ -494,18 +659,37 @@ const register = async (req, res) => {
 
     try {
         const userData = req.body;
+        const requestedRole = `${userData.role || ''}`.trim().toLowerCase();
+        const normalizedRole = requestedRole === 'institution' ? 'university' : requestedRole;
         const allowedRoles = new Set(['student', 'company', 'university']);
         const identificationCardFile = req.files?.identification_card?.[0] || null;
         const collegeLogoFile = req.files?.college_logo?.[0] || null;
 
-        if (!allowedRoles.has(userData.role)) {
+        if (!allowedRoles.has(normalizedRole)) {
             return res.status(403).json({
                 success: false,
                 message: 'This account type cannot be registered from the app'
             });
         }
 
-        if (userData.role === 'student') {
+        userData.role = normalizedRole;
+
+        if (normalizedRole === 'student') {
+            userData.first_name = normalizeNamePart(userData.first_name);
+            userData.second_name = normalizeNamePart(userData.second_name);
+            userData.full_name = buildFullName({
+                firstName: userData.first_name,
+                secondName: userData.second_name,
+                fallbackFullName: userData.full_name
+            });
+
+            if (!userData.full_name) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'First name and second name are required for students'
+                });
+            }
+
             const registrationNumber = `${userData.registration_number || ''}`.trim();
             if (!registrationNumber) {
                 return res.status(400).json({
@@ -532,7 +716,7 @@ const register = async (req, res) => {
             if (!selectedUniversityId) {
                 return res.status(400).json({
                     success: false,
-                    message: 'University selection is required for students'
+                    message: 'Institution selection is required for students'
                 });
             }
 
@@ -547,14 +731,112 @@ const register = async (req, res) => {
             if (selectedUniversityResult.rows.length === 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Selected university was not found'
+                    message: 'Selected institution was not found'
                 });
             }
 
             userData.university_id = selectedUniversityResult.rows[0].university_id;
         }
 
-        if (userData.role === 'university') {
+        if (normalizedRole === 'company') {
+            const requiredFields = [
+                ['email', 'Email is required'],
+                ['password', 'Password is required'],
+                ['phone', 'Phone number is required'],
+                ['company_name', 'Organization name is required'],
+                ['location', 'Location is required']
+            ];
+
+            for (const [field, message] of requiredFields) {
+                if (`${userData[field] || ''}`.trim() === '') {
+                    return res.status(400).json({
+                        success: false,
+                        message
+                    });
+                }
+            }
+
+            const organizationSubtype = normalizeCompanySubtype(
+                userData.organization_subtype
+            );
+            if (!ORGANIZATION_SUBTYPES.has(organizationSubtype)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Organization subtype is required'
+                });
+            }
+
+            userData.organization_subtype = organizationSubtype;
+
+            if (organizationSubtype === 'private_sector') {
+                const privateSectorFields = [
+                    ['tin_number', 'TIN number is required for private sector organizations'],
+                    ['brela_number', 'BRELA number is required for private sector organizations'],
+                    ['business_license_number', 'Business license number is required for private sector organizations']
+                ];
+
+                for (const [field, message] of privateSectorFields) {
+                    if (`${userData[field] || ''}`.trim() === '') {
+                        return res.status(400).json({
+                            success: false,
+                            message
+                        });
+                    }
+                }
+
+                userData.full_name =
+                    `${userData.full_name || ''}`.trim() ||
+                    `${userData.company_name || userData.organization_name || ''}`.trim();
+                userData.government_category = null;
+                userData.department = null;
+                userData.sector = null;
+                userData.industry = null;
+                userData.company_size = null;
+            }
+
+            if (organizationSubtype === 'government_sector') {
+                const governmentCategory = `${userData.government_category || ''}`.trim();
+                if (!governmentCategory) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Government category is required for government sector organizations'
+                    });
+                }
+
+                if (!GOVERNMENT_SECTOR_CATEGORIES.has(governmentCategory)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Selected government category is invalid'
+                    });
+                }
+
+                const governmentSectorFields = [
+                    ['department', 'Department is required for government sector organizations'],
+                    ['sector', 'Sector is required for government sector organizations']
+                ];
+
+                for (const [field, message] of governmentSectorFields) {
+                    if (`${userData[field] || ''}`.trim() === '') {
+                        return res.status(400).json({
+                            success: false,
+                            message
+                        });
+                    }
+                }
+
+                userData.government_category = governmentCategory;
+                userData.full_name =
+                    `${userData.full_name || ''}`.trim() ||
+                    `${userData.company_name || ''}`.trim();
+                userData.industry = null;
+                userData.company_size = null;
+                userData.tin_number = null;
+                userData.brela_number = null;
+                userData.business_license_number = null;
+            }
+        }
+
+        if (normalizedRole === 'university') {
             const requiredFields = [
                 ['university_id', 'University selection is required'],
                 ['college_name', 'College name is required'],
@@ -620,7 +902,7 @@ const register = async (req, res) => {
             });
         }
 
-        if (identificationCardFile && userData.role === 'student') {
+        if (identificationCardFile && normalizedRole === 'student') {
             uploadedIdentificationCard = await uploadAsset({
                 buffer: identificationCardFile.buffer,
                 mimeType: identificationCardFile.mimetype,
@@ -635,7 +917,7 @@ const register = async (req, res) => {
             userData.identification_card_name = identificationCardFile.originalname;
         }
 
-        if (collegeLogoFile && userData.role === 'university') {
+        if (collegeLogoFile && normalizedRole === 'university') {
             uploadedCollegeLogo = await uploadAsset({
                 buffer: collegeLogoFile.buffer,
                 mimeType: collegeLogoFile.mimetype,
@@ -711,7 +993,7 @@ const login = async (req, res) => {
         // Find user by email
         const user = await UserModel.findByEmail(email);
         if (!user) {
-            await logAuditEvent({
+            queueAuditEvent({
                 category: 'error',
                 eventType: 'Login failed',
                 message: `Failed login attempt for ${email || 'unknown email'}`
@@ -724,7 +1006,7 @@ const login = async (req, res) => {
         
         // Check if account is active
         if (!user.is_active) {
-            await logAuditEvent({
+            queueAuditEvent({
                 category: 'error',
                 eventType: 'Login blocked',
                 message: `Blocked login attempt for ${user.full_name || user.email}`,
@@ -740,7 +1022,7 @@ const login = async (req, res) => {
         // Verify password
         const isPasswordValid = await bcrypt.compare(password, user.password_hash);
         if (!isPasswordValid) {
-            await logAuditEvent({
+            queueAuditEvent({
                 category: 'error',
                 eventType: 'Login failed',
                 message: `Incorrect password attempt for ${user.email}`,
@@ -764,7 +1046,7 @@ const login = async (req, res) => {
         // Get full profile
         const userProfile = await UserModel.findById(user.user_id);
 
-        await logAuditEvent({
+        queueAuditEvent({
             category: 'login',
             eventType: 'User login',
             message: `${userProfile.full_name || user.email} signed in as ${userProfile.role}`,
@@ -785,7 +1067,7 @@ const login = async (req, res) => {
         
     } catch (error) {
         console.error('Login error:', error);
-        await logAuditEvent({
+        queueAuditEvent({
             category: 'error',
             eventType: 'System error',
             message: `Login controller error: ${error.message}`
@@ -1008,28 +1290,36 @@ const updateProfile = async (req, res) => {
     }
 };
 
+const get = async (req, res) => {
+    try {
+        await ensureDefault();
+        const institutions = await fetchOfficial(
+            REGISTERABLE_INSTITUTION_NAMES
+        );
+
+        res.json({
+            success: true,
+            data: institutions
+        });
+    } catch (error) {
+        console.error('Get institutions error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get institutions',
+            error: error.message
+        });
+    }
+};
+
 // Get All Universities (for registration dropdown)
 const getUniversities = async (req, res) => {
     try {
-        await ensureDefaultUniversities();
-        const result = await query(
-            `SELECT university_id, name, location
-             FROM (
-                 SELECT DISTINCT ON (LOWER(name))
-                     university_id,
-                     name,
-                     location
-                 FROM universities
-                 WHERE LOWER(name) = ANY($1::text[])
-                 ORDER BY LOWER(name), university_id
-             ) official_institutions
-             ORDER BY name`,
-            [OFFICIAL_INSTITUTION_NAMES]
-        );
+        await ensureDefault();
+        const universities = await fetchAllUniversity();
         
         res.json({
             success: true,
-            data: result.rows
+            data: universities
         });
         
     } catch (error) {
@@ -1038,6 +1328,71 @@ const getUniversities = async (req, res) => {
             success: false, 
             message: 'Failed to get universities', 
             error: error.message 
+        });
+    }
+};
+
+const getGovernment = async (req, res) => {
+    try {
+        await ensureDefault();
+        const governmentInstitutions = await fetchOfficial(
+            GOVERNMENT_INSTITUTION_NAMES
+        );
+
+        res.json({
+            success: true,
+            data: governmentInstitutions
+        });
+    } catch (error) {
+        console.error('Get government institutions error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get government institutions',
+            error: error.message
+        });
+    }
+};
+
+const getCompanyDirectory = async (req, res) => {
+    try {
+        const regionFilter = `${req.query?.region || ''}`.trim().toLowerCase();
+        const districtFilter = `${req.query?.district || ''}`.trim().toLowerCase();
+        const result = await query(
+            `SELECT DISTINCT ON (LOWER(TRIM(company_name)), LOWER(COALESCE(region, '')), LOWER(COALESCE(district, '')))
+                TRIM(company_name) AS company_name,
+                TRIM(COALESCE(organization_subtype, '')) AS organization_subtype,
+                TRIM(COALESCE(government_category, '')) AS government_category,
+                TRIM(COALESCE(region, '')) AS region,
+                TRIM(COALESCE(district, '')) AS district,
+                TRIM(COALESCE(location, '')) AS location
+             FROM companies
+             WHERE TRIM(COALESCE(company_name, '')) <> ''
+               AND ($1 = '' OR LOWER(COALESCE(region, '')) = $1)
+               AND ($2 = '' OR LOWER(COALESCE(district, '')) = $2)
+             ORDER BY LOWER(TRIM(company_name)), LOWER(COALESCE(region, '')), LOWER(COALESCE(district, ''))
+             LIMIT 1000`,
+            [regionFilter, districtFilter]
+        );
+
+        res.json({
+            success: true,
+            data: result.rows
+                .map((row) => ({
+                    company_name: `${row.company_name || ''}`.trim(),
+                    organization_subtype: `${row.organization_subtype || ''}`.trim(),
+                    government_category: `${row.government_category || ''}`.trim(),
+                    region: `${row.region || ''}`.trim(),
+                    district: `${row.district || ''}`.trim(),
+                    location: `${row.location || ''}`.trim()
+                }))
+                .filter((row) => row.company_name.length > 0)
+        });
+    } catch (error) {
+        console.error('Get company directory error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get company directory',
+            error: error.message
         });
     }
 };
@@ -1318,7 +1673,10 @@ module.exports = {
     getProfile,
     changePassword,
     updateProfile,
+    get,
     getUniversities,
+    getGovernment,
+    getCompanyDirectory,
     getSkills,
     forgotPassword,
     renderPasswordResetForm,

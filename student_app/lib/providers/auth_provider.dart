@@ -1,25 +1,23 @@
-// lib/providers/auth_provider.dart
 import 'package:flutter/foundation.dart';
+
 import '../services/api_service.dart';
-import '../services/app_lock_service.dart';
 import '../utils/user_role.dart';
 
 class AuthProvider extends ChangeNotifier {
-  static bool _launchSessionCleared = false;
-  final ApiService _apiService = ApiService();
+  AuthProvider({ApiService? apiService})
+    : _apiService = apiService ?? ApiService();
+
+  final ApiService _apiService;
 
   Map<String, dynamic>? _user;
   bool _isLoading = false;
   bool _isAuthenticated = false;
-  bool _sessionRestored = false;
-  bool _requiresPinSetup = false;
   String? _errorMessage;
+  Future<void>? _sessionRestoreFuture;
 
   Map<String, dynamic>? get user => _user;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
-  bool get sessionRestored => _sessionRestored;
-  bool get requiresPinSetup => _requiresPinSetup;
   String? get errorMessage => _errorMessage;
 
   void _log(String message) {
@@ -98,40 +96,79 @@ class AuthProvider extends ChangeNotifier {
     return 'Login failed';
   }
 
-  // Check if user is logged in on app start
-  Future<void> checkAuthStatus() async {
-    if (!_launchSessionCleared) {
-      _launchSessionCleared = true;
-      await _apiService.logout();
-      _isAuthenticated = false;
-      _sessionRestored = false;
-      _requiresPinSetup = false;
-      _user = null;
-      _errorMessage = null;
-      notifyListeners();
-      return;
-    }
+  void _setLoading(bool value) {
+    if (_isLoading == value) return;
+    _isLoading = value;
+    notifyListeners();
+  }
 
-    final token = await _apiService.getToken();
-    _log('checkAuthStatus - Token exists: ${token != null}');
+  void _applyAuthState({
+    Map<String, dynamic>? user,
+    required bool isAuthenticated,
+    String? errorMessage,
+    bool notify = true,
+  }) {
+    _user = user;
+    _isAuthenticated = isAuthenticated;
+    _errorMessage = errorMessage;
 
-    if (token != null && token.isNotEmpty) {
-      _sessionRestored = true;
-      _requiresPinSetup = false;
-      await loadProfile();
-      if (!_isAuthenticated) {
-        _sessionRestored = false;
-      }
-    } else {
-      _isAuthenticated = false;
-      _sessionRestored = false;
-      _requiresPinSetup = false;
-      _user = null;
+    if (notify) {
       notifyListeners();
     }
   }
 
-  // Register user
+  Map<String, dynamic>? _extractUserFromAuthResponse(
+    Map<String, dynamic> response,
+  ) {
+    final responseData = response['data'];
+    if (responseData is Map<String, dynamic>) {
+      final nestedData = responseData['data'];
+      if (nestedData is Map<String, dynamic> &&
+          nestedData['user'] is Map<String, dynamic>) {
+        return nestedData['user'] as Map<String, dynamic>;
+      }
+
+      if (responseData['user'] is Map<String, dynamic>) {
+        return responseData['user'] as Map<String, dynamic>;
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _restoreSession() async {
+    final token = await _apiService.getToken();
+    _log(
+      'checkAuthStatus - Token exists: ${token != null && token.isNotEmpty}',
+    );
+
+    if (token == null || token.isEmpty) {
+      _applyAuthState(user: null, isAuthenticated: false, errorMessage: null);
+      return;
+    }
+
+    await loadProfile(forceRefresh: true);
+  }
+
+  Future<void> checkAuthStatus() async {
+    final inFlightRestore = _sessionRestoreFuture;
+    if (inFlightRestore != null) {
+      await inFlightRestore;
+      return;
+    }
+
+    final restoreFuture = _restoreSession();
+    _sessionRestoreFuture = restoreFuture;
+
+    try {
+      await restoreFuture;
+    } finally {
+      if (identical(_sessionRestoreFuture, restoreFuture)) {
+        _sessionRestoreFuture = null;
+      }
+    }
+  }
+
   Future<bool> register(
     Map<String, dynamic> userData, {
     String? identificationCardFilePath,
@@ -141,9 +178,8 @@ class AuthProvider extends ChangeNotifier {
     Uint8List? collegeLogoFileBytes,
     String? collegeLogoFileName,
   }) async {
-    _isLoading = true;
     _errorMessage = null;
-    notifyListeners();
+    _setLoading(true);
 
     try {
       final response = await _apiService.register(
@@ -157,23 +193,20 @@ class AuthProvider extends ChangeNotifier {
       );
 
       if (response['success'] == true) {
-        // Extract user data from response
-        final userDataMap = response['data']['data']['user'];
-        await AppLockService.forUser(userDataMap).clearPin();
-        _user = userDataMap;
-        _isAuthenticated = true;
-        _sessionRestored = true;
-        _requiresPinSetup = true;
-        _isLoading = false;
-        _errorMessage = null;
-        notifyListeners();
+        _applyAuthState(
+          user: _extractUserFromAuthResponse(response),
+          isAuthenticated: true,
+          errorMessage: null,
+        );
+        _setLoading(false);
         return true;
       }
+
       _errorMessage = ApiService.sanitizeUserMessage(
         response['message']?.toString(),
         fallback: 'Registration failed',
       );
-      _isLoading = false;
+      _setLoading(false);
       notifyListeners();
       return false;
     } catch (e) {
@@ -182,51 +215,50 @@ class AuthProvider extends ChangeNotifier {
         e,
         fallback: 'Registration failed',
       );
-      _isLoading = false;
+      _setLoading(false);
       notifyListeners();
       return false;
     }
   }
 
   Future<bool> login(String email, String password) async {
-    _isLoading = true;
     _errorMessage = null;
-    notifyListeners();
+    _setLoading(true);
 
     try {
-      final response = await _apiService.login(email, password);
+      final response = await _apiService.login(email.trim(), password);
 
       if (response['success'] == true) {
-        // Extract user data from the correct path
-        // Response structure: {success: true, data: {data: {user: {...}, token: ...}}}
-        final responseData = response['data'];
-        final userDataMap = responseData['data']['user'];
-
-        _user = userDataMap;
-        _isAuthenticated = true;
-        _sessionRestored = true;
-        _requiresPinSetup = false;
-        _isLoading = false;
-        notifyListeners();
+        final user = _extractUserFromAuthResponse(response);
+        if (user != null) {
+          _applyAuthState(
+            user: _mergeUserData(_user, user),
+            isAuthenticated: true,
+            errorMessage: null,
+          );
+        } else {
+          await loadProfile(forceRefresh: true);
+        }
+        _setLoading(false);
         return true;
       }
+
       _errorMessage = _normalizeAuthError(response['message']);
-      _isLoading = false;
+      _setLoading(false);
       notifyListeners();
       return false;
     } catch (e) {
       _log('Login error: $e');
       _errorMessage = _normalizeAuthError(e);
-      _isLoading = false;
+      _setLoading(false);
       notifyListeners();
       return false;
     }
   }
 
-  // Load profile from token
-  Future<void> loadProfile() async {
+  Future<void> loadProfile({bool forceRefresh = false}) async {
     try {
-      final response = await _apiService.getProfile();
+      final response = await _apiService.getProfile(forceRefresh: forceRefresh);
 
       if (response['success'] == true) {
         final data = response['data'];
@@ -237,10 +269,11 @@ class AuthProvider extends ChangeNotifier {
         if (userDataMap == null) {
           throw Exception('Invalid profile response format');
         }
-        _user = _mergeUserData(_user, userDataMap);
-        _isAuthenticated = true;
-        _requiresPinSetup = false;
-        notifyListeners();
+        _applyAuthState(
+          user: _mergeUserData(_user, userDataMap),
+          isAuthenticated: true,
+          errorMessage: null,
+        );
       } else {
         await logout();
       }
@@ -250,28 +283,16 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Logout
   Future<void> logout() async {
     await _apiService.logout();
-    _user = null;
-    _isAuthenticated = false;
-    _sessionRestored = false;
-    _requiresPinSetup = false;
-    notifyListeners();
+    _applyAuthState(user: null, isAuthenticated: false, errorMessage: null);
   }
 
-  void markSessionUnlocked() {
-    _sessionRestored = false;
-    _requiresPinSetup = false;
-  }
-
-  // Update profile
   Future<bool> updateProfile(Map<String, dynamic> data) async {
     try {
       final response = await _apiService.updateProfile(data);
       if (response['success'] == true) {
         if (_user != null) {
-          // Update user data
           final responseData = response['data'];
           final updatedUser = responseData is Map<String, dynamic>
               ? (responseData['user'] is Map<String, dynamic>
@@ -291,18 +312,9 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Get user role
   String get userRole => normalizeUserRole(_user?['role']);
-
-  // Check if user is student
   bool get isStudent => isStudentRole(_user?['role']);
-
-  // Check if user is company
   bool get isCompany => isCompanyRole(_user?['role']);
-
-  // Check if user is university
   bool get isUniversity => isUniversityRole(_user?['role']);
-
-  // Check if user is admin
   bool get isAdmin => isAdminRole(_user?['role']);
 }

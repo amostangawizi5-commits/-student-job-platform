@@ -232,8 +232,8 @@ function sendJobValidationError(res, error) {
     });
 }
 
-// Get all jobs (with filters)
-const getAllJobs = async (req, res) => {
+// Get all training (with filters)
+const getAlltraining = async (req, res) => {
     try {
         const { type, location, search, limit = 50, view = 'open' } = req.query;
         
@@ -244,18 +244,18 @@ const getAllJobs = async (req, res) => {
             view,
             limit: parseInt(limit)
         };
-        const jobs = await JobModel.getAll(filters);
+        const training = await JobModel.getAll(filters);
         
         res.json({
             success: true,
-            data: jobs,
-            count: jobs.length
+            data: training,
+            count: training.length
         });
     } catch (error) {
-        console.error('Get jobs error:', error);
+        console.error('Get training error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch jobs',
+            message: 'Failed to fetch training',
             error: error.message
         });
     }
@@ -301,7 +301,7 @@ const createJob = async (req, res) => {
         // Add skills if provided
         if (Array.isArray(req.body.skills)) {
             for (const skillId of req.body.skills) {
-                await JobModel.addJobSkill(job.job_id, skillId);
+                await JobModel.addtrainingkill(job.job_id, skillId);
             }
         }
         
@@ -353,7 +353,7 @@ const updateJob = async (req, res) => {
             const skillIds = req.body.skills
                 .map((skillId) => Number.parseInt(`${skillId}`, 10))
                 .filter((skillId) => Number.isInteger(skillId));
-            await JobModel.replaceJobSkills(id, skillIds);
+            await JobModel.replacetrainingkills(id, skillIds);
         }
         
         res.json({
@@ -411,31 +411,31 @@ const deleteJob = async (req, res) => {
     }
 };
 
-// Get jobs by company
-const getCompanyJobs = async (req, res) => {
+// Get training by company
+const getCompanytraining = async (req, res) => {
     try {
         const companyId = req.user.user_id;
-        const jobs = await JobModel.getByCompany(companyId);
+        const training = await JobModel.getByCompany(companyId);
         
         res.json({
             success: true,
-            data: jobs
+            data: training
         });
     } catch (error) {
-        console.error('Get company jobs error:', error);
+        console.error('Get company training error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch company jobs',
+            message: 'Failed to fetch company training',
             error: error.message
         });
     }
 };
 
 module.exports = {
-    getAllJobs,
+    getAlltraining,
     getJobById,
     createJob,
     updateJob,
     deleteJob,
-    getCompanyJobs
+    getCompanytraining
 };

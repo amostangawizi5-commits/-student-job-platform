@@ -12,7 +12,7 @@ class AppAssets {
   
   // Icons
   static const String studentIcon = 'assets/icons/student_icon.png';
-  static const String graduateIcon = 'assets/icons/graduate_icon.png';
+  static const String appActionIcon = 'assets/icons/_icon.png';
   static const String companyIcon = 'assets/icons/company_icon.png';
   static const String successIcon = 'assets/icons/success_icon.png';
   static const String errorIcon = 'assets/icons/error_icon.png';

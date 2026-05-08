@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/coordinator_workspace_service.dart';
 
@@ -98,7 +99,7 @@ class _CoordinatorApprovalQueueState extends State<CoordinatorApprovalQueue> {
       );
       await _loadApprovals();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             status == 'approved'

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 import '../../models/job.dart';
 import '../../providers/auth_provider.dart';
@@ -47,6 +48,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
   int _homeRefreshToken = 0;
   int _applicationsRefreshToken = 0;
   final List<_StudentTabState> _tabHistory = [];
+
+  bool _isDesktopWidth(double width) => width >= 1100;
 
   String _formatToday() {
     const months = [
@@ -117,7 +120,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
   List<Widget> _buildScreens() {
     return [
       HomeScreen(refreshToken: _homeRefreshToken),
-      const BrowseJobsScreen(),
+      const BrowsetrainingScreen(),
       MyApplicationsScreen(
         key: ValueKey(_applicationsFilter),
         initialFilter: _applicationsFilter,
@@ -174,6 +177,31 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   void _switchTab(int index) {
     _navigateToTab(index);
+  }
+
+  List<_StudentNavigationItem> _navigationItems(LanguageProvider language) {
+    return [
+      _StudentNavigationItem(
+        label: language.tr('home'),
+        icon: Icons.home_rounded,
+        inactiveIcon: Icons.home_outlined,
+      ),
+      _StudentNavigationItem(
+        label: language.tr('browse'),
+        icon: Icons.search_rounded,
+        inactiveIcon: Icons.search_outlined,
+      ),
+      _StudentNavigationItem(
+        label: language.tr('my_apps'),
+        icon: Icons.assignment_rounded,
+        inactiveIcon: Icons.assignment_outlined,
+      ),
+      _StudentNavigationItem(
+        label: language.tr('profile'),
+        icon: Icons.person_rounded,
+        inactiveIcon: Icons.person_outline,
+      ),
+    ];
   }
 
   void _openApplicationsWithFilter(String filter) {
@@ -267,7 +295,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   void _showTopSnackBar(String message, Color backgroundColor) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: backgroundColor,
@@ -284,7 +312,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   void _showBottomSnackBar(String message, Color backgroundColor) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: backgroundColor,
@@ -447,6 +475,152 @@ class _StudentDashboardState extends State<StudentDashboard> {
     }
   }
 
+  Widget _buildDesktopSidebar(
+    List<_StudentNavigationItem> items,
+    String firstName,
+    String email,
+  ) {
+    return Container(
+      width: 278,
+      margin: const EdgeInsets.fromLTRB(16, 16, 0, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: _studentBrandPrimary.withValues(alpha: 0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: _studentBrandPrimary.withValues(alpha: 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: _studentBrandSurface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.school_rounded,
+                    color: _studentBrandPrimary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'STUDENT PANEL',
+                  style: TextStyle(
+                    color: _studentBrandPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  firstName,
+                  style: const TextStyle(
+                    color: Color(0xFF10233F),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(14),
+              itemCount: items.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final isSelected = index == _currentIndex;
+                return InkWell(
+                  onTap: () => _switchTab(index),
+                  borderRadius: BorderRadius.circular(18),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? _studentBrandPrimary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isSelected
+                            ? _studentBrandPrimary
+                            : _studentBrandPrimary.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.white.withValues(alpha: 0.14)
+                                : _studentBrandSurface,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            isSelected ? item.icon : item.inactiveIcon,
+                            size: 20,
+                            color: isSelected
+                                ? Colors.white
+                                : _studentBrandPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            item.label,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.white
+                                  : const Color(0xFF44566C),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
@@ -455,6 +629,8 @@ class _StudentDashboardState extends State<StudentDashboard> {
     final email = user?['email'] ?? 'student@example.com';
     final firstName = fullName.split(' ')[0];
     final today = _formatToday();
+    final isDesktop = _isDesktopWidth(MediaQuery.sizeOf(context).width);
+    final navigationItems = _navigationItems(language);
 
     return PopScope(
       canPop: _tabHistory.length <= 1 && _currentIndex == 0,
@@ -471,40 +647,47 @@ class _StudentDashboardState extends State<StudentDashboard> {
         appBar: AppBar(
           backgroundColor: _studentBrandSurface,
           elevation: 0,
-          titleSpacing: 8,
-          title: Row(
-            children: [
-              Container(
-                height: 64,
-                width: 64,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.2),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ClipOval(
-                  child: Image.asset(
-                    'assets/images/splash_logo.png',
-                    height: 64,
-                    width: 64,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.verified,
-                        size: 35,
-                        color: _studentBrandPrimary,
-                      );
-                    },
+          leadingWidth: 76,
+          leading: Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6),
+            child: Container(
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
+                ],
+              ),
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/images/splash_logo.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Icon(
+                      Icons.verified,
+                      size: 28,
+                      color: _studentBrandPrimary,
+                    );
+                  },
                 ),
               ),
-            ],
+            ),
+          ),
+          centerTitle: true,
+          title: const Text(
+            'INDUSTRIAL PRACTICAL TRAINING SYSTEM',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: _studentBrandPrimary,
+            ),
           ),
           actions: [
             Stack(
@@ -603,120 +786,150 @@ class _StudentDashboardState extends State<StudentDashboard> {
             const SizedBox(width: 4),
           ],
         ),
-        body: Column(
+        body: Row(
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.shadow.withValues(alpha: 0.04),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
+            if (isDesktop)
+              _buildDesktopSidebar(navigationItems, firstName, email),
+            Expanded(
               child: Column(
                 children: [
-                  Text(
-                    language.tr('hello_name', {'name': firstName}),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: _studentBrandPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    email,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
                   Container(
+                    width: double.infinity,
+                    margin: EdgeInsets.fromLTRB(
+                      isDesktop ? 16 : 0,
+                      isDesktop ? 16 : 0,
+                      isDesktop ? 16 : 0,
+                      0,
+                    ),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
+                      vertical: 12,
+                      horizontal: 16,
                     ),
                     decoration: BoxDecoration(
-                      color: _studentBrandSurface,
-                      borderRadius: BorderRadius.circular(999),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(isDesktop ? 24 : 0),
                       boxShadow: [
                         BoxShadow(
-                          color: AppTheme.shadow.withValues(alpha: 0.03),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+                          color: AppTheme.shadow.withValues(alpha: 0.04),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
                         ),
                       ],
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Column(
                       children: [
-                        const Icon(
-                          Icons.calendar_today_rounded,
-                          size: 15,
-                          color: _studentBrandPrimary,
-                        ),
-                        const SizedBox(width: 8),
                         Text(
-                          today,
+                          language.tr('hello_name', {'name': firstName}),
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
                             color: _studentBrandPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          email,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _studentBrandSurface,
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppTheme.shadow.withValues(alpha: 0.03),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.calendar_today_rounded,
+                                size: 15,
+                                color: _studentBrandPrimary,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                today,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _studentBrandPrimary,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        isDesktop ? 16 : 0,
+                        0,
+                        isDesktop ? 16 : 0,
+                        isDesktop ? 16 : 0,
+                      ),
+                      child: IndexedStack(
+                        index: _currentIndex,
+                        children: _buildScreens(),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            Expanded(
-              child: IndexedStack(
-                index: _currentIndex,
-                children: _buildScreens(),
+          ],
+        ),
+        bottomNavigationBar: isDesktop
+            ? null
+            : BottomNavigationBar(
+                type: BottomNavigationBarType.fixed,
+                currentIndex: _currentIndex,
+                onTap: _switchTab,
+                selectedItemColor: _studentBrandPrimary,
+                unselectedItemColor: Colors.grey.shade600,
+                items: navigationItems
+                    .map(
+                      (item) => BottomNavigationBarItem(
+                        icon: Icon(item.inactiveIcon),
+                        activeIcon: Icon(item.icon),
+                        label: item.label,
+                      ),
+                    )
+                    .toList(growable: false),
               ),
-            ),
-          ],
-        ),
-        bottomNavigationBar: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          currentIndex: _currentIndex,
-          onTap: _switchTab,
-          selectedItemColor: _studentBrandPrimary,
-          unselectedItemColor: Colors.grey.shade600,
-          items: [
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.home_outlined),
-              activeIcon: const Icon(Icons.home),
-              label: language.tr('home'),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.search_outlined),
-              activeIcon: const Icon(Icons.search),
-              label: language.tr('browse'),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.assignment_outlined),
-              activeIcon: const Icon(Icons.assignment),
-              label: language.tr('my_apps'),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.person_outline),
-              activeIcon: const Icon(Icons.person),
-              label: language.tr('profile'),
-            ),
-          ],
-        ),
       ),
     );
   }
+}
+
+class _StudentNavigationItem {
+  const _StudentNavigationItem({
+    required this.label,
+    required this.icon,
+    required this.inactiveIcon,
+  });
+
+  final String label;
+  final IconData icon;
+  final IconData inactiveIcon;
 }
 
 // HomeScreen
@@ -737,7 +950,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _pendingCount = 0;
   int _reviewCount = 0;
   int _profileViewsCount = 0;
-  List<Job> _recentJobs = const [];
+  List<Job> _recenttraining = const [];
   List<Map<String, dynamic>> _announcements = const [];
   bool _isLoadingStats = true;
 
@@ -764,9 +977,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final universityName = studentData?['university_name']?.toString();
       final institutionIds = _studentInstitutionIds(studentData);
       final institutionNames = _studentInstitutionNames(studentData);
-      final responses = await Future.wait([
+      final responses = await Future.wait<dynamic>([
         _apiService.getMyApplications(),
-        _apiService.getJobs(limit: '100'),
+        _apiService.gettraining(limit: '100'),
         _workspaceService.getAnnouncements(
           audience: 'student',
           universityId: universityId,
@@ -777,7 +990,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ]);
 
       final appsResponse = responses[0] as Map<String, dynamic>;
-      final jobsResponse = responses[1] as Map<String, dynamic>;
+      final trainingResponse = responses[1] as Map<String, dynamic>;
       final announcements = responses[2] as List<Map<String, dynamic>>;
 
       int applications = 0;
@@ -803,7 +1016,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final profileViews = rawViews is int
           ? rawViews
           : int.tryParse('$rawViews') ?? 0;
-      final recentJobs = _extractRecentJobs(jobsResponse);
+      final recenttraining = _extractRecenttraining(trainingResponse);
 
       if (mounted) {
         setState(() {
@@ -811,7 +1024,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _pendingCount = pending;
           _reviewCount = review;
           _profileViewsCount = profileViews;
-          _recentJobs = recentJobs;
+          _recenttraining = recenttraining;
           _announcements = announcements;
           _isLoadingStats = false;
         });
@@ -823,13 +1036,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  List<Job> _extractRecentJobs(Map<String, dynamic> response) {
+  List<Job> _extractRecenttraining(Map<String, dynamic> response) {
     final data = response['data'];
     if (response['success'] != true || data is! List) {
       return const [];
     }
 
-    final jobs =
+    final training =
         data
             .whereType<Map<String, dynamic>>()
             .map(Job.fromJson)
@@ -838,9 +1051,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
 
     final seenCompanies = <String>{};
-    final recentJobs = <Job>[];
+    final recenttraining = <Job>[];
 
-    for (final job in jobs) {
+    for (final job in training) {
       final companyKey = job.companyId.isNotEmpty
           ? job.companyId
           : job.companyName.toLowerCase();
@@ -848,13 +1061,13 @@ class _HomeScreenState extends State<HomeScreen> {
         continue;
       }
 
-      recentJobs.add(job);
-      if (recentJobs.length == 4) {
+      recenttraining.add(job);
+      if (recenttraining.length == 4) {
         break;
       }
     }
 
-    return recentJobs;
+    return recenttraining;
   }
 
   void _goToTab(int index) {
@@ -923,12 +1136,23 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'Announcements From Your University',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              'Institution Announcements',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1F2937),
+              ),
             ),
             TextButton(
               onPressed: _openAnnouncements,
-              child: const Text('View all'),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF2563EB),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
+              child: const Text(
+                'View all',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
           ],
         ),
@@ -936,17 +1160,57 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_announcements.isEmpty)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 26),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: const Color(0xFF93C5FD).withValues(alpha: 0.9),
+              ),
               boxShadow: [
-                BoxShadow(color: Colors.grey.shade200, blurRadius: 8),
+                BoxShadow(
+                  color: _studentBrandPrimary.withValues(alpha: 0.05),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
               ],
             ),
-            child: const Text(
-              'No university announcements yet.',
-              style: TextStyle(color: Colors.grey),
+            child: Column(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(
+                    Icons.campaign_outlined,
+                    color: Color(0xFF94A3B8),
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'No institution announcements yet',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF334155),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Announcements posted by your institution coordinators will appear here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade500,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
             ),
           )
         else
@@ -955,54 +1219,89 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.only(bottom: 12),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: _studentBrandPrimary.withValues(alpha: 0.12),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      color: _studentBrandPrimary.withValues(alpha: 0.05),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
+                          width: 42,
+                          height: 42,
                           decoration: BoxDecoration(
-                            color: _studentBrandSurface,
-                            borderRadius: BorderRadius.circular(999),
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          child: Text(
-                            '${announcement['university_name'] ?? 'University'}',
-                            style: const TextStyle(
-                              color: _studentBrandPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          child: const Icon(
+                            Icons.campaign_rounded,
+                            color: Color(0xFF2563EB),
+                            size: 22,
                           ),
                         ),
-                        Text(
-                          _formatAnnouncementDate(
-                            '${announcement['created_at'] ?? ''}',
-                          ),
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _studentBrandSurface,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '${announcement['university_name'] ?? announcement['institution_name'] ?? 'Institution'}',
+                                  style: const TextStyle(
+                                    color: _studentBrandPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  _formatAnnouncementDate(
+                                    '${announcement['created_at'] ?? ''}',
+                                  ),
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 14),
                     Text(
                       '${announcement['title'] ?? 'Announcement'}',
                       style: const TextStyle(
@@ -1038,15 +1337,23 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Stats',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            'Stats Overview',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF1F2937),
+            ),
           ),
-          const SizedBox(height: 12),
+          
+          const SizedBox(height: 14),
           // Stats cards
           LayoutBuilder(
             builder: (context, constraints) {
               final isCompact = constraints.maxWidth < 420;
               final spacing = isCompact ? 8.0 : 12.0;
+              final itemWidth = isCompact
+                  ? (constraints.maxWidth - spacing) / 2
+                  : (constraints.maxWidth - (spacing * 3)) / 4;
               final cards = [
                 _buildStatCard(
                   Icons.assignment,
@@ -1082,12 +1389,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ];
 
-              return Row(
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
                 children: [
-                  for (int index = 0; index < cards.length; index++) ...[
-                    Expanded(child: cards[index]),
-                    if (index != cards.length - 1) SizedBox(width: spacing),
-                  ],
+                  for (final card in cards)
+                    SizedBox(width: itemWidth, child: card),
                 ],
               );
             },
@@ -1096,11 +1403,43 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildAnnouncementSection(),
           const SizedBox(height: 24),
 
-          const Text(
-            'Recent Posted Jobs',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Recent practical Postings',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1F2937),
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: () => _goToTab(1),
+                style: TextButton.styleFrom(
+                  foregroundColor: _studentBrandPrimary,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                ),
+                child: const Text(
+                  'View All',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
           if (_isLoadingStats)
             Container(
@@ -1114,11 +1453,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               child: const Text(
-                'Loading recent jobs...',
+                'Loading recent training...',
                 style: TextStyle(color: Colors.grey),
               ),
             )
-          else if (_recentJobs.isEmpty)
+          else if (_recenttraining.isEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -1130,17 +1469,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               child: const Text(
-                'No recent jobs available right now.',
+                'No recent training available right now.',
                 style: TextStyle(color: Colors.grey),
               ),
             )
           else
-            ..._recentJobs.asMap().entries.map((entry) {
+            ..._recenttraining.asMap().entries.map((entry) {
               final index = entry.key;
               final job = entry.value;
               return Padding(
                 padding: EdgeInsets.only(
-                  bottom: index == _recentJobs.length - 1 ? 0 : 12,
+                  bottom: index == _recenttraining.length - 1 ? 0 : 12,
                 ),
                 child: _buildRecentJobCard(job),
               );
@@ -1158,7 +1497,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: _buildActionCard(
                   Icons.search,
-                  'Browse Jobs',
+                  'Browse training',
                   Colors.blue,
                   () => _goToTab(1),
                 ),
@@ -1188,54 +1527,70 @@ class _HomeScreenState extends State<HomeScreen> {
     VoidCallback onTap, {
     bool compact = false,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 6 : 10,
-          vertical: compact ? 8 : 10,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: AppTheme.borderGrey.withValues(alpha: 0.45),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 12,
+            vertical: compact ? 12 : 14,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: AppTheme.shadow.withValues(alpha: 0.05),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: compact ? 16 : 18),
-            SizedBox(height: compact ? 4 : 6),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: compact ? 14 : 16,
-                fontWeight: FontWeight.bold,
-                color: color,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: compact ? 1 : 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: compact ? 9 : 10,
-                color: Colors.grey.shade600,
-                height: 1.15,
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: compact ? 38 : 42,
+                height: compact ? 38 : 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: const Color(0xFF475569),
+                  size: compact ? 18 : 20,
+                ),
               ),
-            ),
-          ],
+              SizedBox(height: compact ? 8 : 10),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compact ? 18 : 20,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: compact ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compact ? 10 : 11,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1291,185 +1646,369 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${createdAt.day}/${createdAt.month}/${createdAt.year}';
   }
 
-  String _formatJobTypeLabel(String type) => 'Industrial Practical Training';
+  String _formatDeadlineChip(DateTime deadline) {
+    final day = deadline.day.toString().padLeft(2, '0');
+    final month = deadline.month.toString().padLeft(2, '0');
+    final hour = deadline.hour.toString().padLeft(2, '0');
+    final minute = deadline.minute.toString().padLeft(2, '0');
+    return '$day/$month/${deadline.year} $hour:$minute';
+  }
 
-  IconData _recentJobIcon(String type) => Icons.rocket_launch_outlined;
+  String _formatDeadlineCountdown(DateTime deadline) {
+    final now = DateTime.now();
+    final difference = deadline.difference(now);
+    if (difference.isNegative) return 'Closed';
+    if (difference.inDays >= 1) {
+      final days = difference.inDays;
+      return '$days day${days == 1 ? '' : 's'} left';
+    }
+    if (difference.inHours >= 1) {
+      final hours = difference.inHours;
+      return '$hours hr${hours == 1 ? '' : 's'} left';
+    }
+    final minutes = difference.inMinutes.clamp(0, 59);
+    return '$minutes min left';
+  }
+
+  String _formatApplicantsNeeded(int count) {
+    return '$count needed';
+  }
 
   Widget _buildRecentJobCard(Job job) {
-    final typeLabel = _formatJobTypeLabel(job.type);
     final timeLabel = _formatRecentPostingTime(job.createdAt);
-    final icon = _recentJobIcon(job.type);
+    final deadlineLabel = _formatDeadlineChip(job.applicationDeadline);
+    final deadlineCountdown = _formatDeadlineCountdown(job.applicationDeadline);
+    final isOpen =
+        job.status.toLowerCase() == 'open' &&
+        job.applicationDeadline.isAfter(DateTime.now());
+    final visibleTargets = job.targetCandidates.take(3).toList(growable: false);
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => JobDetailsScreen(jobId: job.jobId),
-            ),
-          );
-          _loadStats();
-        },
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.08),
-                spreadRadius: 1,
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: _studentBrandPrimary.withValues(alpha: 0.26),
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 380;
+          boxShadow: [
+            BoxShadow(
+              color: _studentBrandPrimary.withValues(alpha: 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 420;
+            final itemWidth = compact
+                ? ((constraints.maxWidth - 8) / 2).clamp(0, 132).toDouble()
+                : 138.0;
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          icon,
-                          color: _studentBrandPrimary,
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              job.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: _studentBrandPrimary,
-                              ),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            job.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: _studentBrandPrimary,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              job.companyName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[600],
-                              ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            job.companyName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[700],
+                              fontWeight: FontWeight.w500,
                             ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.location_on,
-                                      size: 12,
-                                      color: Colors.grey[500],
-                                    ),
-                                    const SizedBox(width: 4),
-                                    ConstrainedBox(
-                                      constraints: BoxConstraints(
-                                        maxWidth: compact
-                                            ? constraints.maxWidth * 0.42
-                                            : constraints.maxWidth * 0.3,
-                                      ),
-                                      child: Text(
-                                        job.location,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[500],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  width: 4,
-                                  height: 4,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[400],
-                                    shape: BoxShape.circle,
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.location_on_outlined,
+                                size: 14,
+                                color: Colors.grey[500],
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  job.location,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.access_time,
-                                      size: 12,
-                                      color: Colors.grey[500],
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      timeLabel,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[500],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            (isOpen
+                                    ? const Color(0xFF2E9C6E)
+                                    : const Color(0xFFD97706))
+                                .withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        isOpen ? 'Active' : 'Closed',
+                        style: TextStyle(
+                          color: isOpen
+                              ? const Color(0xFF2E9C6E)
+                              : const Color(0xFFD97706),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF2F8FF),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: _studentBrandPrimary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Text(
+                    '$deadlineLabel · $deadlineCountdown',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _studentBrandPrimary,
+                    ),
+                  ),
+                ),
+                if (visibleTargets.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: visibleTargets
+                        .map(
+                          (target) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
                             ),
-                          ],
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5F5F5),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              target.replaceAll('_', ' '),
+                              maxLines: 1,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                if (compact)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      SizedBox(
+                        width: itemWidth,
+                        child: _StudentRecentMetaCard(
+                          icon: Icons.group_add_outlined,
+                          label: _formatApplicantsNeeded(
+                            job.requiredApplicants,
+                          ),
+                          tint: const Color(0xFFC58A16),
+                          background: const Color(0xFFFFF8EA),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _StudentRecentMetaCard(
+                          icon: Icons.schedule_rounded,
+                          label: timeLabel,
+                          tint: const Color(0xFF5B6C84),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _StudentRecentMetaCard(
+                          icon: Icons.arrow_outward_rounded,
+                          label: 'Open training',
+                          tint: _studentBrandPrimary,
+                          isAction: true,
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    JobDetailsScreen(jobId: job.jobId),
+                              ),
+                            );
+                            _loadStats();
+                          },
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: itemWidth,
+                        child: _StudentRecentMetaCard(
+                          icon: Icons.group_add_outlined,
+                          label: _formatApplicantsNeeded(
+                            job.requiredApplicants,
+                          ),
+                          tint: const Color(0xFFC58A16),
+                          background: const Color(0xFFFFF8EA),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _StudentRecentMetaCard(
+                          icon: Icons.schedule_rounded,
+                          label: timeLabel,
+                        tint: const Color(0xFF5B6C84),
+                        ),
+                      ),
+                      const Spacer(),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _StudentRecentMetaCard(
+                          icon: Icons.arrow_outward_rounded,
+                          label: 'Open training',
+                          tint: _studentBrandPrimary,
+                          isAction: true,
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    JobDetailsScreen(jobId: job.jobId),
+                              ),
+                            );
+                            _loadStats();
+                          },
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        typeLabel,
-                        maxLines: compact ? 2 : 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.blue.shade700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
+              ],
+            );
+          },
         ),
+      ),
+    );
+  }
+}
+
+class _StudentRecentMetaCard extends StatelessWidget {
+  const _StudentRecentMetaCard({
+    required this.icon,
+    required this.label,
+    required this.tint,
+    this.background,
+    this.isAction = false,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color tint;
+  final Color? background;
+  final bool isAction;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: background ?? tint.withValues(alpha: isAction ? 0.1 : 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: tint.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 18, color: tint),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tint,
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+                height: 1.2,
+              ),
+            ),
+          ),
+          if (isAction)
+            Icon(Icons.chevron_right_rounded, color: tint, size: 18),
+        ],
+      ),
+    );
+
+    if (!isAction || onTap == null) return card;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: card,
       ),
     );
   }

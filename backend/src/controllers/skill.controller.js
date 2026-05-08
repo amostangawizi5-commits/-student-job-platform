@@ -70,8 +70,8 @@ const getSkillMatch = async (req, res) => {
             [studentId]
         );
         
-        // Get top required skills from jobs
-        const topJobSkills = await query(
+        // Get top required skills from training
+        const toptrainingkills = await query(
             `SELECT s.skill_id, s.name, COUNT(js.job_id) as demand_count
              FROM job_skills js
              JOIN skills s ON js.skill_id = s.skill_id
@@ -82,7 +82,7 @@ const getSkillMatch = async (req, res) => {
         
         const studentSkillIds = studentSkills.rows.map(s => s.skill_id);
         
-        const recommendedSkills = topJobSkills.rows.filter(
+        const recommendedSkills = toptrainingkills.rows.filter(
             skill => !studentSkillIds.includes(skill.skill_id)
         );
         
@@ -90,10 +90,10 @@ const getSkillMatch = async (req, res) => {
             success: true,
             data: {
                 student_skills: studentSkills.rows,
-                trending_skills: topJobSkills.rows,
+                trending_skills: toptrainingkills.rows,
                 recommended_skills: recommendedSkills,
                 match_percentage: studentSkills.rows.length > 0 
-                    ? Math.min(100, Math.round((studentSkills.rows.length / topJobSkills.rows.length) * 100))
+                    ? Math.min(100, Math.round((studentSkills.rows.length / toptrainingkills.rows.length) * 100))
                     : 0
             }
         });

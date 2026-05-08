@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
 import '../../utils/role_theme.dart';
 // import 'admin_user_filter.dart'; // Not used - removed unused import
@@ -34,7 +35,7 @@ class _AdminStudentsScreenState extends State<AdminStudentsScreen>
   };
 
   final Map<StudentCategory, String> _subtitles = {
-    StudentCategory.all: 'All registered students and graduates',
+    StudentCategory.all: 'All registered students and s',
     StudentCategory.university: 'Students assigned to universities',
     StudentCategory.awards: 'Students with awards or approved placements',
     StudentCategory.noField: 'Students without field placement',
@@ -94,7 +95,7 @@ class _AdminStudentsScreenState extends State<AdminStudentsScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Failed to load students: $e')));
+      ).showAppSnackBar(SnackBar(content: Text('Failed to load students: $e')));
     }
   }
 
@@ -272,7 +273,7 @@ class _AdminStudentsScreenState extends State<AdminStudentsScreen>
   Future<void> _toggleStatus(dynamic student) async {
     // final isActive = student['is_active'] == true; // unused
     // Reuse toggle logic or call API
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text('Updated status for ${student['full_name']}')),
     );
     _fetchStudents(); // Refresh

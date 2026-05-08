@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
@@ -24,7 +25,7 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true;
   List<dynamic> _users = [];
-  List<dynamic> _jobs = [];
+  List<dynamic> _training = [];
   String _searchQuery = '';
 
   @override
@@ -45,21 +46,23 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
     try {
       final responses = await Future.wait([
         _apiService.getUsers(),
-        _apiService.getJobs(),
+        _apiService.gettraining(),
       ]);
 
       if (!mounted) return;
 
       final usersResponse = responses[0];
-      final jobsResponse = responses[1];
+      final trainingResponse = responses[1];
 
       setState(() {
         _users =
             usersResponse['success'] == true && usersResponse['data'] is List
             ? List<dynamic>.from(usersResponse['data'])
             : [];
-        _jobs = jobsResponse['success'] == true && jobsResponse['data'] is List
-            ? List<dynamic>.from(jobsResponse['data'])
+        _training =
+            trainingResponse['success'] == true &&
+                trainingResponse['data'] is List
+            ? List<dynamic>.from(trainingResponse['data'])
             : [];
         _isLoading = false;
       });
@@ -67,7 +70,7 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
       if (!mounted) return;
 
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
@@ -255,7 +258,7 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title.isEmpty ? language.tr('jobs') : title,
+                        title.isEmpty ? language.tr('training') : title,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -284,7 +287,7 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
               child: OutlinedButton.icon(
                 onPressed: () => widget.onNavigateToTab?.call(2),
                 icon: const Icon(Icons.work_history_rounded, size: 18),
-                label: Text(language.tr('open_jobs_tab')),
+                label: Text(language.tr('open_training_tab')),
               ),
             ),
           ],
@@ -297,9 +300,9 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
     final companies = _users.where(_matchesCompany).toList();
-    final jobs = _jobs.where(_matchesJob).toList();
+    final training = _training.where(_matchesJob).toList();
     final hasQuery = _searchQuery.trim().isNotEmpty;
-    final totalResults = companies.length + jobs.length;
+    final totalResults = companies.length + training.length;
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -326,7 +329,7 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
               controller: _searchController,
               onChanged: (value) => setState(() => _searchQuery = value),
               decoration: InputDecoration(
-                hintText: language.tr('search_companies_jobs_hint'),
+                hintText: language.tr('search_companies_training_hint'),
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: _searchQuery.isEmpty
                     ? null
@@ -372,8 +375,8 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
                       const SizedBox(width: 12),
                       _buildSummaryCard(
                         icon: Icons.work_history_rounded,
-                        title: language.tr('search_jobs'),
-                        count: jobs.length.toString(),
+                        title: language.tr('search_training'),
+                        count: training.length.toString(),
                         onTap: () => widget.onNavigateToTab?.call(2),
                         color: const Color(0xFFF59E0B),
                       ),
@@ -435,17 +438,17 @@ class _AdminSearchScreenState extends State<AdminSearchScreen> {
                         return _buildCompanyCard(company, language);
                       }),
                     ],
-                    if (jobs.isNotEmpty) ...[
+                    if (training.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
-                        language.tr('search_jobs'),
+                        language.tr('search_training'),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 10),
-                      ...jobs.map((job) {
+                      ...training.map((job) {
                         return _buildJobCard(job, language);
                       }),
                     ],

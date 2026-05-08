@@ -43,7 +43,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   List<Map<String, dynamic>> _recentActivities = const [];
   List<Map<String, dynamic>> _topCompanies = const [];
   List<Map<String, dynamic>> _users = const [];
-  List<Map<String, dynamic>> _jobs = const [];
+  List<Map<String, dynamic>> _training = const [];
   List<Map<String, dynamic>> _applications = const [];
   List<Map<String, dynamic>> _pendingApplications = const [];
   List<Map<String, dynamic>> _awardAnnouncements = const [];
@@ -76,10 +76,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     });
 
     try {
-      final responses = await Future.wait([
+      final responses = await Future.wait<dynamic>([
         _apiService.getAdminStats(),
         _apiService.getAdminLogs(),
-        _apiService.getAdminJobs(),
+        _apiService.getAdmintraining(),
         _apiService.getUsers(),
         _apiService.getApplications(),
         _apiService.getAwardsHomeData(),
@@ -87,7 +87,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
       final statsResponse = responses[0];
       final logsResponse = responses[1];
-      final jobsResponse = responses[2];
+      final trainingResponse = responses[2];
       final usersResponse = responses[3];
       final pendingApplicationsResponse = responses[4];
       final awardsHomeResponse = responses[5];
@@ -98,7 +98,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       }
 
       final users = _mapRecords(usersResponse['data']);
-      final jobs = _mapRecords(jobsResponse['data']);
+      final training = _mapRecords(trainingResponse['data']);
       final applications = _mapRecords(pendingApplicationsResponse['data']);
       final pendingApplications = applications
           .where(
@@ -111,18 +111,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         _stats = _resolveStats(
           rawStats: statsResponse['data'],
           users: users,
-          jobs: jobs,
+          training: training,
           applications: applications,
         );
         _users = users;
-        _jobs = jobs;
+        _training = training;
         _applications = applications;
         _pendingApplications = pendingApplications;
         _recentActivities = logsResponse['data'] is List
             ? _mapRecentActivities(logsResponse['data'])
             : _fallbackRecentActivities();
-        _topCompanies = jobs.isNotEmpty
-            ? _mapTopCompanies(jobs)
+        _topCompanies = training.isNotEmpty
+            ? _mapTopCompanies(training)
             : _fallbackTopCompanies();
         _awardAnnouncements =
             awardsHomeData is Map<String, dynamic> &&
@@ -138,7 +138,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         _recentActivities = _fallbackRecentActivities();
         _topCompanies = _fallbackTopCompanies();
         _users = const [];
-        _jobs = const [];
+        _training = const [];
         _applications = const [];
         _pendingApplications = const [];
         _awardAnnouncements = const [];
@@ -172,7 +172,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       'total_students': 0,
       'total_companies': 0,
       'total_universities': 0,
-      'total_jobs': 0,
+      'total_training': 0,
       'total_applications': 0,
       'pending_applications': 0,
       'approved_applications': 0,
@@ -184,7 +184,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Map<String, dynamic> _resolveStats({
     required dynamic rawStats,
     required List<Map<String, dynamic>> users,
-    required List<Map<String, dynamic>> jobs,
+    required List<Map<String, dynamic>> training,
     required List<Map<String, dynamic>> applications,
   }) {
     final resolved = <String, dynamic>{
@@ -196,18 +196,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       resolved['total_users'] = users.length;
       resolved['total_students'] = users.where((user) {
         final role = '${user['role'] ?? ''}'.trim().toLowerCase();
-        return role == 'student' || role == 'graduate';
+        return role == 'student' || role == '';
       }).length;
       resolved['total_companies'] = users.where((user) {
-        return '${user['role'] ?? ''}'.trim().toLowerCase() == 'company';
+        return '${user['role'] ?? ''}'.trim().toLowerCase() == 'organization';
       }).length;
       resolved['total_universities'] = users.where((user) {
         return '${user['role'] ?? ''}'.trim().toLowerCase() == 'university';
       }).length;
     }
 
-    if (jobs.isNotEmpty) {
-      resolved['total_jobs'] = jobs.length;
+    if (training.isNotEmpty) {
+      resolved['total_training'] = training.length;
     }
 
     if (applications.isNotEmpty) {
@@ -233,7 +233,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   List<Map<String, dynamic>> _fallbackTopCompanies() {
     return const [
-      {'name': 'No company data yet', 'jobs': 0, 'logo': '--'},
+      {'name': 'No organization data yet', 'training': 0, 'logo': '--'},
     ];
   }
 
@@ -256,12 +256,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return mapped.isEmpty ? _fallbackRecentActivities() : mapped;
   }
 
-  List<Map<String, dynamic>> _mapTopCompanies(List<Map<String, dynamic>> jobs) {
+  List<Map<String, dynamic>> _mapTopCompanies(List<Map<String, dynamic>> training) {
     final counts = <String, int>{};
 
-    for (final job in jobs) {
-      final rawName = '${job['company_name'] ?? 'Unknown Company'}'.trim();
-      final name = rawName.isEmpty ? 'Unknown Company' : rawName;
+    for (final job in training) {
+      final rawName = '${job['organization_name'] ?? 'Unknown organization'}'.trim();
+      final name = rawName.isEmpty ? 'Unknown organization' : rawName;
       counts.update(name, (count) => count + 1, ifAbsent: () => 1);
     }
 
@@ -270,12 +270,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             .map(
               (entry) => {
                 'name': entry.key,
-                'jobs': entry.value,
+                'training': entry.value,
                 'logo': _buildInitials(entry.key),
               },
             )
             .toList()
-          ..sort((a, b) => (b['jobs'] as int).compareTo(a['jobs'] as int));
+          ..sort((a, b) => (b['training'] as int).compareTo(a['training'] as int));
 
     if (mapped.isEmpty) {
       return _fallbackTopCompanies();
@@ -404,8 +404,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return 'user';
       case 'application':
         return 'application';
-      case 'company':
-        return 'company';
+      case 'organization':
+        return 'organization';
       case 'job':
         return 'job';
       case 'error':
@@ -653,7 +653,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   Widget _buildNotificationPanel() {
     final latestUser = _users.isNotEmpty ? _users.first : null;
-    final latestJob = _jobs.isNotEmpty ? _jobs.first : null;
+    final latestJob = _training.isNotEmpty ? _training.first : null;
     final latestPending = _pendingApplications.isNotEmpty
         ? _pendingApplications.first
         : null;
@@ -674,10 +674,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         'onTap': () => widget.onNavigateToTab?.call(1),
       },
       {
-        'title': 'New Job Posted',
+        'title': 'New training Posted',
         'message': latestJob == null
-            ? 'No jobs have been posted yet'
-            : '${latestJob['title'] ?? 'New job'} was posted by ${latestJob['company_name'] ?? 'a company'}',
+            ? 'No training have been posted yet'
+            : '${latestJob['title'] ?? 'New job'} was posted by ${latestJob['organization_name'] ?? 'a organization'}',
         'meta': latestJob == null
             ? 'Recent job activity appears here'
             : _formatRelativeTime(latestJob['created_at']?.toString()),
@@ -725,7 +725,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Track new registrations, new jobs, and approvals that need attention.',
+            'Track new registrations, new training, and approvals that need attention.',
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
@@ -815,7 +815,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Overview of all users, students, companies, universities, and jobs.',
+          'Overview of all users, students, companies, universities, and training.',
           style: TextStyle(
             fontSize: 13,
             color: Colors.grey.shade600,
@@ -865,10 +865,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            'Published student awards and public recognitions also visible to administrators.',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
+          
           const SizedBox(height: 16),
           if (_awardAnnouncements.isEmpty)
             Container(
@@ -887,7 +884,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ..._awardAnnouncements.take(3).map((award) {
               final title = '${award['title'] ?? 'Award announcement'}';
               final student = '${award['student_name'] ?? 'Student'}';
-              final company = '${award['company_name'] ?? 'Company'}';
+              final organization = '${award['organization_name'] ?? 'organization'}';
               final createdAt = _formatRelativeTime(
                 award['award_date']?.toString() ??
                     award['created_at']?.toString(),
@@ -932,7 +929,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '$student • $company',
+                              '$student • $organization',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey.shade800,
@@ -1219,7 +1216,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          ..._topCompanies.map((company) {
+          ..._topCompanies.map((organization) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: InkWell(
@@ -1238,7 +1235,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       ),
                       child: Center(
                         child: Text(
-                          '${company['logo'] ?? '--'}',
+                          '${organization['logo'] ?? '--'}',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: _adminBrandSky,
@@ -1253,14 +1250,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${company['name'] ?? 'Unknown Company'}',
+                            '${organization['name'] ?? 'Unknown organization'}',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           Text(
-                            '${company['jobs'] ?? 0} posted jobs',
+                            '${organization['training'] ?? 0} posted training',
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey.shade600,
@@ -1279,7 +1276,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        '${company['jobs'] ?? 0}',
+                        '${organization['training'] ?? 0}',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -1379,7 +1376,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return _adminBrandNavy;
       case 'job':
         return _adminBrandOrange;
-      case 'company':
+      case 'organization':
         return _adminBrandSky;
       case 'application':
         return _adminBrandNavy;
@@ -1396,7 +1393,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return Icons.person_add;
       case 'job':
         return Icons.work_outline;
-      case 'company':
+      case 'organization':
         return Icons.business;
       case 'application':
         return Icons.description;

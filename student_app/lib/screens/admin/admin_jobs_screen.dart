@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
 
-class AdminJobsScreen extends StatefulWidget {
-  const AdminJobsScreen({super.key});
+class AdmintrainingScreen extends StatefulWidget {
+  const AdmintrainingScreen({super.key});
 
   @override
-  State<AdminJobsScreen> createState() => _AdminJobsScreenState();
+  State<AdmintrainingScreen> createState() => _AdmintrainingScreenState();
 }
 
-class _AdminJobsScreenState extends State<AdminJobsScreen> {
+class _AdmintrainingScreenState extends State<AdmintrainingScreen> {
   bool _isLoading = true;
-  List<dynamic> _jobs = [];
+  List<dynamic> _training = [];
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   final ApiService _apiService = ApiService();
@@ -18,7 +19,7 @@ class _AdminJobsScreenState extends State<AdminJobsScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchJobs();
+    _fetchtraining();
   }
 
   @override
@@ -27,14 +28,14 @@ class _AdminJobsScreenState extends State<AdminJobsScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchJobs() async {
+  Future<void> _fetchtraining() async {
     try {
-      final response = await _apiService.getJobs();
+      final response = await _apiService.gettraining();
       if (!mounted) return;
 
       if (response['success'] == true) {
         setState(() {
-          _jobs = response['data'];
+          _training = response['data'];
           _isLoading = false;
         });
       } else {
@@ -44,7 +45,7 @@ class _AdminJobsScreenState extends State<AdminJobsScreen> {
       if (!mounted) return;
 
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
@@ -218,7 +219,7 @@ class _AdminJobsScreenState extends State<AdminJobsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredJobs = _jobs.where(_matchesSearch).toList();
+    final filteredtraining = _training.where(_matchesSearch).toList();
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -231,7 +232,10 @@ class _AdminJobsScreenState extends State<AdminJobsScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchJobs),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchtraining,
+          ),
         ],
       ),
       body: Column(
@@ -265,19 +269,19 @@ class _AdminJobsScreenState extends State<AdminJobsScreen> {
             ),
           ),
           Expanded(
-            child: filteredJobs.isEmpty
+            child: filteredtraining.isEmpty
                 ? Center(
                     child: Text(
                       _searchQuery.trim().isNotEmpty
-                          ? 'No jobs match your search'
-                          : 'No jobs found',
+                          ? 'No training match your search'
+                          : 'No training found',
                     ),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: filteredJobs.length,
+                    itemCount: filteredtraining.length,
                     itemBuilder: (context, index) {
-                      final job = filteredJobs[index];
+                      final job = filteredtraining[index];
                       final title = '${job['title'] ?? 'No title'}';
                       final companyName =
                           '${job['company_name'] ?? 'Unknown company'}';

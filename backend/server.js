@@ -99,8 +99,8 @@ app.use('/api/resume', resumeRoutes);
 console.log('  Registering /api/auth...');
 app.use('/api/auth', authRoutes);
 
-console.log('   Registering /api/jobs...');
-app.use('/api/jobs', jobRoutes);
+console.log('   Registering /api/training...');
+app.use('/api/training', jobRoutes);
 
 console.log('  Registering /api/skills...');
 app.use('/api/skills', skillRoutes);
@@ -116,6 +116,9 @@ app.use('/api/notifications', notificationRoutes);
 
 console.log('   Registering /api/company...');
 app.use('/api/company', companyRoutes);
+
+console.log('   Registering /api/organization...');
+app.use('/api/organization', companyRoutes);
 
 console.log('  Registering /api/university...');
 app.use('/api/university', universityRoutes);
@@ -183,7 +186,7 @@ const startServer = async () => {
             }
             const lanUrls = getLanUrls();
             if (lanUrls.length > 0) {
-                console.log(`📱 Access from mobile devices: ${lanUrls.join(', ')}`);
+                console.log(` Access from mobile devices: ${lanUrls.join(', ')}`);
             }
             console.log('\nReady to accept requests!\n');
         });

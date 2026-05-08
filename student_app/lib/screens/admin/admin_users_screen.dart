@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
 import 'admin_export_utils.dart';
 import 'admin_user_filter.dart';
@@ -75,7 +76,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         return !isActive;
       case AdminUserFilter.registeredUsers:
         final role = '${user['role'] ?? ''}';
-        return role == 'student' || role == 'graduate';
+        return role == 'student' || role == '';
       case AdminUserFilter.companies:
         return '${user['role'] ?? ''}' == 'company';
       case AdminUserFilter.universities:
@@ -106,7 +107,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   String _roleLabel(String role) {
     switch (role) {
-      case 'graduate':
+      case '':
         return 'User';
       case 'student':
         return 'User';
@@ -136,14 +137,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   void _showMessage(String message, {Color? backgroundColor}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text(message), backgroundColor: backgroundColor),
     );
   }
 
   Future<void> _changeRole(dynamic user) async {
     String selectedRole = '${user['role'] ?? 'student'}';
-    if (selectedRole == 'graduate') {
+    if (selectedRole == '') {
       selectedRole = 'student';
     }
 

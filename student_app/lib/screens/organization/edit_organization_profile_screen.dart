@@ -1,26 +1,29 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
+import '../../data/tanzania_locations.dart';
 import '../../services/api_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../utils/role_theme.dart';
 
-const Color _companyEditPrimary = CompanyRoleTheme.primary;
-const Color _companyEditPrimaryDark = CompanyRoleTheme.primaryDark;
-const Color _companyEditSurfaceSoft = CompanyRoleTheme.surfaceSoft;
-const Color _companyEditBorder = CompanyRoleTheme.border;
+const Color _companyEditPrimary = OrganizationRoleTheme.primary;
+const Color _companyEditPrimaryDark = OrganizationRoleTheme.primaryDark;
+const Color _companyEditSurfaceSoft = OrganizationRoleTheme.surfaceSoft;
+const Color _companyEditBorder = OrganizationRoleTheme.border;
 
-class EditCompanyProfileScreen extends StatefulWidget {
-  const EditCompanyProfileScreen({super.key});
+class EditOrganizationProfileScreen extends StatefulWidget {
+  const EditOrganizationProfileScreen({super.key});
 
   @override
-  State<EditCompanyProfileScreen> createState() =>
-      _EditCompanyProfileScreenState();
+  State<EditOrganizationProfileScreen> createState() =>
+      _EditOrganizationProfileScreenState();
 }
 
-class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
+class _EditOrganizationProfileScreenState
+    extends State<EditOrganizationProfileScreen> {
   final ApiService _apiService = ApiService();
   final _formKey = GlobalKey<FormState>();
 
@@ -29,6 +32,8 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
   final _locationController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _websiteController = TextEditingController();
+  final _tinNumberController = TextEditingController();
+  final _brelaNumberController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
 
@@ -44,6 +49,10 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
 
   String? _selectedCompanySize;
   String? _selectedIndustry;
+  String? _selectedOrganizationSubtype;
+  String? _selectedGovernmentCategory;
+  String? _selectedRegion;
+  String? _selectedDistrict;
   String? _logoUrl;
   String? _stampUrl;
   String? _signatureUrl;
@@ -80,6 +89,24 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     'Other',
   ];
 
+  final List<Map<String, String>> _organizationSubtypes = const [
+    {'value': 'private_sector', 'label': 'Private Sector'},
+    {'value': 'government_sector', 'label': 'Government Sector'},
+  ];
+
+  final List<String> _governmentSectorCategories = const [
+    'Ministry',
+    'Department / Agency',
+    'Authority',
+    'Commission',
+    'Regional Secretariat',
+    'Local Government Authority',
+    'Public Institution',
+    'Hospital / Health Facility',
+    'School / College',
+    'Security / Immigration / Revenue',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -92,12 +119,93 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     _locationController.dispose();
     _descriptionController.dispose();
     _websiteController.dispose();
+    _tinNumberController.dispose();
+    _brelaNumberController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  bool get _isPrivateSectorOrganization =>
+      _selectedOrganizationSubtype == 'private_sector';
+
+  bool get _isGovernmentSectorOrganization =>
+      _selectedOrganizationSubtype == 'government_sector';
+
+  List<String> get _regions {
+    final regions = tanzaniaRegionDistricts.keys.toList(growable: false);
+    regions.sort();
+    return regions;
+  }
+
+  List<String> get _districts {
+    final region = _selectedRegion;
+    if (region == null || region.trim().isEmpty) {
+      return const [];
+    }
+
+    final districts = List<String>.from(
+      tanzaniaRegionDistricts[region] ?? const <String>[],
+    );
+    districts.sort();
+    return districts;
+  }
+
+  String _buildLocationText({
+    String? region,
+    String? district,
+    String? fallback,
+  }) {
+    final parts = [district, region]
+        .where((value) => value != null && value.trim().isNotEmpty)
+        .cast<String>()
+        .toList(growable: false);
+    if (parts.isNotEmpty) {
+      return parts.join(', ');
+    }
+
+    return fallback?.trim() ?? '';
+  }
+
+  void _setOrganizationSubtype(String? subtype) {
+    setState(() {
+      _selectedOrganizationSubtype = subtype;
+      if (subtype == 'private_sector') {
+        _selectedGovernmentCategory = null;
+      } else if (subtype == 'government_sector') {
+        _selectedIndustry = null;
+        _selectedCompanySize = null;
+        _tinNumberController.clear();
+        _brelaNumberController.clear();
+      } else {
+        _selectedIndustry = null;
+        _selectedCompanySize = null;
+        _selectedGovernmentCategory = null;
+        _tinNumberController.clear();
+        _brelaNumberController.clear();
+      }
+    });
+  }
+
+  void _setRegion(String? region) {
+    setState(() {
+      _selectedRegion = region;
+      _selectedDistrict = null;
+      _locationController.text = _buildLocationText(region: region);
+    });
+  }
+
+  void _setDistrict(String? district) {
+    setState(() {
+      _selectedDistrict = district;
+      _locationController.text = _buildLocationText(
+        region: _selectedRegion,
+        district: district,
+      );
+    });
   }
 
   Future<void> _loadCompanyData() async {
@@ -121,7 +229,35 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       }
       _selectedIndustry = industry;
 
-      _locationController.text = companyData?['location'] ?? '';
+      final organizationSubtype = companyData?['organization_subtype']
+          ?.toString()
+          .trim();
+      _selectedOrganizationSubtype =
+          organizationSubtype != null &&
+              _organizationSubtypes.any(
+                (item) => item['value'] == organizationSubtype,
+              )
+          ? organizationSubtype
+          : null;
+
+      final governmentCategory = companyData?['government_category']
+          ?.toString()
+          .trim();
+      _selectedGovernmentCategory =
+          governmentCategory != null &&
+              _governmentSectorCategories.contains(governmentCategory)
+          ? governmentCategory
+          : null;
+
+      _tinNumberController.text = companyData?['tin_number'] ?? '';
+      _brelaNumberController.text = companyData?['brela_number'] ?? '';
+      _selectedRegion = companyData?['region']?.toString();
+      _selectedDistrict = companyData?['district']?.toString();
+      _locationController.text = _buildLocationText(
+        region: _selectedRegion,
+        district: _selectedDistrict,
+        fallback: companyData?['location']?.toString(),
+      );
       _descriptionController.text = companyData?['description'] ?? '';
       _websiteController.text = companyData?['website_url'] ?? '';
       _phoneController.text = user?['phone'] ?? '';
@@ -223,7 +359,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         PlatformFile file = result.files.first;
 
         if (file.size > 5 * 1024 * 1024) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             const SnackBar(
               content: Text('File size should be less than 5MB'),
               backgroundColor: Colors.red,
@@ -235,7 +371,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         final filePath = file.path;
         final fileBytes = file.bytes;
         if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             const SnackBar(
               content: Text('Selected file path is invalid'),
               backgroundColor: Colors.red,
@@ -267,7 +403,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
           await _reloadUploadedAssetsFromProfile();
           if (!mounted) return;
 
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(
               content: Text(
                 _logoUrl != null && _logoUrl != previousLogoUrl
@@ -278,7 +414,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
             ),
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(
               content: Text(response['message'] ?? 'Upload failed'),
               backgroundColor: Colors.red,
@@ -290,7 +426,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             ApiService.normalizeErrorMessage(
@@ -314,11 +450,17 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         'email': _emailController.text,
         'company_data': {
           'company_name': _companyNameController.text,
+          'organization_subtype': _selectedOrganizationSubtype,
+          'government_category': _selectedGovernmentCategory,
           'industry': _selectedIndustry,
           'location': _locationController.text,
+          'region': _selectedRegion,
+          'district': _selectedDistrict,
           'description': _descriptionController.text,
           'website_url': _websiteController.text,
           'company_size': _selectedCompanySize,
+          'tin_number': _tinNumberController.text,
+          'brela_number': _brelaNumberController.text,
         },
       };
 
@@ -331,7 +473,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         if (!mounted) return;
 
         if (response['success']) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             const SnackBar(
               content: Text('Profile updated successfully!'),
               backgroundColor: Colors.green,
@@ -345,7 +487,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
           if (!mounted) return;
           Navigator.pop(context, true);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(
               content: Text(response['message'] ?? 'Update failed'),
               backgroundColor: Colors.red,
@@ -354,7 +496,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         }
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               ApiService.normalizeErrorMessage(
@@ -375,7 +517,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
 
   Future<void> _changePassword() async {
     if (_newPasswordController.text != _confirmPasswordController.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('New passwords do not match'),
           backgroundColor: Colors.red,
@@ -385,7 +527,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
 
     if (_newPasswordController.text.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Password must be at least 6 characters'),
           backgroundColor: Colors.red,
@@ -395,7 +537,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
     }
 
     if (_currentPasswordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Please enter current password'),
           backgroundColor: Colors.red,
@@ -414,7 +556,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       if (!mounted) return;
 
       if (response['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Password changed successfully!'),
             backgroundColor: Colors.green,
@@ -424,7 +566,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         _newPasswordController.clear();
         _confirmPasswordController.clear();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(response['message'] ?? 'Password change failed'),
             backgroundColor: Colors.red,
@@ -433,7 +575,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             ApiService.normalizeErrorMessage(
@@ -765,65 +907,206 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
                         ),
                         const SizedBox(height: 10),
 
-                        // Company Size
                         DropdownButtonFormField<String>(
-                          initialValue: _selectedCompanySize,
+                          initialValue: _selectedOrganizationSubtype,
                           dropdownColor: Colors.white,
                           decoration: _inputDecoration(
-                            labelText: 'Company Size',
-                            icon: Icons.people,
+                            labelText: 'Organization Subtype',
+                            icon: Icons.account_tree_outlined,
                           ),
                           style: const TextStyle(
                             fontSize: 14,
                             color: _companyEditPrimaryDark,
                           ),
                           iconEnabledColor: _companyEditPrimaryDark,
-                          items: _companySizes.map((size) {
+                          items: _organizationSubtypes.map((subtype) {
                             return DropdownMenuItem(
-                              value: size,
+                              value: subtype['value'],
                               child: Text(
-                                '$size employees',
+                                subtype['label'] ?? '',
                                 style: const TextStyle(color: Colors.black87),
                               ),
                             );
                           }).toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedCompanySize = v),
+                          onChanged: _setOrganizationSubtype,
                           validator: (v) => v == null ? 'Required' : null,
                         ),
                         const SizedBox(height: 10),
 
-                        // Industry
                         DropdownButtonFormField<String>(
-                          initialValue: _selectedIndustry,
+                          initialValue: _selectedRegion,
                           dropdownColor: Colors.white,
                           decoration: _inputDecoration(
-                            labelText: 'Industry',
-                            icon: Icons.factory,
+                            labelText: 'Region',
+                            icon: Icons.map_outlined,
                           ),
                           style: const TextStyle(
                             fontSize: 14,
                             color: _companyEditPrimaryDark,
                           ),
                           iconEnabledColor: _companyEditPrimaryDark,
-                          items: _industries.map((industry) {
+                          items: _regions.map((region) {
                             return DropdownMenuItem(
-                              value: industry,
+                              value: region,
                               child: Text(
-                                industry,
+                                region,
                                 style: const TextStyle(color: Colors.black87),
                               ),
                             );
                           }).toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedIndustry = v),
+                          onChanged: _setRegion,
                           validator: (v) => v == null ? 'Required' : null,
                         ),
                         const SizedBox(height: 10),
+
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedDistrict,
+                          dropdownColor: Colors.white,
+                          decoration: _inputDecoration(
+                            labelText: 'District',
+                            icon: Icons.location_city_outlined,
+                          ),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: _companyEditPrimaryDark,
+                          ),
+                          iconEnabledColor: _companyEditPrimaryDark,
+                          items: _districts.map((district) {
+                            return DropdownMenuItem(
+                              value: district,
+                              child: Text(
+                                district,
+                                style: const TextStyle(color: Colors.black87),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: _selectedRegion == null
+                              ? null
+                              : _setDistrict,
+                          validator: (v) => v == null ? 'Required' : null,
+                        ),
+                        const SizedBox(height: 10),
+
+                        if (_isPrivateSectorOrganization)
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedCompanySize,
+                            dropdownColor: Colors.white,
+                            decoration: _inputDecoration(
+                              labelText: 'Company Size',
+                              icon: Icons.people,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: _companyEditPrimaryDark,
+                            ),
+                            iconEnabledColor: _companyEditPrimaryDark,
+                            items: _companySizes.map((size) {
+                              return DropdownMenuItem(
+                                value: size,
+                                child: Text(
+                                  '$size employees',
+                                  style: const TextStyle(color: Colors.black87),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) =>
+                                setState(() => _selectedCompanySize = v),
+                            validator: (v) => v == null ? 'Required' : null,
+                          ),
+                        if (_isPrivateSectorOrganization)
+                          const SizedBox(height: 10),
+
+                        if (_isPrivateSectorOrganization)
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedIndustry,
+                            dropdownColor: Colors.white,
+                            decoration: _inputDecoration(
+                              labelText: 'Industry',
+                              icon: Icons.factory,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: _companyEditPrimaryDark,
+                            ),
+                            iconEnabledColor: _companyEditPrimaryDark,
+                            items: _industries.map((industry) {
+                              return DropdownMenuItem(
+                                value: industry,
+                                child: Text(
+                                  industry,
+                                  style: const TextStyle(color: Colors.black87),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) =>
+                                setState(() => _selectedIndustry = v),
+                            validator: (v) => v == null ? 'Required' : null,
+                          ),
+                        if (_isPrivateSectorOrganization)
+                          const SizedBox(height: 10),
+
+                        if (_isPrivateSectorOrganization)
+                          TextFormField(
+                            controller: _tinNumberController,
+                            decoration: _inputDecoration(
+                              labelText: 'TIN Number',
+                              icon: Icons.badge_outlined,
+                            ),
+                            style: const TextStyle(fontSize: 14),
+                            validator: (v) =>
+                                v?.trim().isEmpty ?? true ? 'Required' : null,
+                          ),
+                        if (_isPrivateSectorOrganization)
+                          const SizedBox(height: 10),
+
+                        if (_isPrivateSectorOrganization)
+                          TextFormField(
+                            controller: _brelaNumberController,
+                            decoration: _inputDecoration(
+                              labelText: 'BRELA Number',
+                              icon: Icons.verified_user_outlined,
+                            ),
+                            style: const TextStyle(fontSize: 14),
+                            validator: (v) =>
+                                v?.trim().isEmpty ?? true ? 'Required' : null,
+                          ),
+                        if (_isPrivateSectorOrganization)
+                          const SizedBox(height: 10),
+
+                        if (_isGovernmentSectorOrganization)
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedGovernmentCategory,
+                            dropdownColor: Colors.white,
+                            decoration: _inputDecoration(
+                              labelText: 'Government Category',
+                              icon: Icons.account_balance_outlined,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: _companyEditPrimaryDark,
+                            ),
+                            iconEnabledColor: _companyEditPrimaryDark,
+                            items: _governmentSectorCategories.map((category) {
+                              return DropdownMenuItem(
+                                value: category,
+                                child: Text(
+                                  category,
+                                  style: const TextStyle(color: Colors.black87),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) =>
+                                setState(() => _selectedGovernmentCategory = v),
+                            validator: (v) => v == null ? 'Required' : null,
+                          ),
+                        if (_isGovernmentSectorOrganization)
+                          const SizedBox(height: 10),
 
                         // Location
                         TextFormField(
                           controller: _locationController,
+                          readOnly: true,
                           decoration: _inputDecoration(
                             labelText: 'Location',
                             icon: Icons.location_on,
@@ -1082,7 +1365,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
 
       final file = result.files.first;
       if (file.size > 5 * 1024 * 1024) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('File size should be less than 5MB'),
             backgroundColor: Colors.red,
@@ -1094,7 +1377,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       final filePath = file.path;
       final fileBytes = file.bytes;
       if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Selected file path is invalid'),
             backgroundColor: Colors.red,
@@ -1136,7 +1419,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
         await _reloadUploadedAssetsFromProfile();
         if (!mounted) return;
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               (isSignature ? _signatureUrl : _stampUrl) != null &&
@@ -1153,7 +1436,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(response['message'] ?? 'Upload failed'),
             backgroundColor: Colors.red,
@@ -1162,7 +1445,7 @@ class _EditCompanyProfileScreenState extends State<EditCompanyProfileScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text(
             ApiService.normalizeErrorMessage(

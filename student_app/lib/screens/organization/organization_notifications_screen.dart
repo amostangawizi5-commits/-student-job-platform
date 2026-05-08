@@ -5,16 +5,16 @@ import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/coordinator_workspace_service.dart';
 
-class CompanyNotificationsScreen extends StatefulWidget {
-  const CompanyNotificationsScreen({super.key});
+class OrganizationNotificationsScreen extends StatefulWidget {
+  const OrganizationNotificationsScreen({super.key});
 
   @override
-  State<CompanyNotificationsScreen> createState() =>
-      _CompanyNotificationsScreenState();
+  State<OrganizationNotificationsScreen> createState() =>
+      _OrganizationNotificationsScreenState();
 }
 
-class _CompanyNotificationsScreenState
-    extends State<CompanyNotificationsScreen> {
+class _OrganizationNotificationsScreenState
+    extends State<OrganizationNotificationsScreen> {
   final ApiService _apiService = ApiService();
   final CoordinatorWorkspaceService _workspaceService =
       CoordinatorWorkspaceService();
@@ -122,7 +122,7 @@ class _CompanyNotificationsScreenState
         return Icons.person_add_alt_1;
       case 'shortlisted':
         return Icons.star;
-      case 'interview':
+      case '':
         return Icons.calendar_today;
       case 'accepted':
         return Icons.check_circle;
@@ -149,7 +149,7 @@ class _CompanyNotificationsScreenState
         return Colors.blue;
       case 'shortlisted':
         return Colors.indigo;
-      case 'interview':
+      case '':
         return Colors.purple;
       case 'accepted':
         return Colors.green;

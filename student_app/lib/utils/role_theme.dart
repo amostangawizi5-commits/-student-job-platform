@@ -8,7 +8,7 @@ class StudentRoleTheme {
   static const Color border = Color(0xFF90CAF9);
 }
 
-class CompanyRoleTheme {
+class OrganizationRoleTheme {
   static const Color primary = StudentRoleTheme.primary;
   static const Color primaryDark = StudentRoleTheme.primaryDark;
   static const Color surface = StudentRoleTheme.surface;

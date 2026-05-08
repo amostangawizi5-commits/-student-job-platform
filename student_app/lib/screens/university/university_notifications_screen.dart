@@ -125,7 +125,7 @@ class _UniversityNotificationsScreenState
         return Icons.verified_outlined;
       case 'shortlisted':
         return Icons.star_outline_rounded;
-      case 'interview':
+      case '':
         return Icons.event_available_outlined;
       default:
         return Icons.notifications_none_rounded;
@@ -142,7 +142,7 @@ class _UniversityNotificationsScreenState
         return const Color(0xFF0F766E);
       case 'shortlisted':
         return const Color(0xFFD4A017);
-      case 'interview':
+      case '':
         return const Color(0xFF7C3AED);
       default:
         return Colors.grey;

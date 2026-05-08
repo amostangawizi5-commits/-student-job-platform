@@ -21,37 +21,52 @@ const pdfUpload = multer({
 router.post(
   '/',
   authMiddleware,
-  authorize('student', 'graduate'),
-  pdfUpload.single('supportive_document'),
+  authorize('student', ''),
+  pdfUpload.fields([
+    { name: 'cover_letter_file', maxCount: 1 },
+    { name: 'supportive_document', maxCount: 1 }
+  ]),
   applicationController.applyForJob
 );
-router.get('/my-applications', authMiddleware, authorize('student', 'graduate'), applicationController.getMyApplications);
+router.get('/my-applications', authMiddleware, authorize('student', ''), applicationController.getMyApplications);
+router.post(
+  '/:application_id/confirm-selection',
+  authMiddleware,
+  authorize('student', ''),
+  applicationController.confirmApplicationSelection
+);
+router.get(
+  '/:application_id/cover-letter',
+  authMiddleware,
+  authorize('student', '', 'company', 'admin', 'university'),
+  applicationController.downloadCoverLetter
+);
 router.get(
   '/:application_id/supportive-document',
   authMiddleware,
-  authorize('student', 'graduate', 'company', 'admin'),
+  authorize('student', '', 'company', 'admin', 'university'),
   applicationController.downloadSupportiveDocument
 );
 router.get(
   '/:application_id/response-letter',
   authMiddleware,
-  authorize('student', 'graduate', 'company', 'admin'),
+  authorize('student', '', 'company', 'admin', 'university'),
   applicationController.downloadResponseLetter
 );
 
-// Company routes
-router.get('/company', authMiddleware, authorize('company'), applicationController.getCompanyApplications);
-router.get('/job/:job_id', authMiddleware, authorize('company'), applicationController.getJobApplications);
+// Organization/company routes
+router.get('/organization', authMiddleware, authorize('company', 'university'), applicationController.getCompanyApplications);
+router.get('/job/:job_id', authMiddleware, authorize('company', 'university'), applicationController.getJobApplications);
 router.put(
   '/:application_id/document-review',
   authMiddleware,
-  authorize('company'),
+  authorize('company', 'university'),
   applicationController.reviewSupportiveDocument
 );
 router.put(
   '/:application_id',
   authMiddleware,
-  authorize('company'),
+  authorize('company', 'university'),
   pdfUpload.single('response_letter'),
   applicationController.updateApplicationStatus
 );

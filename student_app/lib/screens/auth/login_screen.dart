@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
@@ -7,7 +8,7 @@ import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
 import 'register_screen.dart';
 import '../student/student_dashboard.dart';
-import '../company/company_dashboard.dart';
+import '../organization/organization_dashboard.dart';
 import '../admin/admin_dashboard.dart';
 import '../university/university_dashboard.dart';
 
@@ -24,7 +25,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final ApiService _apiService = ApiService();
   bool _isPasswordVisible = false;
-  bool _isLoggingIn = false;
 
   @override
   void dispose() {
@@ -39,7 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final normalizedEmail = email.trim();
 
     if (!normalizedEmail.contains('@')) {
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(language.tr('enter_valid_email_address')),
           backgroundColor: Colors.red,
@@ -53,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       final success = response['success'] == true;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(
             success
@@ -66,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
+      messenger.showAppSnackBar(
         SnackBar(
           content: Text(
             ApiService.normalizeErrorMessage(
@@ -81,75 +81,78 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoggingIn = true);
+    if (!_formKey.currentState!.validate()) return;
 
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final language = context.read<LanguageProvider>();
-      final success = await authProvider.login(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
-      if (!mounted) return;
+    final authProvider = context.read<AuthProvider>();
+    if (authProvider.isLoading) return;
 
-      if (success) {
-        final user = authProvider.user;
+    final language = context.read<LanguageProvider>();
+    final success = await authProvider.login(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
+    if (!mounted) return;
 
-        if (user != null) {
-          final role = normalizeUserRole(user['role']);
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(language.tr('login_success')),
-              backgroundColor: AppTheme.primaryGreen,
-              duration: const Duration(seconds: 1),
-            ),
-          );
-
-          if (mounted) {
-            if (isStudentRole(role)) {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const StudentDashboard()),
-                (route) => false,
-              );
-            } else if (role == 'company') {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const CompanyDashboard()),
-                (route) => false,
-              );
-            } else if (role == 'university') {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const UniversityDashboard()),
-                (route) => false,
-              );
-            } else if (role == 'admin') {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminDashboard()),
-                (route) => false,
-              );
-            }
-          }
-        } else {
-          setState(() => _isLoggingIn = false);
-        }
-      } else {
-        setState(() => _isLoggingIn = false);
-        final message =
-            authProvider.errorMessage ??
-            language.tr('login_failed_check_credentials');
-        ScaffoldMessenger.of(context).showSnackBar(
+    if (success) {
+      final user = authProvider.user;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
-            content: Text(message),
+            content: Text(language.tr('login_failed_check_credentials')),
             backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
+            duration: const Duration(seconds: 3),
           ),
         );
+        return;
       }
+
+      final role = normalizeUserRole(user['role']);
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(language.tr('login_success')),
+          backgroundColor: AppTheme.primaryGreen,
+          duration: const Duration(seconds: 1),
+        ),
+      );
+
+      if (isStudentRole(role)) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const StudentDashboard()),
+          (route) => false,
+        );
+      } else if (isCompanyRole(role)) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const OrganizationDashboard()),
+          (route) => false,
+        );
+      } else if (role == 'university') {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const UniversityDashboard()),
+          (route) => false,
+        );
+      } else if (role == 'admin') {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminDashboard()),
+          (route) => false,
+        );
+      }
+      return;
     }
+
+    final message =
+        authProvider.errorMessage ??
+        language.tr('login_failed_check_credentials');
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   Future<void> _showForgotPasswordDialog() async {
@@ -170,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final requestEmail =
         response['requestEmail']?.toString() ?? _emailController.text.trim();
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isEmailSent ? AppTheme.primaryGreen : Colors.orange,
@@ -187,6 +190,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
+    final isLoggingIn = context.watch<AuthProvider>().isLoading;
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
@@ -279,7 +283,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 11,
-                                  fontStyle: FontStyle.italic,
+                              
                                   color: Color(0xFF888888),
                                 ),
                               ),
@@ -377,7 +381,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             child: InkWell(
-                              onTap: _isLoggingIn
+                              onTap: isLoggingIn
                                   ? null
                                   : _showForgotPasswordDialog,
                               borderRadius: BorderRadius.circular(16),
@@ -418,29 +422,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            language.tr('forgot_password'),
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                              color: AppTheme.primaryBlue,
-                                            ),
-                                          ),
-                                          SizedBox(height: 2),
-                                          Text(
-                                            language.tr(
-                                              'forgot_password_prompt',
-                                            ),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Color(0xFF4B5563),
-                                            ),
-                                          ),
-                                        ],
+                                      child: Text(
+                                        language.tr('forgot_password'),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.primaryBlue,
+                                        ),
                                       ),
                                     ),
                                     const Icon(
@@ -457,7 +445,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 24),
 
                           ElevatedButton(
-                            onPressed: _isLoggingIn ? null : _handleLogin,
+                            onPressed: isLoggingIn ? null : _handleLogin,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppTheme.primaryBlue,
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -465,7 +453,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            child: _isLoggingIn
+                            child: isLoggingIn
                                 ? const SizedBox(
                                     height: 20,
                                     width: 20,
@@ -561,7 +549,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
 
           // Loading Overlay
-          if (_isLoggingIn)
+          if (isLoggingIn)
             Container(
               color: Colors.black.withValues(alpha: 0.5),
               child: Center(

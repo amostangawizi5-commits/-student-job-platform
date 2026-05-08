@@ -4,14 +4,13 @@ import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
-import '../../widgets/change_pin_dialog.dart';
-import '../../widgets/reset_pin_dialog.dart';
 import 'edit_profile_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -26,7 +25,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? _user;
   List<dynamic> _projects = [];
   bool _isLoading = true;
-  bool _isDownloadingResume = false;
   bool _isDownloadingIdentificationCard = false;
   bool _isUploadingProfileImage = false;
   bool _isDeletingProfileImage = false;
@@ -34,10 +32,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Uint8List? _profileImagePreviewBytes;
   bool _hasProfileImageOverride = false;
   String? _profileImageUrlOverride;
-  String? _selectedResumePath;
-  Uint8List? _selectedResumeBytes;
-  String? _selectedResumeName;
-  int? _selectedResumeSize;
 
   void _log(String message) {
     if (kDebugMode) {
@@ -209,130 +203,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // ============ RESUME PICK METHOD ============
-  Future<void> _pickResume() async {
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'doc', 'docx'],
-        withData: true,
-      );
-
-      if (result != null) {
-        final file = result.files.single;
-        final String? filePath = file.path;
-        final fileBytes = file.bytes;
-
-        if (!mounted) return;
-        if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Unable to read selected file. Please choose another CV file.',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-
-        if (file.size > 5 * 1024 * 1024) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('CV file size must be less than 5MB'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-
-        setState(() {
-          _selectedResumePath = filePath;
-          _selectedResumeBytes = fileBytes;
-          _selectedResumeName = file.name;
-          _selectedResumeSize = file.size;
-        });
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  // ============ RESUME UPLOAD METHOD ============
-  Future<void> _uploadResume() async {
-    try {
-      if (!_hasSelectedResume) {
-        await _pickResume();
-        if (!_hasSelectedResume) {
-          return;
-        }
-      }
-
-      setState(() => _isLoading = true);
-
-      final response = await _apiService.uploadResume(
-        filePath: _selectedResumePath,
-        fileBytes: _selectedResumeBytes,
-        fileName: _selectedResumeName ?? 'resume_upload',
-      );
-      if (!mounted) return;
-
-      if (_isSuccessResponse(response)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Resume uploaded successfully!'),
-            backgroundColor: AppTheme.primaryGreen,
-          ),
-        );
-        setState(() {
-          _selectedResumePath = null;
-          _selectedResumeBytes = null;
-          _selectedResumeName = null;
-          _selectedResumeSize = null;
-        });
-        await _loadData();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response['message'] ?? 'Upload failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-
-      setState(() => _isLoading = false);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  void _clearSelectedResume() {
-    setState(() {
-      _selectedResumePath = null;
-      _selectedResumeBytes = null;
-      _selectedResumeName = null;
-      _selectedResumeSize = null;
-    });
-  }
-
-  bool get _hasSelectedResume {
-    return (_selectedResumePath?.isNotEmpty ?? false) ||
-        _selectedResumeBytes != null;
-  }
-
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
   String _fileNameFromUrl(String? url) {
     if (url == null || url.isEmpty) return '';
     return url.split('/').last;
@@ -356,24 +226,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '$resolvedUrl${separator}v=$cacheBust';
   }
 
-  Future<void> _pickOrUploadResume() async {
-    if (!_hasSelectedResume) {
-      await _pickResume();
-      return;
-    }
-    await _uploadResume();
-  }
-
-  String _resolveResumeUrl(String resumePath) {
-    return _resolveFileUrl(resumePath);
-  }
-
   String _resolveIdentificationCardUrl(String filePath) {
     return _resolveFileUrl(filePath);
   }
 
-  int? _deriveAcademicYear(Map<String, dynamic>? studentData, bool isGraduate) {
-    if (isGraduate) {
+  int? _deriveAcademicYear(
+    Map<String, dynamic>? studentData,
+    bool isLegacyStudentRole,
+  ) {
+    if (isLegacyStudentRole) {
       return 4;
     }
 
@@ -391,15 +252,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _academicYearLabel(
     Map<String, dynamic>? studentData,
-    bool isGraduate,
+    bool isLegacyStudentRole,
   ) {
-    final academicYear = _deriveAcademicYear(studentData, isGraduate);
+    final academicYear = _deriveAcademicYear(studentData, isLegacyStudentRole);
     if (academicYear == null) {
       return 'Not specified';
     }
 
-    if (isGraduate) {
-      return 'Graduate';
+    if (isLegacyStudentRole) {
+      return '';
     }
 
     return academicYear >= 3 ? 'Year 3+' : 'Year $academicYear';
@@ -436,7 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final filePath = file.path;
       final fileBytes = file.bytes;
       if ((filePath == null || filePath.isEmpty) && fileBytes == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Unable to read selected image.'),
             backgroundColor: Colors.red,
@@ -446,7 +307,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       if (file.size > 5 * 1024 * 1024) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Profile image must be less than 5MB'),
             backgroundColor: Colors.red,
@@ -480,14 +341,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await context.read<AuthProvider>().loadProfile();
         await _loadData(forceRefresh: true);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Profile photo uploaded successfully!'),
             backgroundColor: AppTheme.primaryGreen,
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               response['message'] ?? 'Failed to upload profile image',
@@ -498,7 +359,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     } finally {
@@ -548,14 +409,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await context.read<AuthProvider>().loadProfile();
         await _loadData(forceRefresh: true);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Profile photo removed successfully!'),
             backgroundColor: AppTheme.primaryGreen,
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               response['message'] ?? 'Failed to remove profile image',
@@ -566,7 +427,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     } finally {
@@ -580,7 +441,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final uri = Uri.tryParse(url.trim());
     if (uri == null || !_isValidHttpUrl(url)) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Invalid project link'),
           backgroundColor: Colors.red,
@@ -591,7 +452,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Unable to open project link'),
           backgroundColor: Colors.red,
@@ -614,35 +475,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return getApplicationDocumentsDirectory();
   }
 
-  Future<void> _openUploadedResume(String resumePath) async {
-    final fullUrl = _resolveResumeUrl(resumePath);
-    final uri = Uri.tryParse(fullUrl);
-    if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid CV link'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Unable to open CV'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   Future<void> _openIdentificationCard(String filePath) async {
     final fullUrl = _resolveIdentificationCardUrl(filePath);
     final uri = Uri.tryParse(fullUrl);
     if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Invalid identification card link'),
           backgroundColor: Colors.red,
@@ -653,106 +490,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Unable to open identification card'),
           backgroundColor: Colors.red,
         ),
       );
-    }
-  }
-
-  Future<void> _downloadUploadedResume(String resumePath) async {
-    if (_isDownloadingResume) return;
-
-    if (kIsWeb) {
-      await _openUploadedResume(resumePath);
-      return;
-    }
-
-    setState(() => _isDownloadingResume = true);
-
-    try {
-      final fullUrl = _resolveResumeUrl(resumePath);
-      final token = await _apiService.getToken();
-      final rawFileName = _fileNameFromUrl(resumePath).isNotEmpty
-          ? _fileNameFromUrl(resumePath)
-          : 'resume_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final safeFileName = rawFileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final directories = <Directory>[];
-      final preferredDirectory = await _getDownloadDirectory();
-      directories.add(preferredDirectory);
-      final appDirectory = await getApplicationDocumentsDirectory();
-      if (!directories.any(
-        (directory) => directory.path == appDirectory.path,
-      )) {
-        directories.add(appDirectory);
-      }
-
-      final headers = <String, dynamic>{};
-      if (token != null &&
-          token.isNotEmpty &&
-          fullUrl.startsWith(_apiService.baseUrl)) {
-        headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
-      }
-
-      String? savePath;
-      Object? lastError;
-
-      for (final directory in directories) {
-        final candidatePath = '${directory.path}/$safeFileName';
-
-        try {
-          if (!await directory.exists()) {
-            await directory.create(recursive: true);
-          }
-
-          await Dio().download(
-            fullUrl,
-            candidatePath,
-            options: Options(
-              headers: headers.isEmpty ? null : headers,
-              receiveTimeout: const Duration(seconds: 60),
-              sendTimeout: const Duration(seconds: 60),
-              followRedirects: true,
-            ),
-            deleteOnError: true,
-          );
-          savePath = candidatePath;
-          break;
-        } catch (error) {
-          lastError = error;
-          _log('Resume download failed for $candidatePath: $error');
-        }
-      }
-
-      if (savePath == null) {
-        throw lastError ?? Exception('Unable to save CV');
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('CV downloaded to: $savePath'),
-          backgroundColor: AppTheme.primaryGreen,
-        ),
-      );
-    } catch (e) {
-      final message = ApiService.normalizeErrorMessage(
-        e,
-        fallback: 'Failed to download CV',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to download CV: $message'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isDownloadingResume = false);
-      }
     }
   }
 
@@ -827,7 +570,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Identification card downloaded to: $savePath'),
           backgroundColor: AppTheme.primaryGreen,
@@ -839,7 +582,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         fallback: 'Failed to download identification card',
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(
           content: Text('Failed to download identification card: $message'),
           backgroundColor: Colors.red,
@@ -848,65 +591,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       if (mounted) {
         setState(() => _isDownloadingIdentificationCard = false);
-      }
-    }
-  }
-
-  Future<void> _deleteUploadedResume() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete CV'),
-        content: const Text(
-          'Are you sure you want to delete your uploaded CV?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => _isLoading = true);
-    try {
-      final response = await _apiService.deleteResume();
-      if (_isSuccessResponse(response)) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Uploaded CV deleted successfully'),
-            backgroundColor: AppTheme.primaryGreen,
-          ),
-        );
-        await _loadData();
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response['message'] ?? 'Failed to delete CV'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to delete CV: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
       }
     }
   }
@@ -1017,7 +701,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     final liveDemoLink = liveDemoController.text.trim();
                     if (liveDemoLink.isNotEmpty &&
                         !_isValidHttpUrl(liveDemoLink)) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      ScaffoldMessenger.of(context).showAppSnackBar(
                         const SnackBar(
                           content: Text(
                             'Please enter a valid hosted project link',
@@ -1036,7 +720,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     if (!context.mounted) return;
                     Navigator.pop(context);
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    ScaffoldMessenger.of(context).showAppSnackBar(
                       const SnackBar(
                         content: Text('Please enter project title'),
                         backgroundColor: Colors.red,
@@ -1068,7 +752,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
       if (!mounted) return;
       if (_isSuccessResponse(response)) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Project added!'),
             backgroundColor: AppTheme.primaryGreen,
@@ -1076,7 +760,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
         await _loadData();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(response['message'] ?? 'Failed to add project'),
             backgroundColor: Colors.red,
@@ -1085,7 +769,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
@@ -1096,7 +780,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final response = await _apiService.removeStudentProject(projectId);
       if (!mounted) return;
       if (response['success']) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Project removed!'),
             backgroundColor: AppTheme.primaryGreen,
@@ -1106,7 +790,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showAppSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
@@ -1121,23 +805,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (result == true) {
       _loadData();
     }
-  }
-
-  Future<void> _openChangePinDialog() async {
-    final changed = await showChangePinDialog(context);
-    if (!mounted || changed != true) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('PIN updated successfully'),
-        backgroundColor: AppTheme.primaryGreen,
-      ),
-    );
-  }
-
-  Future<void> _openResetPinDialog() async {
-    final email = _user?['email']?.toString() ?? '';
-    if (email.isEmpty) return;
-    await showResetPinDialog(context, email: email);
   }
 
   Widget _buildProfileAvatar(String? profileImageUrl) {
@@ -1201,12 +868,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     final studentData = _user?['student_data'];
-    final isGraduate = _user?['role'] == 'graduate';
+    final isLegacyStudentRole = _user?['role'] == '';
     final profileImageUrl = _user?['profile_image_url']?.toString() ?? '';
     final hasProfileImage = profileImageUrl.trim().isNotEmpty;
-    final uploadedResumeUrl = studentData?['resume_url']?.toString() ?? '';
-    final hasResume = uploadedResumeUrl.isNotEmpty;
-    final uploadedResumeName = _fileNameFromUrl(uploadedResumeUrl);
     final identificationCardUrl =
         studentData?['identification_card_url']?.toString() ?? '';
     final hasIdentificationCard = identificationCardUrl.isNotEmpty;
@@ -1217,12 +881,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         : _fileNameFromUrl(identificationCardUrl);
 
     final program = studentData?['program'] ?? 'Program not specified';
-    final university =
-        studentData?['university_name'] ?? 'University not specified';
+    final institution =
+        studentData?['institution_name'] ??
+        studentData?['university_name'] ??
+        'Institution not specified';
     final expectedYear = studentData?['expected_graduation_year'];
     final graduationYear = studentData?['graduation_year'];
     final gpa = _gpaLabel(studentData);
-    final academicYear = _academicYearLabel(studentData, isGraduate);
+    final academicYear = _academicYearLabel(studentData, isLegacyStudentRole);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
@@ -1345,7 +1011,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            isGraduate
+                            isLegacyStudentRole
                                 ? 'Industrial Practical Training'
                                 : 'Current Student',
                             style: TextStyle(
@@ -1393,7 +1059,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(width: 14),
                             const Expanded(
                               child: Text(
-                                'Profile & Security',
+                                'Profile',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
@@ -1413,36 +1079,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               label: const Text('Edit Profile'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppTheme.primaryBlue,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _openChangePinDialog,
-                              icon: const Icon(Icons.pin_outlined),
-                              label: const Text('Change PIN'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppTheme.primaryBlue,
-                                side: const BorderSide(
-                                  color: AppTheme.primaryBlue,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _openResetPinDialog,
-                              icon: const Icon(Icons.lock_reset_rounded),
-                              label: const Text('Reset PIN'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppTheme.accentOrange,
-                                side: const BorderSide(
-                                  color: AppTheme.accentOrange,
-                                ),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 18,
                                   vertical: 12,
@@ -1616,15 +1252,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        _buildInfoRow('University', university),
+                        _buildInfoRow('Institution', institution),
                         _buildInfoRow('Program', program),
                         _buildInfoRow('GPA', gpa),
                         _buildInfoRow('Academic Year', academicYear),
                         _buildInfoRow(
-                          isGraduate
+                          isLegacyStudentRole
                               ? 'Graduation Year'
                               : 'Expected Graduation',
-                          isGraduate
+                          isLegacyStudentRole
                               ? (graduationYear?.toString() ?? 'Not specified')
                               : (expectedYear?.toString() ?? 'Not specified'),
                         ),
@@ -1828,225 +1464,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Resume Section Card
-              Container(
-                constraints: const BoxConstraints(maxWidth: 1300),
-                child: Card(
-                  elevation: 6,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryBlue.withValues(
-                                  alpha: 0.1,
-                                ),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: const Icon(
-                                Icons.description,
-                                size: 24,
-                                color: AppTheme.primaryBlue,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            const Text(
-                              'Resume/CV',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.upload_file,
-                                    size: 24,
-                                    color: AppTheme.primaryBlue,
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Upload your Resume/CV',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'PDF, DOC, DOCX (Max 5MB)',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  ElevatedButton(
-                                    onPressed: _pickOrUploadResume,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.primaryBlue,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 10,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      !_hasSelectedResume
-                                          ? 'Choose CV'
-                                          : 'Upload',
-                                      style: const TextStyle(fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (_selectedResumeName != null) ...[
-                                const SizedBox(height: 16),
-                                const Divider(),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.insert_drive_file_outlined,
-                                      size: 18,
-                                      color: AppTheme.primaryBlue,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        _selectedResumeSize != null
-                                            ? 'Selected: $_selectedResumeName (${_formatFileSize(_selectedResumeSize!)})'
-                                            : 'Selected: $_selectedResumeName',
-                                        style: const TextStyle(fontSize: 13),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: _clearSelectedResume,
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.red,
-                                        size: 18,
-                                      ),
-                                      label: const Text(
-                                        'Delete',
-                                        style: TextStyle(color: Colors.red),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                              if (hasResume) ...[
-                                const SizedBox(height: 16),
-                                const Divider(),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle,
-                                      size: 18,
-                                      color: AppTheme.primaryGreen,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: InkWell(
-                                        onTap: () => _openUploadedResume(
-                                          uploadedResumeUrl,
-                                        ),
-                                        child: Text(
-                                          uploadedResumeName.isNotEmpty
-                                              ? 'Current CV: $uploadedResumeName (tap to open)'
-                                              : 'Resume uploaded successfully',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: AppTheme.primaryGreen,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Open CV',
-                                      onPressed: () => _openUploadedResume(
-                                        uploadedResumeUrl,
-                                      ),
-                                      icon: const Icon(
-                                        Icons.open_in_new,
-                                        color: AppTheme.primaryBlue,
-                                        size: 20,
-                                      ),
-                                    ),
-                                    _isDownloadingResume
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          )
-                                        : IconButton(
-                                            tooltip: 'Download CV',
-                                            onPressed: () =>
-                                                _downloadUploadedResume(
-                                                  uploadedResumeUrl,
-                                                ),
-                                            icon: const Icon(
-                                              Icons.download,
-                                              color: AppTheme.primaryBlue,
-                                              size: 20,
-                                            ),
-                                          ),
-                                    IconButton(
-                                      tooltip: 'Delete uploaded CV',
-                                      onPressed: _deleteUploadedResume,
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.red,
-                                        size: 20,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
             ],
           ),
         ),

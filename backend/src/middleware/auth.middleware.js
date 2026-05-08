@@ -70,7 +70,7 @@ const authMiddleware = async (req, res, next) => {
             });
         }
 
-        if (currentUser.role === 'company') {
+        if (currentUser.role === 'company' || currentUser.role === 'university') {
             const companyResult = await query(
                 `SELECT company_id
                  FROM companies
@@ -80,6 +80,23 @@ const authMiddleware = async (req, res, next) => {
             );
 
             if (companyResult.rows.length === 0) {
+                let organizationName =
+                    `${currentUser.full_name || currentUser.email || 'Organization'}`
+                        .trim();
+
+                if (currentUser.role === 'university') {
+                    const universityResult = await query(
+                        `SELECT college_name
+                         FROM university_profiles
+                         WHERE user_id = $1
+                         LIMIT 1`,
+                        [currentUser.user_id]
+                    );
+                    organizationName =
+                        `${universityResult.rows[0]?.college_name || organizationName}`
+                            .trim();
+                }
+
                 await query(
                     `INSERT INTO companies (
                         company_id,
@@ -92,8 +109,7 @@ const authMiddleware = async (req, res, next) => {
                     ON CONFLICT (company_id) DO NOTHING`,
                     [
                         currentUser.user_id,
-                        `${currentUser.full_name || currentUser.email || 'Company'}`
-                            .trim()
+                        organizationName
                     ]
                 );
             }

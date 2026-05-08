@@ -5,7 +5,7 @@ const { query } = require('./src/config/database');
 const { authMiddleware, authorize } = require('./src/middleware/auth.middleware');
 const { uploadAsset, deleteAssetByUrl } = require('./src/services/file-storage.service');
 
-console.log('📄 RESUME ROUTER DB VERSION LOADED');
+console.log('RESUME ROUTER DB VERSION LOADED');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -30,7 +30,7 @@ router.get('/test', (req, res) => {
 });
 
 // Upload route - POST (auth + persist to students.resume_url)
-router.post('/upload', authMiddleware, authorize('student', 'graduate'), upload.single('resume'), async (req, res) => {
+router.post('/upload', authMiddleware, authorize('student', ''), upload.single('resume'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
   }
@@ -82,7 +82,7 @@ router.post('/upload', authMiddleware, authorize('student', 'graduate'), upload.
 });
 
 // Delete route - DELETE (auth + remove file + clear students.resume_url)
-router.delete('/', authMiddleware, authorize('student', 'graduate'), async (req, res) => {
+router.delete('/', authMiddleware, authorize('student', ''), async (req, res) => {
   try {
     const studentId = req.user.user_id;
 

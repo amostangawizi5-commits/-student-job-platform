@@ -5,13 +5,29 @@ const jobController = require('../controllers/job.controller');
 const { authMiddleware, authorize } = require('../middleware/auth.middleware');
 
 // Public routes
-router.get('/', jobController.getAllJobs);
+router.get('/', jobController.getAlltraining);
+router.get(
+    '/organization/my-training',
+    authMiddleware,
+    authorize('company', 'university'),
+    jobController.getCompanytraining
+);
+router.get(
+    '/company/my-training',
+    authMiddleware,
+    authorize('company', 'university'),
+    jobController.getCompanytraining
+);
 router.get('/:id', jobController.getJobById);
 
 // Protected routes (require authentication)
-router.post('/', authMiddleware, authorize('company'), jobController.createJob);
+router.post(
+    '/',
+    authMiddleware,
+    authorize('company', 'university'),
+    jobController.createJob
+);
 router.put('/:id', authMiddleware, jobController.updateJob);
 router.delete('/:id', authMiddleware, jobController.deleteJob);
-router.get('/company/my-jobs', authMiddleware, authorize('company'), jobController.getCompanyJobs);
 
 module.exports = router;

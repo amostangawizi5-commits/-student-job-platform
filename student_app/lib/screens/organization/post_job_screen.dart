@@ -1,27 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/tanzania_locations.dart';
 import '../../services/api_service.dart';
 import '../../utils/role_theme.dart';
 
-const Color _companyJobPrimary = CompanyRoleTheme.primary;
-const Color _companyJobPrimaryDark = CompanyRoleTheme.primaryDark;
-const Color _companyJobSurface = CompanyRoleTheme.surface;
-const Color _companyJobSurfaceSoft = CompanyRoleTheme.surfaceSoft;
-const Color _companyJobBorder = CompanyRoleTheme.border;
+const Color _companyJobPrimary = OrganizationRoleTheme.primary;
+const Color _companyJobPrimaryDark = OrganizationRoleTheme.primaryDark;
+const Color _companytrainingurface = OrganizationRoleTheme.surface;
+const Color _companytrainingurfaceSoft = OrganizationRoleTheme.surfaceSoft;
+const Color _companyJobBorder = OrganizationRoleTheme.border;
 
-class PostJobScreen extends StatefulWidget {
+class Posttrainingcreen extends StatefulWidget {
   final String? jobId;
   final Map<String, dynamic>? initialJobData;
 
-  const PostJobScreen({super.key, this.jobId, this.initialJobData});
+  const Posttrainingcreen({super.key, this.jobId, this.initialJobData});
 
   @override
-  State<PostJobScreen> createState() => _PostJobScreenState();
+  State<Posttrainingcreen> createState() => _PosttrainingcreenState();
 }
 
-class _PostJobScreenState extends State<PostJobScreen> {
+class _PosttrainingcreenState extends State<Posttrainingcreen> {
   final ApiService _apiService = ApiService();
   final _formKey = GlobalKey<FormState>();
 
@@ -36,7 +37,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final _eligibilityNotesController = TextEditingController();
 
   // Dropdown values
-  String _selectedType = 'graduate_program';
+  String _selectedType = '_program';
   List<String> _selectedTargetCandidates = [];
   List<dynamic> _availableSkills = [];
   List<String> _selectedSkillIds = [];
@@ -47,10 +48,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   bool _isSubmitting = false;
   DateTime? _selectedDeadline;
 
-  final List<String> _jobTypes = ['graduate_program'];
-
   bool get _isEditing => widget.jobId != null;
-
   @override
   void initState() {
     super.initState();
@@ -78,8 +76,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
         : _formatDeadline(_selectedDeadline!);
     _requiredApplicantsController.text = '${job['required_applicants'] ?? 1}';
 
-    final type = '${job['type'] ?? 'graduate_program'}';
-    if (_jobTypes.contains(type)) {
+    final type = '${job['type'] ?? '_program'}';
+    if (type.trim().isNotEmpty) {
       _selectedType = type;
     }
 
@@ -158,8 +156,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
       }
     } catch (_) {}
   }
-
-  String _getTypeLabel(String type) => 'Industrial Practical Training';
 
   String _getTargetLabel(String target) {
     switch (target) {
@@ -324,7 +320,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   Future<void> _submitJob() async {
     if (_formKey.currentState!.validate()) {
       if (!_allowAllStudents && _selectedTargetCandidates.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Select at least one target candidate year'),
             backgroundColor: Colors.red,
@@ -334,7 +330,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
       }
 
       if (_selectedDeadline == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           const SnackBar(
             content: Text('Select application deadline date and time'),
             backgroundColor: Colors.red,
@@ -384,33 +380,36 @@ class _PostJobScreenState extends State<PostJobScreen> {
         if (!mounted) return;
 
         if (response['success']) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(
               content: Text(
                 _isEditing
-                    ? 'Job updated successfully!'
-                    : 'Job posted successfully!',
+                    ? 'Practical training updated successfully!'
+                    : 'Practical training posted successfully!',
               ),
               backgroundColor: Colors.green,
             ),
           );
           Navigator.pop(context);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(
-              content: Text(response['message'] ?? 'Failed to post job'),
+              content: Text(
+                response['message'] ?? 'Failed to post practical training',
+              ),
               backgroundColor: Colors.red,
             ),
           );
         }
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
               ApiService.normalizeErrorMessage(
                 e,
-                fallback: 'Failed to save job. Please try again.',
+                fallback:
+                    'Failed to save practical training. Please try again.',
               ),
             ),
             backgroundColor: Colors.red,
@@ -489,10 +488,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final conditionPreviewItems = _conditionPreviewItems();
 
     return Scaffold(
-      backgroundColor: _companyJobSurfaceSoft,
+      backgroundColor: _companytrainingurfaceSoft,
       appBar: AppBar(
-        title: Text(_isEditing ? 'Edit Job' : 'Post New Job'),
-        backgroundColor: _companyJobSurfaceSoft,
+        title: Text(
+          _isEditing ? 'Edit Practical Training' : 'Post Practical Training',
+        ),
+        backgroundColor: _companytrainingurfaceSoft,
         foregroundColor: _companyJobPrimaryDark,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -523,88 +524,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: _companyJobSurfaceSoft,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: _companyJobBorder),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: _companyJobSurface,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Icon(
-                              Icons.work_outline_rounded,
-                              color: _companyJobPrimary,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _isEditing
-                                      ? 'Update job information'
-                                      : 'Create a new company job post',
-                                  style: const TextStyle(
-                                    color: _companyJobPrimaryDark,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _isEditing
-                                      ? 'Edit the opportunity details below and save your changes.'
-                                      : 'Fill in the role details below to publish a new opportunity.',
-                                  style: TextStyle(
-                                    color: Colors.blueGrey.shade700,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 8),
                     _buildSectionLabel('Job Title *'),
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _titleController,
-                      decoration: _inputDecoration(
-                        hintText:
-                            'e.g., Industrial Practical Training Opportunity',
-                      ),
-                      validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildSectionLabel('Target Type *'),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: _selectedType,
                       decoration: _inputDecoration(),
-                      dropdownColor: Colors.white,
-                      items: _jobTypes.map((type) {
-                        return DropdownMenuItem(
-                          value: type,
-                          child: Text(_getTypeLabel(type)),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedType = value!;
-                        });
-                      },
+                      validator: (v) => v?.isEmpty ?? true ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
                     _buildSectionLabel('Applicant Conditions'),
@@ -614,14 +540,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
                       decoration: BoxDecoration(
                         border: Border.all(color: _companyJobBorder),
                         borderRadius: BorderRadius.circular(18),
-                        color: _companyJobSurfaceSoft,
+                        color: _companytrainingurfaceSoft,
                       ),
                       child: Column(
                         children: [
                           SwitchListTile(
                             value: _allowAllStudents,
                             activeThumbColor: _companyJobPrimary,
-                            activeTrackColor: _companyJobSurface,
+                            activeTrackColor: _companytrainingurface,
                             contentPadding: EdgeInsets.zero,
                             title: const Text(
                               'Allow all students to apply',
@@ -629,10 +555,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
                                 fontWeight: FontWeight.w700,
                                 color: _companyJobPrimaryDark,
                               ),
-                            ),
-                            subtitle: Text(
-                              'Turn off this option to limit by year, course, GPA, or skills.',
-                              style: TextStyle(color: Colors.blueGrey.shade700),
                             ),
                             onChanged: (value) {
                               setState(() {
@@ -651,7 +573,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                               width: double.infinity,
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: _companyJobSurface,
+                                color: _companytrainingurface,
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(color: _companyJobBorder),
                               ),
@@ -755,8 +677,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
                                 labelText: 'Allowed Courses / Programs',
                                 hintText:
                                     'e.g. Computer Science, IT, Software Engineering',
-                                helperText:
-                                    'Separate multiple programs with commas.',
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -774,7 +694,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
                               decoration: _inputDecoration(
                                 labelText: 'Minimum GPA',
                                 hintText: 'e.g. 3.5',
-                                helperText: 'Optional. Use 0.0 to 5.0 scale.',
                               ),
                               validator: (value) {
                                 final trimmed = value?.trim() ?? '';
@@ -817,7 +736,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                                       fontWeight: FontWeight.w600,
                                     ),
                                     backgroundColor: Colors.white,
-                                    selectedColor: _companyJobSurface,
+                                    selectedColor: _companytrainingurface,
                                     checkmarkColor: _companyJobPrimary,
                                     side: BorderSide(
                                       color: selected

@@ -29,12 +29,12 @@ router.put(
 router.get('/logs', adminController.getLogs);
 
 // Job management
-router.get('/jobs', adminController.getAllJobs);
+router.get('/training', adminController.getAlltraining);
 router.get('/students/all', adminController.getAllAdminStudents);
 router.get('/students/with-university', adminController.getStudentsWithUniversity);
 router.get('/students/with-awards', adminController.getStudentsWithAwards);
 router.get('/students/no-field', adminController.getStudentsNoField);
 
-router.delete('/jobs/:id', adminController.deleteJob);
+router.delete('/training/:id', adminController.deleteJob);
 
 module.exports = router;
