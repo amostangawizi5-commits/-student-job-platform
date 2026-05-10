@@ -1136,13 +1136,13 @@ class ApiService {
     try {
       await _storage.delete(key: _tokenStorageKey);
     } catch (error) {
-      _log('⚠️ Secure token delete failed: $error');
+      _log('Secure token delete failed: $error');
     }
     try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.remove(_tokenStorageKey);
     } catch (error) {
-      _log('⚠️ SharedPreferences token delete failed: $error');
+      _log(' SharedPreferences token delete failed: $error');
     }
     _unreadNotificationsCache = null;
     _unreadNotificationsCacheTime = null;
