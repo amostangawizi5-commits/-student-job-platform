@@ -18,6 +18,10 @@ class AppTheme {
   static const Color info = Color(0xFF3B82F6); // Light Blue - Shortlisted/Info
   static const Color accentOrange = Color(0xFFF59E0B); // Orange - Accent
 
+  // Light Colors for Snackbars & Feedback
+  static const Color successLight = Color(0xFFD1FAE5); // Light Green Background
+  static const Color errorLight = Color(0xFFFECACA); // Light Red Background
+
   // Status Colors
   static const Color pending = Color(0xFFF59E0B); // Orange
   static const Color shortlisted = Color(0xFF3B82F6); // Blue

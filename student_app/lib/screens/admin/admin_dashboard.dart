@@ -116,9 +116,42 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> _logout() async {
-    await Provider.of<AuthProvider>(context, listen: false).logout();
+    final language = context.read<LanguageProvider>();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(language.tr('logout_title')),
+        content: Text(language.tr('logout_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(language.tr('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              language.tr('logout'),
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) return;
+
+    await authProvider.logout();
     if (!mounted) return;
 
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      SnackBar(
+        content: Text(language.tr('logout_success')),
+        backgroundColor: Colors.green,
+      ),
+    );
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),

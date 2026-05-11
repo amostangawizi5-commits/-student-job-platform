@@ -1065,6 +1065,14 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                               coverLetterUrl.startsWith('https://') ||
                               coverLetterUrl.startsWith('/')))
                         OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 10,
+                            ),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           onPressed: () => _openFile(
                             coverLetterUrl,
                             authenticatedUrl: app['application_id'] == null
@@ -1075,10 +1083,24 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             failureMessage: 'Unable to open cover letter.',
                           ),
                           icon: const Icon(Icons.description_outlined),
-                          label: const Text('Open Cover Letter'),
+                          label: const Flexible(
+                            child: Text(
+                              'Open Cover Letter',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 2,
+                            ),
+                          ),
                         ),
                       if (supportiveDocumentUrl.isNotEmpty)
                         OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 10,
+                            ),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           onPressed: () => _openFile(
                             supportiveDocumentUrl,
                             authenticatedUrl: app['application_id'] == null
@@ -1091,10 +1113,24 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                                 'Unable to open supportive document.',
                           ),
                           icon: const Icon(Icons.picture_as_pdf_outlined),
-                          label: const Text('Open Supportive Document'),
+                          label: const Flexible(
+                            child: Text(
+                              'Open Supportive Document',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 2,
+                            ),
+                          ),
                         ),
                       if (responseLetterUrl.isNotEmpty)
                         ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 10,
+                            ),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           onPressed: () => _downloadFile(
                             responseLetterUrl,
                             authenticatedUrl: app['application_id'] == null
@@ -1108,7 +1144,13 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             saveToDownloadsOnAndroid: true,
                           ),
                           icon: const Icon(Icons.download_rounded),
-                          label: const Text('Download Response Letter'),
+                          label: const Flexible(
+                            child: Text(
+                              'Download Response Letter',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 2,
+                            ),
+                          ),
                         ),
                     ],
                   ),

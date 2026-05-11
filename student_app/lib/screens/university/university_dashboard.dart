@@ -959,24 +959,47 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   }
 
   Future<void> _logout() async {
+    final language = context.read<LanguageProvider>();
     final authProvider = context.read<AuthProvider>();
-    if (_isLoggingOut) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(language.tr('logout_title')),
+        content: Text(language.tr('logout_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(language.tr('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              language.tr('logout'),
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
 
-    setState(() => _isLoggingOut = true);
+    if (!mounted || confirmed != true) return;
 
-    try {
-      await authProvider.logout();
-      if (!mounted) return;
+    await authProvider.logout();
+    if (!mounted) return;
 
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (route) => false,
-      );
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _isLoggingOut = false);
-    }
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      SnackBar(
+        content: Text(language.tr('logout_success')),
+        backgroundColor: Colors.green,
+      ),
+    );
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
   }
 
   Future<void> _openNotifications() async {

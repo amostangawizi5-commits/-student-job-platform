@@ -192,6 +192,8 @@ class AuthProvider extends ChangeNotifier {
         collegeLogoFileName: collegeLogoFileName,
       );
 
+      _log('Register response: $response');
+
       if (response['success'] == true) {
         _applyAuthState(
           user: _extractUserFromAuthResponse(response),
@@ -202,19 +204,22 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
 
+      final errorMsg = response['message']?.toString() ?? 'Registration failed';
       _errorMessage = ApiService.sanitizeUserMessage(
-        response['message']?.toString(),
+        errorMsg,
         fallback: 'Registration failed',
       );
+      _log('Register failed - Raw message: $errorMsg, Sanitized: $_errorMessage');
       _setLoading(false);
       notifyListeners();
       return false;
     } catch (e) {
-      _log('Register error: $e');
+      _log('Register exception: $e');
       _errorMessage = ApiService.normalizeErrorMessage(
         e,
         fallback: 'Registration failed',
       );
+      _log('Register exception normalized to: $_errorMessage');
       _setLoading(false);
       notifyListeners();
       return false;
@@ -227,6 +232,7 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       final response = await _apiService.login(email.trim(), password);
+      _log('Login response: $response');
 
       if (response['success'] == true) {
         final user = _extractUserFromAuthResponse(response);
@@ -243,13 +249,18 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
 
-      _errorMessage = _normalizeAuthError(response['message']);
+      // Handle error response - extract message properly
+      final errorMsg = response['message']?.toString() ?? 'Login failed';
+      _log('Login error message: $errorMsg');
+      _errorMessage = _normalizeAuthError(errorMsg);
+      _log('Normalized error message: $_errorMessage');
       _setLoading(false);
       notifyListeners();
       return false;
     } catch (e) {
-      _log('Login error: $e');
+      _log('Login exception: $e');
       _errorMessage = _normalizeAuthError(e);
+      _log('Exception normalized to: $_errorMessage');
       _setLoading(false);
       notifyListeners();
       return false;

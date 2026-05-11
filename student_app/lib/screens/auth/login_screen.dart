@@ -41,8 +41,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!normalizedEmail.contains('@')) {
       messenger.showAppSnackBar(
         SnackBar(
-          content: Text(language.tr('enter_valid_email_address')),
-          backgroundColor: Colors.red,
+          content: Text(
+            language.tr('enter_valid_email_address'),
+            style: const TextStyle(color: Color(0xFF991B1B)),
+          ),
+          backgroundColor: AppTheme.errorLight,
         ),
       );
       return;
@@ -60,8 +63,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ? language.tr('reset_email_resent')
                 : response['message']?.toString() ??
                       language.tr('failed_send_password_reset_link'),
+            style: TextStyle(
+              color: success ? const Color(0xFF065F46) : const Color(0xFF991B1B),
+            ),
           ),
-          backgroundColor: success ? AppTheme.primaryGreen : Colors.red,
+          backgroundColor: success ? AppTheme.successLight : AppTheme.errorLight,
         ),
       );
     } catch (e) {
@@ -73,8 +79,9 @@ class _LoginScreenState extends State<LoginScreen> {
               e,
               fallback: language.tr('failed_send_password_reset_link'),
             ),
+            style: const TextStyle(color: Color(0xFF991B1B)),
           ),
-          backgroundColor: Colors.red,
+          backgroundColor: AppTheme.errorLight,
         ),
       );
     }
@@ -96,24 +103,41 @@ class _LoginScreenState extends State<LoginScreen> {
     if (success) {
       final user = authProvider.user;
       if (user == null) {
-        ScaffoldMessenger.of(context).showAppSnackBar(
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(language.tr('login_failed_check_credentials')),
-            backgroundColor: Colors.red,
+            content: Text(
+              language.tr('login_failed_check_credentials'),
+              style: const TextStyle(color: Color(0xFF991B1B)),
+            ),
+            backgroundColor: AppTheme.errorLight,
             duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            width: 280,
           ),
         );
         return;
       }
 
       final role = normalizeUserRole(user['role']);
-      ScaffoldMessenger.of(context).showAppSnackBar(
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(language.tr('login_success')),
-          backgroundColor: AppTheme.primaryGreen,
-          duration: const Duration(seconds: 1),
+          content: Text(
+            language.tr('login_success'),
+            style: const TextStyle(color: Color(0xFF065F46)),
+          ),
+          backgroundColor: AppTheme.successLight,
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          width: 280,
         ),
       );
+
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
 
       if (isStudentRole(role)) {
         Navigator.pushAndRemoveUntil(
@@ -143,14 +167,23 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final message =
-        authProvider.errorMessage ??
-        language.tr('login_failed_check_credentials');
-    ScaffoldMessenger.of(context).showAppSnackBar(
+    // Show error message when login fails
+    if (!mounted) return;
+    
+    final errorMsg = authProvider.errorMessage?.trim() ?? '';
+    print('DEBUG: Login failed. ErrorMessage: "$errorMsg"');
+    
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
+        content: Text(
+          errorMsg.isNotEmpty ? errorMsg : language.tr('login_failed_check_credentials'),
+          style: const TextStyle(color: Color(0xFF991B1B)),
+        ),
+        backgroundColor: AppTheme.errorLight,
         duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        width: 280,
       ),
     );
   }
