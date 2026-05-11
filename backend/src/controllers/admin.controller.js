@@ -90,17 +90,16 @@ const getRequestBaseUrl = (req) => {
 };
 
 const getPasswordResetBaseUrl = (req) => {
-    const configuredBaseUrl = normalizeBaseUrl(
-        process.env.RESET_PASSWORD_BASE_URL || process.env.PUBLIC_API_URL
-    );
-
-    if (configuredBaseUrl) {
-        return configuredBaseUrl;
-    }
-
     const requestBaseUrl = getRequestBaseUrl(req);
     if (requestBaseUrl) {
         return requestBaseUrl;
+    }
+
+    const configuredBaseUrl = normalizeBaseUrl(
+        process.env.RESET_PASSWORD_BASE_URL || process.env.PUBLIC_API_URL
+    );
+    if (configuredBaseUrl) {
+        return configuredBaseUrl;
     }
 
     return normalizeBaseUrl(`http://localhost:${process.env.PORT || 5000}`);
