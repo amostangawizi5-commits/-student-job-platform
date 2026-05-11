@@ -873,6 +873,8 @@ class ApiService {
         data: {'email': email, 'password': password},
       );
 
+      _log('Login API response: $response');
+
       // Check different response structures
       if (response['success'] == true || response['token'] != null) {
         final token = _extractAuthToken(response);
@@ -886,15 +888,22 @@ class ApiService {
         return {'success': true, 'data': response};
       }
 
+      // Ensure message is always present for error responses
+      final errorMessage = response['message']?.toString() ?? 'Login failed';
+      final sanitizedMessage = _sanitizeAuthResponseMessage(errorMessage);
+      
+      _log('Login failed - Raw message: $errorMessage, Sanitized: $sanitizedMessage');
+      
       return {
         ...response,
-        'message': _sanitizeAuthResponseMessage(
-          response['message']?.toString(),
-        ),
+        'message': sanitizedMessage,
+        'success': false,
       };
     } catch (e) {
-      _log('Login error: $e');
-      return {'success': false, 'message': _normalizeLoginErrorMessage(e)};
+      _log('Login error caught: $e');
+      final normalizedError = _normalizeLoginErrorMessage(e);
+      _log('Normalized login error: $normalizedError');
+      return {'success': false, 'message': normalizedError};
     }
   }
 
