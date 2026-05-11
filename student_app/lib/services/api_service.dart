@@ -9,13 +9,13 @@ class ApiService {
   // Local backend for browser-based development on this machine.
   static const String _webDebugBaseUrl = 'http://localhost:5000';
   // Hosted backend used by production builds and non-web defaults.
-  static const String _renderApiBaseUrl =
-      'https://student-job-platform-api.onrender.com';
-  static const String _productionApiBaseUrl = _renderApiBaseUrl;
-  // Android now defaults to Render unless explicitly overridden at build/run time.
-  static const String _androidDebugBaseUrl = _renderApiBaseUrl;
+  static const String _railwayApiBaseUrl =
+      'https://student-job-platform-api-production.up.railway.app';
+  static const String _productionApiBaseUrl = _railwayApiBaseUrl;
+  // Android now defaults to Railway unless explicitly overridden at build/run time.
+  static const String _androidDebugBaseUrl = _railwayApiBaseUrl;
   // Web release builds default to the hosted API unless overridden.
-  static const String _webBaseUrl = _renderApiBaseUrl;
+  static const String _webBaseUrl = _railwayApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
