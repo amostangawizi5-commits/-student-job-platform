@@ -76,6 +76,103 @@ const getFormattedColumnType = async (tableName, columnName) => {
     return result.rows[0]?.formatted_type || null;
 };
 
+const ensureCoreAuthSchema = async () => {
+    await pool.query(`
+        CREATE EXTENSION IF NOT EXISTS pgcrypto
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email VARCHAR(255) NOT NULL UNIQUE,
+            password_hash VARCHAR(255) NOT NULL,
+            role VARCHAR(50),
+            full_name VARCHAR(255),
+            phone VARCHAR(50),
+            profile_image_url TEXT,
+            is_verified BOOLEAN NOT NULL DEFAULT false,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            auth_version INTEGER NOT NULL DEFAULT 0
+        )
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS universities (
+            university_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name VARCHAR(255) NOT NULL UNIQUE,
+            location VARCHAR(255),
+            website TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS students (
+            student_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+            university_id UUID REFERENCES universities(university_id) ON DELETE SET NULL,
+            program VARCHAR(255),
+            student_type VARCHAR(50),
+            expected_graduation_year INTEGER,
+            graduation_year INTEGER,
+            experience_level VARCHAR(120),
+            bio TEXT,
+            resume_url TEXT,
+            github_url TEXT,
+            linkedin_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            registration_number TEXT,
+            identification_card_url TEXT,
+            identification_card_name TEXT,
+            gpa NUMERIC(4,2)
+        )
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS companies (
+            company_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+            company_name VARCHAR(255) NOT NULL,
+            industry VARCHAR(255),
+            company_size VARCHAR(100),
+            location VARCHAR(255),
+            description TEXT,
+            website_url TEXT,
+            logo_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            stamp_url TEXT,
+            signature_url TEXT,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            region VARCHAR(120),
+            district VARCHAR(120),
+            organization_subtype VARCHAR(40),
+            government_category VARCHAR(120),
+            tin_number VARCHAR(120),
+            brela_number VARCHAR(120),
+            business_license_number VARCHAR(120),
+            department VARCHAR(160),
+            sector VARCHAR(160)
+        )
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS notifications (
+            notification_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+            title VARCHAR(255),
+            message TEXT,
+            type VARCHAR(120),
+            is_read BOOLEAN DEFAULT false,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS notifications_user_read_idx
+        ON notifications (user_id, is_read, created_at DESC)
+    `);
+};
+
 const ensureApplicationWorkflowSchema = async () => {
     if (!(await tableExists('applications'))) {
         console.warn(
@@ -811,6 +908,21 @@ const ensureUserLookupSchema = async () => {
     `);
 };
 
+const ensureUserProfileSchema = async () => {
+    if (!(await tableExists('users'))) {
+        console.warn(
+            'Skipping user profile schema update because table "users" does not exist yet.'
+        );
+        return;
+    }
+
+    await pool.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS profile_image_url TEXT
+    `);
+};
+
 const ensureUserRoleSchema = async () => {
     if (!(await tableExists('users'))) {
         console.warn(
@@ -854,8 +966,10 @@ const connectDB = async () => {
         const client = await pool.connect();
         console.log('✅ PostgreSQL connected successfully');
         client.release();
+        await ensureCoreAuthSchema();
         await ensureUserRoleSchema();
         await ensureUserAuthVersionSchema();
+        await ensureUserProfileSchema();
         await ensureUserLookupSchema();
         await ensureApplicationWorkflowSchema();
         await ensureCompanyProfileSchema();
