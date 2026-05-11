@@ -2,6 +2,10 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 
+const isMissingColumnError = (error, columnName) =>
+    error?.code === '42703' &&
+    `${error.message || ''}`.toLowerCase().includes(columnName.toLowerCase());
+
 const authMiddleware = async (req, res, next) => {
     // Get token from header
     const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -16,13 +20,32 @@ const authMiddleware = async (req, res, next) => {
     try {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const userResult = await query(
-            `SELECT user_id, email, role, full_name, is_active, auth_version
-             FROM users
-             WHERE user_id = $1
-             LIMIT 1`,
-            [decoded.user_id]
-        );
+        let userResult;
+        try {
+            userResult = await query(
+                `SELECT user_id, email, role, full_name, is_active, auth_version
+                 FROM users
+                 WHERE user_id = $1
+                 LIMIT 1`,
+                [decoded.user_id]
+            );
+        } catch (error) {
+            if (!isMissingColumnError(error, 'auth_version')) {
+                throw error;
+            }
+
+            userResult = await query(
+                `SELECT user_id, email, role, full_name, is_active
+                 FROM users
+                 WHERE user_id = $1
+                 LIMIT 1`,
+                [decoded.user_id]
+            );
+            userResult.rows = userResult.rows.map((row) => ({
+                ...row,
+                auth_version: 0
+            }));
+        }
 
         const currentUser = userResult.rows[0];
         if (!currentUser) {

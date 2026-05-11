@@ -959,6 +959,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   }
 
   Future<void> _logout() async {
+    if (_isLoggingOut) return;
+
     final language = context.read<LanguageProvider>();
     final authProvider = context.read<AuthProvider>();
     final confirmed = await showDialog<bool>(
@@ -984,22 +986,30 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
 
     if (!mounted || confirmed != true) return;
 
-    await authProvider.logout();
-    if (!mounted) return;
+    setState(() => _isLoggingOut = true);
 
-    ScaffoldMessenger.of(context).showAppSnackBar(
-      SnackBar(
-        content: Text(language.tr('logout_success')),
-        backgroundColor: Colors.green,
-      ),
-    );
-    await Future.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+    try {
+      await authProvider.logout();
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(language.tr('logout_success')),
+          backgroundColor: Colors.green,
+        ),
+      );
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoggingOut = false);
+      }
+    }
   }
 
   Future<void> _openNotifications() async {

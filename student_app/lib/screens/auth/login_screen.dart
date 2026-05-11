@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
@@ -64,10 +65,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 : response['message']?.toString() ??
                       language.tr('failed_send_password_reset_link'),
             style: TextStyle(
-              color: success ? const Color(0xFF065F46) : const Color(0xFF991B1B),
+              color: success
+                  ? const Color(0xFF065F46)
+                  : const Color(0xFF991B1B),
             ),
           ),
-          backgroundColor: success ? AppTheme.successLight : AppTheme.errorLight,
+          backgroundColor: success
+              ? AppTheme.successLight
+              : AppTheme.errorLight,
         ),
       );
     } catch (e) {
@@ -169,15 +174,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // Show error message when login fails
     if (!mounted) return;
-    
+
     final errorMsg = authProvider.errorMessage?.trim() ?? '';
-    print('DEBUG: Login failed. ErrorMessage: "$errorMsg"');
-    
+    if (kDebugMode) {
+      debugPrint('Login failed. ErrorMessage: "$errorMsg"');
+    }
+
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          errorMsg.isNotEmpty ? errorMsg : language.tr('login_failed_check_credentials'),
+          errorMsg.isNotEmpty
+              ? errorMsg
+              : language.tr('login_failed_check_credentials'),
           style: const TextStyle(color: Color(0xFF991B1B)),
         ),
         backgroundColor: AppTheme.errorLight,
@@ -316,7 +325,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 11,
-                              
+
                                   color: Color(0xFF888888),
                                 ),
                               ),

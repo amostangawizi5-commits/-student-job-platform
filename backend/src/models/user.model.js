@@ -53,6 +53,10 @@ const splitFullName = (value) => {
     };
 };
 
+const isMissingColumnError = (error, columnName) =>
+    error?.code === '42703' &&
+    `${error.message || ''}`.toLowerCase().includes(columnName.toLowerCase());
+
 class UserModel {
     // Create new user
     static async create(userData) {
@@ -290,22 +294,58 @@ class UserModel {
 
     // Find user by email
     static async findByEmail(email) {
-        const result = await query(
-            `SELECT user_id, email, role, full_name, is_active, password_hash, auth_version
-             FROM users
-             WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
-             LIMIT 1`,
-            [email]
-        );
-        return result.rows[0];
+        try {
+            const result = await query(
+                `SELECT user_id, email, role, full_name, is_active, password_hash, auth_version
+                 FROM users
+                 WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
+                 LIMIT 1`,
+                [email]
+            );
+            return result.rows[0];
+        } catch (error) {
+            if (!isMissingColumnError(error, 'auth_version')) {
+                throw error;
+            }
+
+            const fallbackResult = await query(
+                `SELECT user_id, email, role, full_name, is_active, password_hash
+                 FROM users
+                 WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
+                 LIMIT 1`,
+                [email]
+            );
+            const user = fallbackResult.rows[0];
+            return user ? { ...user, auth_version: 0 } : undefined;
+        }
     }
 
     // Find user by ID
     static async findById(userId) {
-        const result = await query(
-            'SELECT user_id, email, role, full_name, phone, profile_image_url, is_verified, is_active, created_at FROM users WHERE user_id = $1',
-            [userId]
-        );
+        let result;
+        try {
+            result = await query(
+                'SELECT user_id, email, role, full_name, phone, profile_image_url, is_verified, is_active, created_at FROM users WHERE user_id = $1',
+                [userId]
+            );
+        } catch (error) {
+            if (
+                !isMissingColumnError(error, 'profile_image_url') &&
+                !isMissingColumnError(error, 'is_verified')
+            ) {
+                throw error;
+            }
+
+            result = await query(
+                'SELECT user_id, email, role, full_name, phone, is_active, created_at FROM users WHERE user_id = $1',
+                [userId]
+            );
+            result.rows = result.rows.map((row) => ({
+                ...row,
+                profile_image_url: null,
+                is_verified: false
+            }));
+        }
         
         if (result.rows.length === 0) return null;
         
