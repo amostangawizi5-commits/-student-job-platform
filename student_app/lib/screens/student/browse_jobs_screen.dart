@@ -28,7 +28,7 @@ class _BrowsetrainingScreenState extends State<BrowsetrainingScreen> {
   @override
   void initState() {
     super.initState();
-    _loadtraining();
+    _loadtraining(forceRefresh: true);
   }
 
   @override

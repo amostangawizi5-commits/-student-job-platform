@@ -6,16 +6,13 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Local backend for browser-based development on this machine.
-  static const String _webDebugBaseUrl = 'http://localhost:5000';
-  // Hosted backend used by production builds and non-web defaults.
-  static const String _railwayApiBaseUrl =
-      'https://student-job-platform-api-production.up.railway.app';
-  static const String _productionApiBaseUrl = _railwayApiBaseUrl;
-  // Android now defaults to Railway unless explicitly overridden at build/run time.
-  static const String _androidDebugBaseUrl = _railwayApiBaseUrl;
-  // Web release builds default to the hosted API unless overridden.
-  static const String _webBaseUrl = _railwayApiBaseUrl;
+  static const String _localApiBaseUrl = 'http://localhost:5000';
+  static const String _androidDeviceApiBaseUrl = String.fromEnvironment(
+    'ANDROID_LOCAL_API_BASE_URL',
+    defaultValue: 'http://10.104.30.219:5000',
+  );
+  static const String _webBaseUrl = _localApiBaseUrl;
+  static const String _defaultBaseUrl = _localApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -72,14 +69,14 @@ class ApiService {
     }
 
     if (kIsWeb) {
-      return _normalizeBaseUrl(kDebugMode ? _webDebugBaseUrl : _webBaseUrl);
+      return _normalizeBaseUrl(_webBaseUrl);
     }
 
-    if (kDebugMode && defaultTargetPlatform == TargetPlatform.android) {
-      return _normalizeBaseUrl(_androidDebugBaseUrl);
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return _normalizeBaseUrl(_androidDeviceApiBaseUrl);
     }
 
-    return _normalizeBaseUrl(_productionApiBaseUrl);
+    return _normalizeBaseUrl(_defaultBaseUrl);
   }
 
   // Any platform can still be overridden with --dart-define=API_BASE_URL=...
@@ -160,14 +157,21 @@ class ApiService {
       addUrl(trimmed);
 
       if (parsed != null && _isLoopbackHost(parsed.host)) {
+        final currentBaseUri = Uri.tryParse(baseUrl);
+        if (currentBaseUri != null && !_isLoopbackHost(currentBaseUri.host)) {
+          addUrl(
+            currentBaseUri
+                .replace(path: parsed.path, query: parsed.query)
+                .toString(),
+          );
+        }
+
         final alternateLoopbackHost = parsed.host == 'localhost'
             ? '127.0.0.1'
             : 'localhost';
         addUrl(parsed.replace(host: alternateLoopbackHost).toString());
 
-        final productionUri = Uri.tryParse(
-          _normalizeBaseUrl(_productionApiBaseUrl),
-        );
+        final productionUri = Uri.tryParse(_normalizeBaseUrl(_defaultBaseUrl));
         if (productionUri != null && !_isLoopbackHost(productionUri.host)) {
           addUrl(
             productionUri
@@ -191,7 +195,7 @@ class ApiService {
               .toString(),
         );
 
-        final productionBase = _normalizeBaseUrl(_productionApiBaseUrl);
+        final productionBase = _normalizeBaseUrl(_defaultBaseUrl);
         final productionUri = Uri.tryParse(productionBase);
         if (productionUri != null && !_isLoopbackHost(productionUri.host)) {
           addUrl(productionUri.replace(path: normalizedPath).toString());
@@ -733,8 +737,8 @@ class ApiService {
 
         throw Exception(
           kIsWeb
-              ? 'Connection timeout. The server may be waking up on Render. Please wait a few seconds and try again.'
-              : 'Connection timeout from $baseUrl. The server may still be waking up on Render. Please wait a moment and try again.',
+              ? 'Connection timeout. The local server may be unavailable. Please wait a few seconds and try again.'
+              : 'Connection timeout from $baseUrl. The local server may be unavailable. Please wait a moment and try again.',
         );
       } else if (e.type == DioExceptionType.receiveTimeout) {
         if (shouldRetryOnWakeup) {
@@ -752,8 +756,8 @@ class ApiService {
 
         throw Exception(
           kIsWeb
-              ? 'Server is taking too long to respond. If this is the first visit, Render may still be starting up. Please try again shortly.'
-              : 'Server at $baseUrl is taking too long to respond. It may still be waking up on Render. Please try again shortly.',
+              ? 'Server is taking too long to respond. Please try again shortly.'
+              : 'Server at $baseUrl is taking too long to respond. Please try again shortly.',
         );
       } else if (e.type == DioExceptionType.connectionError) {
         if (shouldRetryOnWakeup) {
@@ -769,10 +773,10 @@ class ApiService {
 
         final overrideHint = kIsWeb
             ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
-            : 'This app now uses the Render API by default. If you intentionally want a local Android backend, use --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use http://localhost:5000.';
+            : 'Android now uses $_androidDeviceApiBaseUrl by default, while Chrome/web uses $_webBaseUrl. If your PC IP changes, run with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000 or --dart-define=ANDROID_LOCAL_API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use http://localhost:5000.';
         throw Exception(
           kIsWeb
-              ? 'Cannot connect to server at $baseUrl. Render may still be waking up. Please wait a few seconds and refresh. $overrideHint'
+              ? 'Cannot connect to server at $baseUrl. Please wait a few seconds and refresh. $overrideHint'
               : 'Cannot connect to server at $baseUrl. $overrideHint',
         );
       }
@@ -891,14 +895,12 @@ class ApiService {
       // Ensure message is always present for error responses
       final errorMessage = response['message']?.toString() ?? 'Login failed';
       final sanitizedMessage = _sanitizeAuthResponseMessage(errorMessage);
-      
-      _log('Login failed - Raw message: $errorMessage, Sanitized: $sanitizedMessage');
-      
-      return {
-        ...response,
-        'message': sanitizedMessage,
-        'success': false,
-      };
+
+      _log(
+        'Login failed - Raw message: $errorMessage, Sanitized: $sanitizedMessage',
+      );
+
+      return {...response, 'message': sanitizedMessage, 'success': false};
     } catch (e) {
       _log('Login error caught: $e');
       final normalizedError = _normalizeLoginErrorMessage(e);
@@ -1181,8 +1183,11 @@ class ApiService {
       search: query['search']?.toString(),
       view: query['view']?.toString(),
     );
+    final selectedView = query['view']?.toString() ?? 'open';
+    final shouldUseCache = selectedView == 'history';
 
     if (!forceRefresh &&
+        shouldUseCache &&
         _isFresh(_trainingCacheTime[cacheKey], const Duration(seconds: 30))) {
       final cached = _trainingCache[cacheKey];
       if (cached != null) {
@@ -2214,6 +2219,30 @@ class ApiService {
       );
     } catch (e) {
       _log(' Error updating user role: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> createAdminUser({
+    required String fullName,
+    required String email,
+    required String password,
+    String? phone,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/admin/users/admin',
+        data: {
+          'full_name': fullName,
+          'email': email,
+          'password': password,
+          'phone': phone?.trim() ?? '',
+        },
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error creating admin user: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }

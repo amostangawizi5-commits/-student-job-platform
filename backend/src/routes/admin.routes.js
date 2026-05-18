@@ -10,6 +10,7 @@ router.use(authMiddleware, authorize('admin'));
 router.get('/stats', adminController.getStats);
 
 // User management
+router.post('/users/admin', adminController.createAdminUser);
 router.get('/users', adminController.getAllUsers);
 router.get('/users/:id', adminController.getUserById);
 router.put('/users/:id/role', adminController.updateUserRole);

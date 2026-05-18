@@ -1,5 +1,6 @@
 const { pool, query } = require('../config/database');
 const crypto = require('crypto');
+const UserModel = require('../models/user.model');
 const { sendPasswordResetEmail } = require('../services/email.service');
 const NotificationModel = require('../models/notification.model');
 const { getAuditLogs, logAuditEvent } = require('../services/audit-log.service');
@@ -115,6 +116,95 @@ const shouldExposeResetDebugData = () => {
     }
 
     return process.env.NODE_ENV !== 'production';
+};
+
+const normalizeAdminCreateInput = (value) => `${value || ''}`.trim();
+
+const createAdminUser = async (req, res) => {
+    try {
+        const email = normalizeAdminCreateInput(req.body?.email).toLowerCase();
+        const password = `${req.body?.password || ''}`;
+        const fullName = normalizeAdminCreateInput(req.body?.full_name);
+        const phone = normalizeAdminCreateInput(req.body?.phone);
+
+        if (!fullName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Full name is required'
+            });
+        }
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailPattern.test(email)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Enter a valid email address'
+            });
+        }
+
+        if (password.trim().length < 8) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 8 characters long'
+            });
+        }
+
+        const createdUser = await UserModel.create({
+            email,
+            password: password.trim(),
+            role: 'admin',
+            full_name: fullName,
+            phone: phone || null
+        });
+
+        const verifiedResult = await query(
+            `UPDATE users
+             SET is_verified = true,
+                 is_active = true,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $1
+             RETURNING user_id, email, role, full_name, phone, is_verified, is_active, created_at`,
+            [createdUser.user_id]
+        );
+
+        const adminUser = verifiedResult.rows[0];
+
+        await logAuditEvent({
+            category: 'admin_action',
+            eventType: 'Admin created',
+            message: `${adminUser.full_name || adminUser.email} was created as an admin`,
+            actorUserId: req.user.user_id,
+            actorName: req.user.email,
+            userInvolved: adminUser.user_id,
+            userInvolvedName: adminUser.full_name || adminUser.email
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: 'Admin account created successfully',
+            data: adminUser
+        });
+    } catch (error) {
+        if (error?.code === '23505') {
+            return res.status(409).json({
+                success: false,
+                message: 'This email is already registered'
+            });
+        }
+
+        console.error('Create admin user error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to create admin account'
+        });
+    }
 };
 
 // Get all users
@@ -810,6 +900,7 @@ const getLogs = async (req, res) => {
 };
 
 module.exports = {
+    createAdminUser,
     getAllUsers,
     getUserById,
     updateUserRole,

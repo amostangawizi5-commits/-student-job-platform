@@ -9,7 +9,8 @@
     
     <!-- Common local development hosts -->
     <domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">192.168.180.219</domain>
+        <domain includeSubdomains="true">10.104.30.219</domain>
+        <domain includeSubdomains="true">192.168.180.219</domain>
         <domain includeSubdomains="true">192.168.137.215</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>

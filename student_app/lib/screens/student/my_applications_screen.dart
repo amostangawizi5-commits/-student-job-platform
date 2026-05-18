@@ -259,11 +259,11 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Confirm Company Placement'),
+        title: const Text('Confirm'),
         content: Text(
           _acceptedApplications.length > 1
-              ? 'You were accepted by ${_acceptedApplications.length} companies. Confirming $companyName will notify the other companies that you chose another placement.'
-              : 'Confirm $companyName as the company you will join for this placement?',
+              ? 'Confirm $companyName? Other companies will be notified.'
+              : 'Confirm $companyName?',
         ),
         actions: [
           TextButton(
@@ -302,10 +302,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       if (!mounted) return;
       setState(() => _confirmedSelection = selection);
       ScaffoldMessenger.of(context).showAppSnackBar(
-        SnackBar(
-          content: Text(
-            'You confirmed $companyName successfully. The coordinator has been notified.',
-          ),
+        const SnackBar(
+          content: Text('Confirmed successfully.'),
           backgroundColor: Colors.green,
         ),
       );
@@ -723,7 +721,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   Widget _buildApplicationActionTile({
     required IconData icon,
     required String label,
-    required String subtitle,
+    String subtitle = '',
     required Color backgroundColor,
     required Color borderColor,
     required Color iconColor,
@@ -784,15 +782,17 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           color: textColor,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 12,
-                          height: 1.35,
-                          color: textColor.withValues(alpha: 0.82),
+                      if (subtitle.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: textColor.withValues(alpha: 0.82),
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -1166,7 +1166,6 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   @override
   Widget build(BuildContext context) {
     final filteredApplications = _getFilteredApplications();
-    final acceptedApplications = _acceptedApplications;
     final title = _selectedFilter == 'all'
         ? 'My Applications'
         : 'My Applications (${_filterTitle()})';
@@ -1387,9 +1386,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           ? 'Confirmed Placement'
                           : hasConfirmedSelection
                           ? 'Placement Confirmed Elsewhere'
-                          : acceptedApplications.length > 1
-                          ? 'Choose This Company'
-                          : 'Confirm This Company',
+                          : 'Confirm',
                       subtitle: isOfferExpired
                           ? offerExpiresAt == null
                                 ? 'This accepted offer expired because it was not confirmed within 48 hours while you had multiple accepted companies.'
@@ -1398,9 +1395,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           ? 'You selected ${app['company_name'] ?? 'this company'}.'
                           : hasConfirmedSelection
                           ? 'You already confirmed $confirmedCompanyName, so this offer is no longer active.'
-                          : acceptedApplications.length > 1
-                          ? 'You have ${acceptedApplications.length} accepted offers. Confirm the company you will join so the other companies can be notified.'
-                          : 'Confirm this accepted offer to continue with university review.',
+                          : '',
                       backgroundColor: isOfferExpired
                           ? const Color(0xFFFFF4EC)
                           : isConfirmedThisApplication

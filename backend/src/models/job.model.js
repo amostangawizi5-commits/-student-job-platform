@@ -67,9 +67,14 @@ class JobModel {
         let sql = `
             SELECT 
                 j.*,
-                c.company_name,
+                COALESCE(
+                    NULLIF(c.company_name, ''),
+                    NULLIF(u.full_name, ''),
+                    NULLIF(u.email, ''),
+                    'Organization'
+                ) AS company_name,
                 c.logo_url,
-                c.location as company_location,
+                COALESCE(NULLIF(c.location, ''), NULLIF(j.location, '')) AS company_location,
                 (
                     SELECT json_agg(json_build_object('skill_id', s.skill_id, 'name', s.name))
                     FROM job_skills js
@@ -77,7 +82,8 @@ class JobModel {
                     WHERE js.job_id = j.job_id
                 ) as required_skills
             FROM training j
-            JOIN companies c ON j.company_id = c.company_id
+            LEFT JOIN companies c ON j.company_id = c.company_id
+            LEFT JOIN users u ON j.company_id = u.user_id
             WHERE 1 = 1
         `;
         
@@ -109,6 +115,8 @@ class JobModel {
                 OR j.description ILIKE $${paramCount}
                 OR COALESCE(j.location, '') ILIKE $${paramCount}
                 OR COALESCE(c.company_name, '') ILIKE $${paramCount}
+                OR COALESCE(u.full_name, '') ILIKE $${paramCount}
+                OR COALESCE(u.email, '') ILIKE $${paramCount}
                 OR COALESCE(c.location, '') ILIKE $${paramCount}
                 OR COALESCE(j.type, '') ILIKE $${paramCount}
             )`;
@@ -136,11 +144,16 @@ class JobModel {
         const result = await query(
             `SELECT 
                 j.*,
-                c.company_name,
+                COALESCE(
+                    NULLIF(c.company_name, ''),
+                    NULLIF(u.full_name, ''),
+                    NULLIF(u.email, ''),
+                    'Organization'
+                ) AS company_name,
                 c.logo_url,
                 c.description as company_description,
                 c.industry,
-                c.location as company_location,
+                COALESCE(NULLIF(c.location, ''), NULLIF(j.location, '')) as company_location,
                 (
                     SELECT json_agg(json_build_object('skill_id', s.skill_id, 'name', s.name, 'category', s.category))
                     FROM job_skills js
@@ -148,7 +161,8 @@ class JobModel {
                     WHERE js.job_id = j.job_id
                 ) as required_skills
             FROM training j
-            JOIN companies c ON j.company_id = c.company_id
+            LEFT JOIN companies c ON j.company_id = c.company_id
+            LEFT JOIN users u ON j.company_id = u.user_id
             WHERE j.job_id = $1`,
             [jobId]
         );

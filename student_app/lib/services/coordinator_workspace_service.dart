@@ -286,8 +286,7 @@ class CoordinatorWorkspaceService {
       'notification_id': _generateId('notification'),
       'source_id': chosenApplicationId,
       'title': 'Company confirmation received',
-      'message':
-          'You confirmed $chosenCompanyName for $chosenTrainingTitle.',
+      'message': 'You confirmed $chosenCompanyName for $chosenTrainingTitle.',
       'type': 'student_company_confirmed',
       'audience': 'student',
       'target_email': normalizedEmail,
@@ -880,7 +879,7 @@ class CoordinatorWorkspaceService {
     return filtered;
   }
 
-  Future<void> submitCompanyReport({
+  Future<Map<String, dynamic>> submitCompanyReport({
     required String applicationId,
     required String studentName,
     required String studentEmail,
@@ -890,43 +889,49 @@ class CoordinatorWorkspaceService {
     required String issueType,
     required String description,
   }) async {
-    final reports = await _readList(_reportsKey);
-    final now = DateTime.now().toUtc().toIso8601String();
+    try {
+      final reports = await _readList(_reportsKey);
+      final now = DateTime.now().toUtc().toIso8601String();
 
-    reports.add({
-      'id': _generateId('report'),
-      'application_id': applicationId,
-      'student_name': studentName.trim(),
-      'student_email': studentEmail.trim(),
-      'university_name': universityName.trim(),
-      'company_name': companyName.trim(),
-      'training_title': trainingTitle.trim(),
-      'issue_type': issueType.trim(),
-      'description': description.trim(),
-      'status': 'new',
-      'created_at': now,
-      'updated_at': now,
-    });
+      reports.add({
+        'id': _generateId('report'),
+        'application_id': applicationId,
+        'student_name': studentName.trim(),
+        'student_email': studentEmail.trim(),
+        'university_name': universityName.trim(),
+        'company_name': companyName.trim(),
+        'training_title': trainingTitle.trim(),
+        'issue_type': issueType.trim(),
+        'description': description.trim(),
+        'status': 'new',
+        'created_at': now,
+        'updated_at': now,
+      });
 
-    await _writeList(_reportsKey, reports);
+      await _writeList(_reportsKey, reports);
 
-    await _appendNotification({
-      'notification_id': _generateId('notification'),
-      'source_id': applicationId,
-      'title': 'Student report from company',
-      'message':
-          '$companyName reported $studentName for $trainingTitle. Issue: $issueType. $description',
-      'type': 'company_report',
-      'audience': 'university',
-      'university_name': universityName.trim(),
-      'target_email': studentEmail.trim(),
-      'company_name': companyName.trim(),
-      'created_at': now,
-      'is_read': false,
-    });
+      await _appendNotification({
+        'notification_id': _generateId('notification'),
+        'source_id': applicationId,
+        'title': 'Student report from company',
+        'message':
+            '$companyName reported $studentName for $trainingTitle. Issue: $issueType. $description',
+        'type': 'company_report',
+        'audience': 'university',
+        'university_name': universityName.trim(),
+        'target_email': studentEmail.trim(),
+        'company_name': companyName.trim(),
+        'created_at': now,
+        'is_read': false,
+      });
+
+      return {'success': true, 'message': 'Report sent successfully.'};
+    } catch (e) {
+      return {'success': false, 'message': 'Failed to send report: $e'};
+    }
   }
 
-  Future<void> submitOrganizationReport({
+  Future<Map<String, dynamic>> submitOrganizationReport({
     required String applicationId,
     required String studentName,
     required String studentEmail,

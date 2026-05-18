@@ -738,6 +738,10 @@ const register = async (req, res) => {
         }
 
         if (normalizedRole === 'company') {
+            userData.company_name =
+                `${userData.company_name || ''}`.trim() ||
+                `${userData.organization_name || ''}`.trim();
+
             const requiredFields = [
                 ['email', 'Email is required'],
                 ['password', 'Password is required'],
@@ -1042,8 +1046,30 @@ const login = async (req, res) => {
             user.auth_version
         );
         
-        // Get full profile
-        const userProfile = await UserModel.findById(user.user_id);
+        // Do not fail a valid login just because profile enrichment breaks.
+        let userProfile = null;
+        try {
+            userProfile = await UserModel.findById(user.user_id);
+        } catch (profileError) {
+            console.error('Login profile lookup error:', profileError);
+            queueAuditEvent({
+                category: 'error',
+                eventType: 'System error',
+                message: `Login profile lookup error for ${user.email}: ${profileError.message}`
+            });
+        }
+
+        if (!userProfile) {
+            userProfile = {
+                user_id: user.user_id,
+                email: user.email,
+                role: user.role,
+                full_name: user.full_name,
+                is_active: user.is_active,
+                is_verified: false,
+                profile_image_url: null
+            };
+        }
 
         queueAuditEvent({
             category: 'login',

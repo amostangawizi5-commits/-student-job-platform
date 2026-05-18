@@ -964,7 +964,7 @@ const ensureUserRoleSchema = async () => {
 const connectDB = async () => {
     try {
         const client = await pool.connect();
-        console.log('✅ PostgreSQL connected successfully');
+        console.log(' PostgreSQL connected successfully');
         client.release();
         await ensureCoreAuthSchema();
         await ensureUserRoleSchema();

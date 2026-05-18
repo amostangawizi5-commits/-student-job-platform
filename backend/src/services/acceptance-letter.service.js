@@ -557,7 +557,11 @@ async function loadBinaryFromUrl(fileUrl) {
         return null;
     }
 
-    if (path.isAbsolute(fileUrl)) {
+    if (
+        path.isAbsolute(fileUrl) &&
+        !fileUrl.startsWith('/uploads/') &&
+        !fileUrl.startsWith('/assets/')
+    ) {
         return fs.readFileSync(fileUrl);
     }
 

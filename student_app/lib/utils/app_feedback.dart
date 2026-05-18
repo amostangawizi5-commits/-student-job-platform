@@ -69,15 +69,11 @@ class AppFeedbackOverlay {
 extension AppSnackBarMessenger on ScaffoldMessengerState {
   void showAppSnackBar(SnackBar snackBar) {
     final message = _extractSnackBarMessage(snackBar.content).trim();
-    final tone = _resolveSnackBarTone(snackBar, message);
+    if (message.isEmpty) return;
 
-    AppFeedbackOverlay.show(
-      context,
-      message: message,
-      tone: tone,
-      actionLabel: snackBar.action?.label,
-      onAction: snackBar.action?.onPressed,
-    );
+    AppFeedbackOverlay.dismissCurrent();
+    hideCurrentSnackBar();
+    showSnackBar(snackBar);
   }
 }
 
@@ -91,48 +87,6 @@ String _extractSnackBarMessage(Widget content) {
   }
 
   return '';
-}
-
-AppFeedbackTone _resolveSnackBarTone(SnackBar snackBar, String message) {
-  final backgroundColor = snackBar.backgroundColor;
-  if (backgroundColor != null) {
-    if (_looksLikeErrorColor(backgroundColor)) {
-      return AppFeedbackTone.error;
-    }
-    if (_looksLikeSuccessColor(backgroundColor)) {
-      return AppFeedbackTone.success;
-    }
-  }
-
-  final normalized = message.toLowerCase();
-  const errorHints = [
-    'error',
-    'failed',
-    'fail',
-    'invalid',
-    'unable',
-    'not allowed',
-    'required',
-    'could not',
-    'cannot',
-    'can only',
-    'denied',
-    'not found',
-    'please select',
-    'please upload',
-    'try again',
-  ];
-
-  final isError = errorHints.any(normalized.contains);
-  return isError ? AppFeedbackTone.error : AppFeedbackTone.success;
-}
-
-bool _looksLikeErrorColor(Color color) {
-  return color.r > color.g && color.r > color.b;
-}
-
-bool _looksLikeSuccessColor(Color color) {
-  return color.g >= color.r && color.g >= color.b;
 }
 
 class _AppFeedbackBanner extends StatelessWidget {

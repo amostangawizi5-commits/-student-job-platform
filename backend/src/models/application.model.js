@@ -150,7 +150,7 @@ class ApplicationModel {
         const result = await query(
             `UPDATE applications 
              SET
-                status = $1,
+                status = $1::varchar,
                 company_feedback = $2,
                 response_letter_url = COALESCE($3, response_letter_url),
                 response_letter_name = COALESCE($4, response_letter_name),
@@ -159,42 +159,42 @@ class ApplicationModel {
                     ELSE response_letter_sent_at
                 END,
                 reporting_start_date = CASE
-                    WHEN $1 = 'accepted' THEN COALESCE($5::date, reporting_start_date)
+                    WHEN $1::text = 'accepted' THEN COALESCE($5::date, reporting_start_date)
                     ELSE reporting_start_date
                 END,
                 reporting_end_date = CASE
-                    WHEN $1 = 'accepted' THEN COALESCE($6::date, reporting_end_date)
+                    WHEN $1::text = 'accepted' THEN COALESCE($6::date, reporting_end_date)
                     ELSE reporting_end_date
                 END,
                 accepted_at = CASE
-                    WHEN $1 = 'accepted' THEN CURRENT_TIMESTAMP
+                    WHEN $1::text = 'accepted' THEN CURRENT_TIMESTAMP
                     ELSE accepted_at
                 END,
                 student_confirmation_status = CASE
-                    WHEN $1 = 'accepted' THEN
+                    WHEN $1::text = 'accepted' THEN
                         CASE
                             WHEN student_confirmation_status = 'confirmed' THEN 'confirmed'
                             ELSE 'pending'
                         END
-                    ELSE NULL
+                    ELSE NULL::varchar
                 END,
                 student_confirmed_at = CASE
-                    WHEN $1 = 'accepted' AND student_confirmation_status = 'confirmed'
+                    WHEN $1::text = 'accepted' AND student_confirmation_status = 'confirmed'
                         THEN student_confirmed_at
-                    WHEN $1 = 'accepted'
-                        THEN NULL
-                    ELSE NULL
+                    WHEN $1::text = 'accepted'
+                        THEN NULL::timestamp
+                    ELSE NULL::timestamp
                 END,
                 student_confirmation_expires_at = CASE
-                    WHEN $1 = 'accepted' AND student_confirmation_status = 'confirmed'
+                    WHEN $1::text = 'accepted' AND student_confirmation_status = 'confirmed'
                         THEN student_confirmation_expires_at
-                    WHEN $1 = 'accepted'
-                        THEN NULL
-                    ELSE NULL
+                    WHEN $1::text = 'accepted'
+                        THEN NULL::timestamp
+                    ELSE NULL::timestamp
                 END,
                 student_confirmation_released_at = CASE
-                    WHEN $1 = 'accepted' THEN NULL
-                    ELSE NULL
+                    WHEN $1::text = 'accepted' THEN NULL::timestamp
+                    ELSE NULL::timestamp
                 END,
                 updated_date = CURRENT_TIMESTAMP
              WHERE application_id = $7

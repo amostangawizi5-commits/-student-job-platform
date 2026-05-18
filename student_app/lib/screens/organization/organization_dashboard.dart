@@ -545,6 +545,9 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
           }
 
           Widget buildDashboardHeader() {
+            final screenWidth = MediaQuery.sizeOf(context).width;
+            final isCompactMobile = !isDesktop && screenWidth < 420;
+
             return Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
@@ -595,15 +598,16 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const Text(
+                          Text(
                             'INDUSTRIAL PREACTICAL TRAINING',
                             textAlign: TextAlign.center,
-                            maxLines: 1,
+                            maxLines: isCompactMobile ? 2 : 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: _organizationStudentPrimary,
-                              fontSize: 14,
+                              fontSize: isCompactMobile ? 11.5 : 14,
                               fontWeight: FontWeight.w800,
+                              height: isCompactMobile ? 1.15 : 1.0,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -947,6 +951,19 @@ String formatOrganizationStatus(String status, LanguageProvider language) {
       : language.tr('status_closed');
 }
 
+String organizationTrainingId(Map<String, dynamic> training) {
+  final candidates = [training['job_id'], training['training_id']];
+
+  for (final candidate in candidates) {
+    final value = '$candidate'.trim();
+    if (value.isNotEmpty && value.toLowerCase() != 'null') {
+      return value;
+    }
+  }
+
+  return '';
+}
+
 String formatTargetAudience(String target, LanguageProvider language) {
   switch (target) {
     case 'first_year':
@@ -1147,9 +1164,9 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => Posttrainingcreen(
-          jobId:
-              training?['training_id']?.toString() ??
-              training?['job_id']?.toString(),
+          jobId: training == null
+              ? null
+              : organizationTrainingId(Map<String, dynamic>.from(training)),
           initialJobData: training,
         ),
       ),
@@ -1825,7 +1842,9 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
       language,
     );
     final title = '${training['title'] ?? language.tr('untitled_training')}';
-    final trainingId = '${training['training_id']}';
+    final trainingId = organizationTrainingId(
+      Map<String, dynamic>.from(training),
+    );
     final applicants = getApplicantsCount(training['applications_count']);
     final requiredApplicants = getApplicantsCount(
       training['required_applicants'],
@@ -2118,9 +2137,9 @@ class _OrganizationtrainingScreenState
       context,
       MaterialPageRoute(
         builder: (_) => Posttrainingcreen(
-          jobId:
-              training?['training_id']?.toString() ??
-              training?['job_id']?.toString(),
+          jobId: training == null
+              ? null
+              : organizationTrainingId(Map<String, dynamic>.from(training)),
           initialJobData: training,
         ),
       ),
@@ -2280,7 +2299,9 @@ class _OrganizationtrainingScreenState
           final training = visibletraining[index];
           final title =
               '${training['title'] ?? language.tr('untitled_training')}';
-          final trainingId = '${training['training_id']}';
+          final trainingId = organizationTrainingId(
+            Map<String, dynamic>.from(training),
+          );
           final applicants = getApplicantsCount(training['applications_count']);
           final requiredApplicants = getApplicantsCount(
             training['required_applicants'],
@@ -3065,7 +3086,15 @@ class _OrganizationApplicationsTabState
     }
   }
 
-  bool get _showAllApplications => widget.trainingId == null;
+  String get _normalizedTrainingId {
+    final value = widget.trainingId?.trim() ?? '';
+    if (value.isEmpty || value.toLowerCase() == 'null') {
+      return '';
+    }
+    return value;
+  }
+
+  bool get _showAllApplications => _normalizedTrainingId.isEmpty;
 
   int _countByStatus(String status) {
     if (status == 'accepted') {
@@ -3137,7 +3166,7 @@ class _OrganizationApplicationsTabState
     try {
       final response = _showAllApplications
           ? await _apiService.getOrganizationApplications()
-          : await _apiService.getJobApplications(widget.trainingId!);
+          : await _apiService.getJobApplications(_normalizedTrainingId);
       final selections = await _workspaceService.getStudentSelections();
       final approvals = await _workspaceService.getApprovalRecords();
       final selectionsByEmail = <String, Map<String, dynamic>>{};
@@ -3425,10 +3454,16 @@ class _OrganizationApplicationsTabState
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel'),
               ),
-              ElevatedButton(
+              OutlinedButton.icon(
                 onPressed: () {
                   final description = descriptionController.text.trim();
                   if (description.isEmpty) {
+                    ScaffoldMessenger.of(context).showAppSnackBar(
+                      const SnackBar(
+                        content: Text('Please enter a description.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
                     return;
                   }
 
@@ -3437,10 +3472,22 @@ class _OrganizationApplicationsTabState
                     'description': description,
                   });
                 },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFB42318),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _organizationStudentPrimary,
+                  side: BorderSide(
+                    color: _organizationStudentPrimary.withValues(alpha: 0.35),
+                  ),
+                  backgroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                child: const Text('Send report'),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Send report'),
               ),
             ],
           ),
@@ -3457,7 +3504,7 @@ class _OrganizationApplicationsTabState
           organizationData?['organization_name']?.toString() ??
           'Organization';
 
-      await _workspaceService.submitOrganizationReport(
+      final response = await _workspaceService.submitOrganizationReport(
         applicationId: '${application['application_id'] ?? ''}',
         studentName:
             application['full_name']?.toString() ??
@@ -3472,10 +3519,13 @@ class _OrganizationApplicationsTabState
       );
 
       if (!mounted) return;
+      final success = response['success'] == true;
       ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text('Report sent to the university successfully.'),
-          backgroundColor: Colors.green,
+        SnackBar(
+          content: Text(
+            '${response['message'] ?? (success ? 'Report sent successfully.' : 'Failed to send report.')}',
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
         ),
       );
     } finally {
@@ -3598,7 +3648,6 @@ class _OrganizationApplicationsTabState
     String? reportingEndDate,
     Map<String, dynamic>? acceptanceLetterData,
   }) async {
-    final language = context.read<LanguageProvider>();
     try {
       final response = await _apiService.updateApplicationStatusWithLetter(
         applicationId: applicationId,
@@ -3613,13 +3662,15 @@ class _OrganizationApplicationsTabState
 
       if (response['success'] == true) {
         if (!mounted) return false;
+        final successMessage = switch (status) {
+          'shortlisted' => 'Student shortlisted successfully.',
+          'accepted' => 'Student accepted successfully.',
+          'rejected' => 'Student rejected successfully.',
+          _ => 'Application updated successfully.',
+        };
         ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
-            content: Text(
-              language.tr('application_updated_to', {
-                'status': formatApplicationStatus(status, language),
-              }),
-            ),
+            content: Text(successMessage),
             backgroundColor: Colors.green,
           ),
         );
@@ -3629,8 +3680,7 @@ class _OrganizationApplicationsTabState
         ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
-              response['message']?.toString() ??
-                  language.tr('failed_to_update_status'),
+              response['message']?.toString() ?? 'Failed to update status',
             ),
             backgroundColor: Colors.red,
           ),
@@ -5195,11 +5245,10 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                                       controller: _registrationNumberController,
                                       label: 'Student Registration Number',
                                       hint: 'Example: UDOM/2023/12345',
-                                      readOnly: true,
                                       validator: (value) {
                                         if (value == null ||
                                             value.trim().isEmpty) {
-                                          return 'Student registration number was not found on this application';
+                                          return 'Student registration number is required';
                                         }
                                         return null;
                                       },

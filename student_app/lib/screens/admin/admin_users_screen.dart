@@ -283,7 +283,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     if (response['success'] == true) {
       _showMessage(
-        response['message']?.toString() ?? 'Reset link sent successfully',
+        'Password reset link sent successfully.',
         backgroundColor: Colors.green,
       );
     } else {

@@ -35,7 +35,11 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedFilter != widget.selectedFilter) {
       _activeFilter = widget.selectedFilter;
-      _fetchApplications();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _fetchApplications();
+        }
+      });
     }
   }
 
@@ -382,34 +386,99 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
               ),
             ),
             const SizedBox(height: 14),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
+            Row(
               children: [
-                OutlinedButton(
-                  onPressed: () => _showApplicationDetails(app),
-                  child: const Text('View details'),
-                ),
-                if (status == 'pending')
-                  ElevatedButton(
-                    onPressed: () => _updateStatus(
-                      '${app['application_id']}',
-                      'approved',
-                      notifyUser: true,
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: OutlinedButton(
+                    onPressed: () => _showApplicationDetails(app),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 38),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    child: const Text('Approve'),
+                    child: const Text('View details'),
                   ),
-                if (status == 'pending')
-                  OutlinedButton(
-                    onPressed: () =>
-                        _updateStatus('${app['application_id']}', 'rejected'),
-                    child: const Text('Reject'),
+                ),
+                if (status == 'pending') ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _updateStatus(
+                        '${app['application_id']}',
+                        'approved',
+                        notifyUser: true,
+                      ),
+                      child: const Text('Approve'),
+                    ),
                   ),
+                ],
               ],
             ),
+            if (status == 'pending') ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () =>
+                      _updateStatus('${app['application_id']}', 'rejected'),
+                  child: const Text('Reject'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildToolbar(BuildContext context, double width) {
+    final filterChips = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildFilterChip(AdminApplicationFilter.all, 'All'),
+          const SizedBox(width: 8),
+          _buildFilterChip(AdminApplicationFilter.pending, 'Pending'),
+          const SizedBox(width: 8),
+          _buildFilterChip(AdminApplicationFilter.approved, 'Approved'),
+          const SizedBox(width: 8),
+          _buildFilterChip(AdminApplicationFilter.rejected, 'Rejected'),
+        ],
+      ),
+    );
+
+    final exportButton = OutlinedButton.icon(
+      onPressed: () => _exportApplications(_applications),
+      icon: const Icon(Icons.download_rounded, size: 18),
+      label: const Text('Export'),
+    );
+
+    if (width < 700) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          filterChips,
+          const SizedBox(height: 12),
+          Align(alignment: Alignment.centerRight, child: exportButton),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: filterChips),
+        const SizedBox(width: 12),
+        exportButton,
+      ],
     );
   }
 
@@ -421,58 +490,28 @@ class _AdminApplicationsScreenState extends State<AdminApplicationsScreen> {
 
     return RefreshIndicator(
       onRefresh: _fetchApplications,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip(AdminApplicationFilter.all, 'All'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        AdminApplicationFilter.pending,
-                        'Pending',
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        AdminApplicationFilter.approved,
-                        'Approved',
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        AdminApplicationFilter.rejected,
-                        'Rejected',
-                      ),
-                    ],
+              _buildToolbar(context, constraints.maxWidth),
+              const SizedBox(height: 16),
+              if (_applications.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                onPressed: () => _exportApplications(_applications),
-                icon: const Icon(Icons.download_rounded, size: 18),
-                label: const Text('Export'),
-              ),
+                  child: const Text('No applications found for this filter.'),
+                )
+              else
+                ..._applications.map(_buildApplicationCard),
             ],
-          ),
-          const SizedBox(height: 16),
-          if (_applications.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: const Text('No applications found for this filter.'),
-            )
-          else
-            ..._applications.map(_buildApplicationCard),
-        ],
+          );
+        },
       ),
     );
   }

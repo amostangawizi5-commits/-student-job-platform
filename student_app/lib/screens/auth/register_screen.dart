@@ -793,9 +793,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isSubmitting = true);
 
-    final userData = <String, dynamic>{
-      'role': _selectedRole == 'institution' ? 'university' : _selectedRole,
+    final registrationRole = switch (_selectedRole) {
+      'institution' => 'university',
+      'organization' => 'company',
+      _ => _selectedRole,
     };
+
+    final userData = <String, dynamic>{'role': registrationRole};
 
     if (_selectedRole == 'student') {
       final studentName = _studentDisplayName();
@@ -824,6 +828,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'phone': _phoneController.text.trim(),
       });
       userData.addAll({
+        'company_name': organizationName,
         'organization_name': organizationName,
         'organization_subtype': _selectedOrganizationSubtype,
         'government_category': _selectedGovernmentCategory,

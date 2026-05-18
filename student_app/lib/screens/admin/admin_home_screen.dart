@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/api_service.dart';
 import '../../utils/role_theme.dart';
@@ -256,11 +257,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return mapped.isEmpty ? _fallbackRecentActivities() : mapped;
   }
 
-  List<Map<String, dynamic>> _mapTopCompanies(List<Map<String, dynamic>> training) {
+  List<Map<String, dynamic>> _mapTopCompanies(
+    List<Map<String, dynamic>> training,
+  ) {
     final counts = <String, int>{};
 
     for (final job in training) {
-      final rawName = '${job['organization_name'] ?? 'Unknown organization'}'.trim();
+      final rawName = '${job['organization_name'] ?? 'Unknown organization'}'
+          .trim();
       final name = rawName.isEmpty ? 'Unknown organization' : rawName;
       counts.update(name, (count) => count + 1, ifAbsent: () => 1);
     }
@@ -275,7 +279,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               },
             )
             .toList()
-          ..sort((a, b) => (b['training'] as int).compareTo(a['training'] as int));
+          ..sort(
+            (a, b) => (b['training'] as int).compareTo(a['training'] as int),
+          );
 
     if (mapped.isEmpty) {
       return _fallbackTopCompanies();
@@ -434,6 +440,178 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return '$day/$month/${date.year}';
     } catch (_) {
       return value;
+    }
+  }
+
+  Future<void> _showCreateAdminDialog() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final formKey = GlobalKey<FormState>();
+    final fullNameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final passwordController = TextEditingController();
+    final ValueNotifier<bool> obscurePassword = ValueNotifier<bool>(true);
+
+    try {
+      final formData = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Create Admin'),
+          content: SizedBox(
+            width: 420,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: fullNameController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name',
+                        hintText: 'Enter admin full name',
+                      ),
+                      validator: (value) {
+                        if ((value ?? '').trim().isEmpty) {
+                          return 'Full name is required';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        hintText: 'Enter admin email',
+                      ),
+                      validator: (value) {
+                        final normalized = (value ?? '').trim();
+                        if (normalized.isEmpty) {
+                          return 'Email is required';
+                        }
+                        final emailPattern = RegExp(
+                          r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                        );
+                        if (!emailPattern.hasMatch(normalized)) {
+                          return 'Enter a valid email address';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        hintText: 'Optional',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: obscurePassword,
+                      builder: (context, obscure, _) {
+                        return TextFormField(
+                          controller: passwordController,
+                          obscureText: obscure,
+                          textInputAction: TextInputAction.done,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            hintText: 'At least 8 characters',
+                            suffixIcon: IconButton(
+                              onPressed: () {
+                                obscurePassword.value = !obscure;
+                              },
+                              icon: Icon(
+                                obscure
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().length < 8) {
+                              return 'Password must be at least 8 characters';
+                            }
+                            return null;
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                if (!(formKey.currentState?.validate() ?? false)) {
+                  return;
+                }
+
+                Navigator.of(dialogContext).pop({
+                  'full_name': fullNameController.text.trim(),
+                  'email': emailController.text.trim(),
+                  'phone': phoneController.text.trim(),
+                  'password': passwordController.text.trim(),
+                });
+              },
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              label: const Text('Create Admin'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || formData == null) return;
+
+      final response = await _apiService.createAdminUser(
+        fullName: formData['full_name'] ?? '',
+        email: formData['email'] ?? '',
+        password: formData['password'] ?? '',
+        phone: formData['phone'] ?? '',
+      );
+
+      if (!mounted) return;
+
+      if (response['success'] == true) {
+        messenger.showAppSnackBar(
+          SnackBar(
+            content: Text(
+              response['message']?.toString() ??
+                  'Admin account created successfully',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _fetchDashboardData();
+      } else {
+        messenger.showAppSnackBar(
+          SnackBar(
+            content: Text(
+              response['message']?.toString() ??
+                  'Failed to create admin account',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      obscurePassword.dispose();
+      fullNameController.dispose();
+      emailController.dispose();
+      phoneController.dispose();
+      passwordController.dispose();
     }
   }
 
@@ -814,24 +992,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          'Overview of all users, students, companies, universities, and training.',
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+       
+        
         if (_asInt(_stats['total_universities']) != 0) ...[
           const SizedBox(height: 6),
-          Text(
-            'Other users are university accounts: ${_asInt(_stats['total_universities'])}.',
-            style: TextStyle(
-              fontSize: 12,
-              color: _adminBrandNavy,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          
         ],
         const SizedBox(height: 14),
         _buildStatsGrid(),
@@ -865,7 +1030,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          
+
           const SizedBox(height: 16),
           if (_awardAnnouncements.isEmpty)
             Container(
@@ -884,7 +1049,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ..._awardAnnouncements.take(3).map((award) {
               final title = '${award['title'] ?? 'Award announcement'}';
               final student = '${award['student_name'] ?? 'Student'}';
-              final organization = '${award['organization_name'] ?? 'organization'}';
+              final organization =
+                  '${award['organization_name'] ?? 'organization'}';
               final createdAt = _formatRelativeTime(
                 award['award_date']?.toString() ??
                     award['created_at']?.toString(),
@@ -1004,6 +1170,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           2,
           applicationFilter: AdminApplicationFilter.pending,
         ),
+      },
+      {
+        'title': 'Create Admin',
+        'value': 'New',
+        'icon': Icons.admin_panel_settings_rounded,
+        'color': _adminBrandOrange,
+        'onTap': _showCreateAdminDialog,
       },
     ];
 
