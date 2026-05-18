@@ -7,12 +7,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   static const String _localApiBaseUrl = 'http://localhost:5000';
+  static const String _hostedApiBaseUrl =
+      'https://student-job-platform-api.onrender.com';
   static const String _androidDeviceApiBaseUrl = String.fromEnvironment(
     'ANDROID_LOCAL_API_BASE_URL',
-    defaultValue: 'http://10.104.30.219:5000',
+    defaultValue: _hostedApiBaseUrl,
   );
-  static const String _webBaseUrl = _localApiBaseUrl;
-  static const String _defaultBaseUrl = _localApiBaseUrl;
+  static const String _webBaseUrl = _hostedApiBaseUrl;
+  static const String _defaultBaseUrl = _hostedApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',

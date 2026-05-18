@@ -365,17 +365,17 @@ const ensureStudentRegistrationSchema = async () => {
     `);
 
     await pool.query(`
+        ALTER TABLE students
+        DROP CONSTRAINT IF EXISTS students_student_type_check
+    `);
+
+    await pool.query(`
         UPDATE students
         SET student_type = CASE
             WHEN student_type IS NULL OR BTRIM(student_type) = '' THEN 'current'
             WHEN LOWER(BTRIM(student_type)) = 'current' THEN 'current'
             ELSE ''
         END
-    `);
-
-    await pool.query(`
-        ALTER TABLE students
-        DROP CONSTRAINT IF EXISTS students_student_type_check
     `);
 
     await pool.query(`
