@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { query } = require('../config/database');
 const { authMiddleware, authorize } = require('../middleware/auth.middleware');
+const universityOrganizationChatController = require('../controllers/university-organization-chat.controller');
 const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
 
 const matchesAllowedUpload = (file, { allowedExtensions, allowedMimeTypes }) => {
@@ -171,6 +172,34 @@ const uploadCompanyImageAsset = async ({
     });
   }
 };
+
+router.get(
+  '/university-chats',
+  authMiddleware,
+  authorize('company'),
+  universityOrganizationChatController.getCompanyUniversityChats,
+);
+
+router.get(
+  '/university-chats/:universityUserId/messages',
+  authMiddleware,
+  authorize('company'),
+  universityOrganizationChatController.getCompanyChatMessages,
+);
+
+router.post(
+  '/university-chats/:universityUserId/messages',
+  authMiddleware,
+  authorize('company'),
+  universityOrganizationChatController.sendCompanyChatMessage,
+);
+
+router.delete(
+  '/university-chats/:universityUserId/messages/:messageId',
+  authMiddleware,
+  authorize('company'),
+  universityOrganizationChatController.deleteCompanyChatMessage,
+);
 
 router.post(
   '/logo',

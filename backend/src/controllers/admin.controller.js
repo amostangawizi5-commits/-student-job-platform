@@ -219,7 +219,6 @@ const getAllUsers = async (req, res) => {
             LEFT JOIN students s ON u.user_id = s.student_id
             LEFT JOIN universities u2 ON s.university_id = u2.university_id
             LEFT JOIN companies c ON u.user_id = c.company_id
-            WHERE u.role != 'admin'
             ORDER BY u.created_at DESC
         `);
         
@@ -261,7 +260,7 @@ const updateUserRole = async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        const allowedRoles = new Set(['student', 'organizations', 'university', 'admin']);
+        const allowedRoles = new Set(['student', 'company', 'university', 'admin']);
  
         if (!allowedRoles.has(role)) {
             return res.status(400).json({
@@ -402,21 +401,48 @@ const verifyUser = async (req, res) => {
 const suspendUser = async (req, res) => {
     try {
         const { id } = req.params;
-        await query(
+        if (id === req.user.user_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'You cannot block your own admin account.'
+            });
+        }
+
+        const result = await query(
             `UPDATE users
              SET is_active = false,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE user_id = $1`,
+             WHERE user_id = $1
+             RETURNING user_id, full_name, email, role`,
             [id]
         );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const blockedUser = result.rows[0];
+        if (blockedUser.role !== 'admin') {
+            await NotificationModel.create({
+                user_id: blockedUser.user_id,
+                title: 'Account blocked',
+                message:
+                    'Your account has been blocked by admin. Please contact support for assistance.',
+                type: 'account'
+            });
+        }
+
         await logAuditEvent({
             category: 'admin_action',
             eventType: 'User blocked',
-            message: `User ${id} was blocked`,
+            message: `${blockedUser.full_name || blockedUser.email || id} was blocked`,
             actorUserId: req.user.user_id,
             actorName: req.user.email,
-            userInvolved: id,
-            userInvolvedName: id
+            userInvolved: blockedUser.user_id,
+            userInvolvedName: blockedUser.full_name || blockedUser.email || id
         });
         res.json({ success: true, message: 'User suspended successfully' });
     } catch (error) {
@@ -429,21 +455,41 @@ const suspendUser = async (req, res) => {
 const activateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        await query(
+        const result = await query(
             `UPDATE users
              SET is_active = true,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE user_id = $1`,
+             WHERE user_id = $1
+             RETURNING user_id, full_name, email, role`,
             [id]
         );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const activatedUser = result.rows[0];
+        if (activatedUser.role !== 'admin') {
+            await NotificationModel.create({
+                user_id: activatedUser.user_id,
+                title: 'Account activated',
+                message:
+                    'Your account has been activated by admin. You can continue using the app.',
+                type: 'account'
+            });
+        }
+
         await logAuditEvent({
             category: 'admin_action',
             eventType: 'User unblocked',
-            message: `User ${id} was activated`,
+            message: `${activatedUser.full_name || activatedUser.email || id} was activated`,
             actorUserId: req.user.user_id,
             actorName: req.user.email,
-            userInvolved: id,
-            userInvolvedName: id
+            userInvolved: activatedUser.user_id,
+            userInvolvedName: activatedUser.full_name || activatedUser.email || id
         });
         res.json({ success: true, message: 'User activated successfully' });
     } catch (error) {

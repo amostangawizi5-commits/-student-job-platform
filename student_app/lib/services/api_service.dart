@@ -2459,6 +2459,213 @@ class ApiService {
     return getUniversityorganizationContacts();
   }
 
+  Future<Map<String, dynamic>> reserveUniversityCompanyJobSlot({
+    required String companyId,
+    required String jobId,
+  }) async {
+    try {
+      final response = await _request(
+        'POST',
+        '/api/university/companies/$companyId/jobs/$jobId/reserve-slot',
+        requiresAuth: true,
+      );
+      _invalidatetrainingCache();
+      return response;
+    } catch (e) {
+      _log(' Error reserving university company job slot: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> assignUniversityStudentToCompanyJob({
+    required String companyId,
+    required String jobId,
+    required String studentId,
+    required String studentEmail,
+    required String placementDepartment,
+    required String placementLocation,
+    required String companyPhone,
+    required String startDate,
+    required String endDate,
+    String coordinatorNotes = '',
+  }) async {
+    try {
+      final response = await _request(
+        'POST',
+        '/api/university/companies/$companyId/jobs/$jobId/assign-student',
+        requiresAuth: true,
+        data: {
+          'student_id': studentId,
+          'student_email': studentEmail,
+          'placement_department': placementDepartment,
+          'placement_location': placementLocation,
+          'company_phone': companyPhone,
+          'start_date': startDate,
+          'end_date': endDate,
+          'coordinator_notes': coordinatorNotes,
+        },
+      );
+      _invalidatetrainingCache();
+      return response;
+    } catch (e) {
+      _log(' Error assigning university student to company job: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getOrganizationUniversityChats() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/company/university-chats',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting organization university chats: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getOrganizationUniversityChatMessages(
+    String universityUserId,
+  ) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/company/university-chats/$universityUserId/messages',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting organization university chat messages: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> sendOrganizationUniversityChatMessage({
+    required String universityUserId,
+    required String message,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/company/university-chats/$universityUserId/messages',
+        data: {'message': message},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error sending organization university chat message: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteOrganizationUniversityChatMessage({
+    required String universityUserId,
+    required String messageId,
+  }) async {
+    try {
+      return await delete(
+        '/api/company/university-chats/$universityUserId/messages/$messageId',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error deleting organization university chat message: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getUniversityOrganizationChats() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/university/organization-chats',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting university organization chats: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getUniversityOrganizationChatMessages(
+    String companyUserId,
+  ) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/university/organization-chats/$companyUserId/messages',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting university organization chat messages: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> sendUniversityOrganizationChatMessage({
+    required String companyUserId,
+    required String message,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/university/organization-chats/$companyUserId/messages',
+        data: {'message': message},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error sending university organization chat message: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteUniversityOrganizationChatMessage({
+    required String companyUserId,
+    required String messageId,
+  }) async {
+    try {
+      return await delete(
+        '/api/university/organization-chats/$companyUserId/messages/$messageId',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error deleting university organization chat message: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateUniversityOrganizationChatMessage({
+    required String companyUserId,
+    required String messageId,
+    required String message,
+  }) async {
+    try {
+      return await put(
+        '/api/university/organization-chats/$companyUserId/messages/$messageId',
+        {'message': message},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error updating university organization chat message: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
   // ==================== GENERIC METHODS ====================
   Future<Map<String, dynamic>> get(
     String path, {

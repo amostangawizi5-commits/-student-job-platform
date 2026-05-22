@@ -66,21 +66,37 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     }
   }
 
+  String _normalizedRole(dynamic user) {
+    return '${user['role'] ?? ''}'.trim().toLowerCase();
+  }
+
+  bool _isUserBlocked(dynamic user) {
+    final raw = user['is_active'];
+    if (raw is bool) return raw == false;
+    final normalized = '$raw'.trim().toLowerCase();
+    return normalized == 'false' ||
+        normalized == '0' ||
+        normalized == 'blocked';
+  }
+
   bool _matchesFilter(dynamic user) {
-    final isActive = user['is_active'] == true;
+    final role = _normalizedRole(user);
+    final isBlocked = _isUserBlocked(user);
+    final isActive = !isBlocked;
 
     switch (_activeFilter) {
       case AdminUserFilter.active:
         return isActive;
       case AdminUserFilter.blocked:
-        return !isActive;
+        return isBlocked;
       case AdminUserFilter.registeredUsers:
-        final role = '${user['role'] ?? ''}';
         return role == 'student' || role == '';
       case AdminUserFilter.companies:
-        return '${user['role'] ?? ''}' == 'company';
+        return role == 'company';
       case AdminUserFilter.universities:
-        return '${user['role'] ?? ''}' == 'university';
+        return role == 'university';
+      case AdminUserFilter.admins:
+        return role == 'admin';
       case AdminUserFilter.all:
         return true;
     }
@@ -143,8 +159,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   }
 
   Future<void> _changeRole(dynamic user) async {
-    String selectedRole = '${user['role'] ?? 'student'}';
-    if (selectedRole == '') {
+    const roleOptions = <String>['student', 'company', 'university', 'admin'];
+
+    String selectedRole = '${user['role'] ?? 'student'}'.trim().toLowerCase();
+    if (selectedRole.isEmpty || !roleOptions.contains(selectedRole)) {
       selectedRole = 'student';
     }
 
@@ -165,6 +183,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 items: const [
                   DropdownMenuItem(value: 'student', child: Text('User')),
                   DropdownMenuItem(value: 'company', child: Text('Company')),
+                  DropdownMenuItem(
+                    value: 'university',
+                    child: Text('University'),
+                  ),
                   DropdownMenuItem(value: 'admin', child: Text('Admin')),
                 ],
                 onChanged: (value) {
@@ -305,7 +327,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           '${user['full_name'] ?? ''}',
           '${user['email'] ?? ''}',
           _roleLabel('${user['role'] ?? ''}'),
-          user['is_active'] == true ? 'Active' : 'Blocked',
+          _isUserBlocked(user) ? 'Blocked' : 'Active',
           '${user['phone'] ?? ''}',
         ];
       }).toList(),
@@ -314,7 +336,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   Future<void> _showUserDetails(dynamic user) async {
     final role = '${user['role'] ?? ''}';
-    final isActive = user['is_active'] == true;
+    final isActive = !_isUserBlocked(user);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -434,32 +456,64 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     );
   }
 
-  Widget _buildSummaryCard(String title, String value, Color color) {
+  Widget _buildSummaryFilterCard({
+    required String title,
+    required String value,
+    required Color color,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(18),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: selected
+                  ? color.withValues(alpha: 0.16)
+                  : color.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: selected
+                    ? color.withValues(alpha: 0.7)
+                    : color.withValues(alpha: 0.18),
+                width: selected ? 1.4 : 1,
+              ),
             ),
-            const SizedBox(height: 4),
-            Text(title, style: TextStyle(color: Colors.grey.shade700)),
-          ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildUserCard(dynamic user) {
-    final role = '${user['role'] ?? 'student'}';
-    final isActive = user['is_active'] == true;
+    final role = _normalizedRole(user).isEmpty
+        ? 'student'
+        : _normalizedRole(user);
+    final isActive = !_isUserBlocked(user);
     final roleColor = _roleColor(role);
     final statusColor = isActive ? const Color(0xFF059669) : Colors.red;
 
@@ -605,12 +659,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         .where(_matchesFilter)
         .where(_matchesSearch)
         .toList();
-    final activeCount = _users
-        .where((user) => user['is_active'] == true)
-        .length;
-    final blockedCount = _users
-        .where((user) => user['is_active'] != true)
-        .length;
+    final activeCount = _users.where((user) => !_isUserBlocked(user)).length;
+    final blockedCount = _users.where(_isUserBlocked).length;
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -623,19 +673,32 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         children: [
           Row(
             children: [
-              _buildSummaryCard(
-                'All users',
-                '${_users.length}',
-                const Color(0xFF2563EB),
+              _buildSummaryFilterCard(
+                title: 'All users',
+                value: '${_users.length}',
+                color: const Color(0xFF2563EB),
+                selected: _activeFilter == AdminUserFilter.all,
+                onTap: () =>
+                    setState(() => _activeFilter = AdminUserFilter.all),
               ),
               const SizedBox(width: 12),
-              _buildSummaryCard(
-                'Active',
-                '$activeCount',
-                const Color(0xFF059669),
+              _buildSummaryFilterCard(
+                title: 'Active',
+                value: '$activeCount',
+                color: const Color(0xFF059669),
+                selected: _activeFilter == AdminUserFilter.active,
+                onTap: () =>
+                    setState(() => _activeFilter = AdminUserFilter.active),
               ),
               const SizedBox(width: 12),
-              _buildSummaryCard('Blocked', '$blockedCount', Colors.red),
+              _buildSummaryFilterCard(
+                title: 'Blocked',
+                value: '$blockedCount',
+                color: Colors.red,
+                selected: _activeFilter == AdminUserFilter.blocked,
+                onTap: () =>
+                    setState(() => _activeFilter = AdminUserFilter.blocked),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -681,6 +744,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         AdminUserFilter.universities,
                         'Universities',
                       ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(AdminUserFilter.admins, 'Admins'),
                     ],
                   ),
                 ),

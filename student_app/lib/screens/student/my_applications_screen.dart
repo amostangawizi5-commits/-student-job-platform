@@ -78,6 +78,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       case 'pending':
       case 'review':
       case 'accepted':
+      case 'confirmed':
       case 'rejected':
         return filter.toLowerCase();
       default:
@@ -97,6 +98,89 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     return status == _selectedFilter;
   }
 
+  bool _sameEmail(Object? left, Object? right) {
+    return '$left'.trim().toLowerCase() == '$right'.trim().toLowerCase();
+  }
+
+  Map<String, dynamic> _mapManualPlacementToApplication(
+    Map<String, dynamic> placement,
+  ) {
+    final placementId = '${placement['id'] ?? ''}'.trim();
+    final assignmentId = placementId.isEmpty
+        ? 'manual-placement'
+        : 'manual-placement:$placementId';
+
+    return {
+      'application_id': assignmentId,
+      'status': 'confirmed',
+      'title': '${placement['training_title'] ?? 'Placement'}',
+      'job_title': '${placement['training_title'] ?? 'Placement'}',
+      'company_name': '${placement['company_name'] ?? 'Organization'}',
+      'location': '${placement['placement_location'] ?? ''}',
+      'applied_date':
+          '${placement['assigned_at'] ?? placement['updated_at'] ?? placement['created_at'] ?? ''}',
+      'assigned_at':
+          '${placement['assigned_at'] ?? placement['updated_at'] ?? placement['created_at'] ?? ''}',
+      'company_feedback': '${placement['coordinator_notes'] ?? ''}',
+      'reporting_start_date': '${placement['start_date'] ?? ''}',
+      'reporting_end_date': '${placement['end_date'] ?? ''}',
+      'university_name': '${placement['university_name'] ?? ''}',
+      'is_manual_assignment': true,
+      'coordinator_name': '${placement['coordinator_name'] ?? ''}',
+      'student_phone': '${placement['student_phone'] ?? ''}',
+      'registration_number': '${placement['registration_number'] ?? ''}',
+      'placement_location': '${placement['placement_location'] ?? ''}',
+      'placement_department': '${placement['placement_department'] ?? ''}',
+      'company_phone': '${placement['company_phone'] ?? ''}',
+    };
+  }
+
+  Map<String, dynamic>? _buildConfirmedSelectionFromPlacement(
+    List<Map<String, dynamic>> placements,
+  ) {
+    if (placements.isEmpty) return null;
+    final latest = placements.first;
+    return {
+      'selected_application_id':
+          'manual-placement:${latest['id'] ?? 'placement'}',
+      'selected_company_name': '${latest['company_name'] ?? 'Organization'}',
+      'selected_training_title': '${latest['training_title'] ?? 'Placement'}',
+      'confirmed_at':
+          '${latest['assigned_at'] ?? latest['updated_at'] ?? latest['created_at'] ?? ''}',
+    };
+  }
+
+  List<dynamic> _mergeStudentApplications({
+    required List<dynamic> apiApplications,
+    required List<Map<String, dynamic>> manualPlacements,
+  }) {
+    final merged = <dynamic>[
+      ...apiApplications,
+      ...manualPlacements.map(_mapManualPlacementToApplication),
+    ];
+
+    DateTime parseSortDate(dynamic item) {
+      if (item is Map<String, dynamic>) {
+        final candidates = [
+          item['assigned_at'],
+          item['updated_at'],
+          item['applied_date'],
+          item['created_at'],
+        ];
+        for (final candidate in candidates) {
+          final parsed = DateTime.tryParse('${candidate ?? ''}');
+          if (parsed != null) return parsed;
+        }
+      }
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    merged.sort(
+      (left, right) => parseSortDate(right).compareTo(parseSortDate(left)),
+    );
+    return merged;
+  }
+
   List<dynamic> _getFilteredApplications() {
     return _applications.where((app) {
       if (app is! Map<String, dynamic>) return false;
@@ -114,6 +198,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return 'Review';
       case 'accepted':
         return 'Accepted';
+      case 'confirmed':
+        return 'Confirmed';
       case 'rejected':
         return 'Rejected';
       default:
@@ -128,6 +214,11 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     try {
       final response = await _apiService.getMyApplications();
       final approvalRecords = await _workspaceService.getApprovalRecords();
+      final manualPlacements = (await _workspaceService.getManualPlacements())
+          .where(
+            (placement) => _sameEmail(placement['student_email'], studentEmail),
+          )
+          .toList(growable: false);
       final selection = await _workspaceService.getStudentSelection(
         studentEmail,
       );
@@ -142,30 +233,52 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       }
       debugPrint('Applications: ${response['data']?.length ?? 0}');
       if (response['success']) {
-        final applications = (response['data'] as List<dynamic>? ?? const []);
+        final apiApplications =
+            (response['data'] as List<dynamic>? ?? const []);
+        final applications = _mergeStudentApplications(
+          apiApplications: apiApplications,
+          manualPlacements: manualPlacements,
+        );
         if (!mounted) return;
         setState(() {
           _applications = applications;
-          _confirmedSelection = selection;
+          _confirmedSelection =
+              selection ??
+              _buildConfirmedSelectionFromPlacement(manualPlacements);
           _approvalByApplicationId = approvalsByApplicationId;
           _isLoading = false;
         });
       } else {
         if (!mounted) return;
         setState(() {
-          _confirmedSelection = selection;
+          _applications = manualPlacements
+              .map(_mapManualPlacementToApplication)
+              .toList();
+          _confirmedSelection =
+              selection ??
+              _buildConfirmedSelectionFromPlacement(manualPlacements);
           _approvalByApplicationId = approvalsByApplicationId;
           _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('Error: $e');
+      final manualPlacements = (await _workspaceService.getManualPlacements())
+          .where(
+            (placement) => _sameEmail(placement['student_email'], studentEmail),
+          )
+          .toList(growable: false);
       final selection = await _workspaceService.getStudentSelection(
         studentEmail,
       );
       if (!mounted) return;
       setState(() {
-        _confirmedSelection = selection;
+        _applications = manualPlacements
+            .map(_mapManualPlacementToApplication)
+            .toList();
+        _confirmedSelection =
+            selection ??
+            _buildConfirmedSelectionFromPlacement(manualPlacements);
         _isLoading = false;
       });
     }
@@ -337,6 +450,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return Colors.purple;
       case 'accepted':
         return Colors.green;
+      case 'confirmed':
+        return const Color(0xFF0F766E);
       case 'rejected':
         return Colors.red;
       default:
@@ -354,6 +469,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return ' Scheduled';
       case 'accepted':
         return 'Accepted';
+      case 'confirmed':
+        return 'Confirmed';
       case 'rejected':
         return 'Rejected';
       default:
@@ -371,6 +488,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return Icons.calendar_today;
       case 'accepted':
         return Icons.check_circle;
+      case 'confirmed':
+        return Icons.verified_rounded;
       case 'rejected':
         return Icons.cancel;
       default:
@@ -978,6 +1097,18 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                     label: 'Location',
                     value: app['location']?.toString() ?? '',
                   ),
+                  if ((app['placement_department'] ?? '').toString().isNotEmpty)
+                    infoTile(
+                      icon: Icons.apartment_outlined,
+                      label: 'Placement Department',
+                      value: app['placement_department']?.toString() ?? '',
+                    ),
+                  if ((app['company_phone'] ?? '').toString().isNotEmpty)
+                    infoTile(
+                      icon: Icons.call_outlined,
+                      label: 'Placement Phone',
+                      value: app['company_phone']?.toString() ?? '',
+                    ),
                   infoTile(
                     icon: Icons.work_outline_rounded,
                     label: 'Training Type',
@@ -1249,6 +1380,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
               PopupMenuItem(value: 'pending', child: Text('Pending')),
               PopupMenuItem(value: 'review', child: Text('Review')),
               PopupMenuItem(value: 'accepted', child: Text('Accepted')),
+              PopupMenuItem(value: 'confirmed', child: Text('Confirmed')),
               PopupMenuItem(value: 'rejected', child: Text('Rejected')),
             ],
           ),
@@ -1280,6 +1412,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           final title = '${app['title'] ?? app['job_title'] ?? 'Placement'}';
           final companyName = '${app['company_name'] ?? 'Unknown Company'}';
           final location = '${app['location'] ?? 'Location not specified'}';
+          final isManualAssignment = app['is_manual_assignment'] == true;
 
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
@@ -1449,6 +1582,25 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                               size: 22,
                             )
                           : null,
+                    ),
+                  ] else if (status == 'confirmed' && isManualAssignment) ...[
+                    const SizedBox(height: 12),
+                    _buildApplicationActionTile(
+                      icon: Icons.verified_rounded,
+                      label: 'Confirmed Placement',
+                      subtitle:
+                          '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
+                      backgroundColor: const Color(0xFFEAF7F2),
+                      borderColor: const Color(0xFF7BC9A8),
+                      iconColor: const Color(0xFF0F766E),
+                      textColor: const Color(0xFF0F766E),
+                      onTap: null,
+                      showChevron: false,
+                      trailing: const Icon(
+                        Icons.assignment_turned_in_rounded,
+                        color: Color(0xFF0F766E),
+                        size: 22,
+                      ),
                     ),
                   ],
                 ],

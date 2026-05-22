@@ -187,7 +187,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
         inactiveIcon: Icons.home_outlined,
       ),
       _StudentNavigationItem(
-        label: language.tr('browse'),
+        label: language.tr('Apply'),
         icon: Icons.search_rounded,
         inactiveIcon: Icons.search_outlined,
       ),
@@ -317,7 +317,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
         content: Text(message),
         backgroundColor: backgroundColor,
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        width: 280,
         duration: const Duration(seconds: 2),
       ),
     );

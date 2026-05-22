@@ -158,7 +158,7 @@ class _CompanyReportsBoardState extends State<CompanyReportsBoard> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${report['company_name'] ?? 'Company'} • ${report['job_title'] ?? 'Placement'}',
+                              '${report['company_name'] ?? 'Company'} • ${report['training_title'] ?? report['job_title'] ?? 'Placement'}',
                               style: const TextStyle(color: Color(0xFF5F7288)),
                             ),
                           ],
@@ -196,7 +196,10 @@ class _CompanyReportsBoardState extends State<CompanyReportsBoard> {
                     spacing: 16,
                     runSpacing: 10,
                     children: [
-                      Text('Student email: ${report['student_email'] ?? '-'}'),
+                      Text('Student phone: ${report['student_phone'] ?? '-'}'),
+                      Text(
+                        'Registration number: ${report['registration_number'] ?? '-'}',
+                      ),
                       Text(
                         'Received: ${_formatDate('${report['created_at'] ?? ''}')}',
                       ),

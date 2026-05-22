@@ -225,6 +225,9 @@ class ApplicationModel {
                     s.university_id,
                     u2.name as university_name,
                     u2.name as college_name,
+                    up_match.university_user_id,
+                    up_match.coordinator_name,
+                    up_match.coordinator_phone,
                     j.title as job_title,
                     c.company_name,
                     c.location AS company_location,
@@ -253,6 +256,32 @@ class ApplicationModel {
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON s.student_id = u.user_id
              LEFT JOIN universities u2 ON s.university_id = u2.university_id
+             LEFT JOIN LATERAL (
+                SELECT
+                    up.user_id AS university_user_id,
+                    up.coordinator_name,
+                    up.coordinator_phone
+                FROM university_profiles up
+                LEFT JOIN universities profile_uni
+                    ON profile_uni.university_id = up.university_id
+                WHERE (
+                    up.university_id IS NOT NULL
+                    AND s.university_id IS NOT NULL
+                    AND up.university_id = s.university_id
+                )
+                   OR LOWER(TRIM(COALESCE(profile_uni.name, up.college_name, ''))) =
+                      LOWER(TRIM(COALESCE(u2.name, '')))
+                ORDER BY
+                    CASE
+                        WHEN up.university_id IS NOT NULL
+                             AND s.university_id IS NOT NULL
+                             AND up.university_id = s.university_id
+                            THEN 0
+                        ELSE 1
+                    END,
+                    up.user_id
+                LIMIT 1
+             ) up_match ON true
              LEFT JOIN awards aw ON aw.application_id = a.application_id
              WHERE a.job_id = $1
              ORDER BY a.applied_date DESC`,
@@ -274,6 +303,9 @@ class ApplicationModel {
                     s.university_id,
                     u2.name as university_name,
                     u2.name as college_name,
+                    up_match.university_user_id,
+                    up_match.coordinator_name,
+                    up_match.coordinator_phone,
                     j.title as job_title,
                     c.company_name,
                     c.location AS company_location,
@@ -302,6 +334,32 @@ class ApplicationModel {
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON s.student_id = u.user_id
              LEFT JOIN universities u2 ON s.university_id = u2.university_id
+             LEFT JOIN LATERAL (
+                SELECT
+                    up.user_id AS university_user_id,
+                    up.coordinator_name,
+                    up.coordinator_phone
+                FROM university_profiles up
+                LEFT JOIN universities profile_uni
+                    ON profile_uni.university_id = up.university_id
+                WHERE (
+                    up.university_id IS NOT NULL
+                    AND s.university_id IS NOT NULL
+                    AND up.university_id = s.university_id
+                )
+                   OR LOWER(TRIM(COALESCE(profile_uni.name, up.college_name, ''))) =
+                      LOWER(TRIM(COALESCE(u2.name, '')))
+                ORDER BY
+                    CASE
+                        WHEN up.university_id IS NOT NULL
+                             AND s.university_id IS NOT NULL
+                             AND up.university_id = s.university_id
+                            THEN 0
+                        ELSE 1
+                    END,
+                    up.user_id
+                LIMIT 1
+             ) up_match ON true
              LEFT JOIN awards aw ON aw.application_id = a.application_id
              WHERE j.company_id = $1
              ORDER BY a.applied_date DESC`,

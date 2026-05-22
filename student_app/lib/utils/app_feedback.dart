@@ -73,8 +73,43 @@ extension AppSnackBarMessenger on ScaffoldMessengerState {
 
     AppFeedbackOverlay.dismissCurrent();
     hideCurrentSnackBar();
-    showSnackBar(snackBar);
+    showSnackBar(_buildCompactSnackBar(context, snackBar));
   }
+}
+
+SnackBar _buildCompactSnackBar(BuildContext context, SnackBar snackBar) {
+  final mediaQuery = MediaQuery.maybeOf(context);
+  final screenWidth = mediaQuery?.size.width ?? 360;
+  final availableWidth = screenWidth - 24;
+  final compactWidth = availableWidth >= 280 ? 280.0 : null;
+  final resolvedWidth =
+      snackBar.width ??
+      (snackBar.margin == null ? compactWidth : null);
+  final resolvedMargin =
+      resolvedWidth == null
+          ? (snackBar.margin ??
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 12))
+          : null;
+
+  return SnackBar(
+    content: snackBar.content,
+    backgroundColor: snackBar.backgroundColor,
+    elevation: snackBar.elevation,
+    padding: snackBar.padding,
+    margin: resolvedMargin,
+    width: resolvedWidth,
+    shape: snackBar.shape,
+    hitTestBehavior: snackBar.hitTestBehavior,
+    behavior: SnackBarBehavior.floating,
+    action: snackBar.action,
+    duration: snackBar.duration,
+    animation: snackBar.animation,
+    onVisible: snackBar.onVisible,
+    dismissDirection: snackBar.dismissDirection,
+    clipBehavior: snackBar.clipBehavior,
+    showCloseIcon: snackBar.showCloseIcon,
+    closeIconColor: snackBar.closeIconColor,
+  );
 }
 
 String _extractSnackBarMessage(Widget content) {

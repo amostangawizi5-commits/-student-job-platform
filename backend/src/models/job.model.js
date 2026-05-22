@@ -1,6 +1,14 @@
 // src/models/job.model.js
 const { query } = require('../config/database');
 
+function getQueryRunner(db = query) {
+    if (typeof db === 'function') {
+        return db;
+    }
+
+    return db.query.bind(db);
+}
+
 class JobModel {
     static async closeExpiredtraining() {
         await query(
@@ -93,7 +101,9 @@ class JobModel {
         if (filters.view === 'history') {
             sql += ` AND j.status = 'closed'`;
         } else {
-            sql += ` AND j.status = 'open' AND j.application_deadline >= CURRENT_TIMESTAMP`;
+            sql += ` AND j.status = 'open'
+                     AND COALESCE(j.required_applicants, 0) > 0
+                     AND j.application_deadline >= CURRENT_TIMESTAMP`;
         }
 
         // Add filters
@@ -189,6 +199,7 @@ class JobModel {
             FROM training j
             WHERE j.company_id = $1
               AND j.status = 'open'
+              AND COALESCE(j.required_applicants, 0) > 0
               AND j.application_deadline >= CURRENT_TIMESTAMP
             ORDER BY j.created_at DESC`,
             [companyId]
@@ -229,6 +240,63 @@ class JobModel {
             [jobId]
         );
         return result.rows[0];
+    }
+
+    static async getByCompanyIds(companyIds = []) {
+        if (!Array.isArray(companyIds) || companyIds.length === 0) {
+            return [];
+        }
+
+        await this.closeExpiredtraining();
+
+        const result = await query(
+            `SELECT
+                j.job_id,
+                j.company_id,
+                j.title,
+                j.location,
+                j.type,
+                j.status,
+                j.required_applicants,
+                j.application_deadline,
+                j.created_at
+             FROM training j
+             WHERE j.company_id = ANY($1::uuid[])
+             ORDER BY
+                CASE
+                    WHEN j.status = 'open' THEN 0
+                    ELSE 1
+                END,
+                LOWER(COALESCE(j.title, '')),
+                j.created_at DESC`,
+            [companyIds]
+        );
+
+        return result.rows;
+    }
+
+    static async reserveSlot(jobId, companyId, db = query) {
+        const runQuery = getQueryRunner(db);
+        const result = await runQuery(
+            `UPDATE training
+             SET
+                required_applicants = GREATEST(COALESCE(required_applicants, 0) - 1, 0),
+                status = CASE
+                    WHEN COALESCE(required_applicants, 0) - 1 <= 0
+                        THEN 'closed'
+                    ELSE status
+                END,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE job_id = $1
+               AND company_id = $2
+               AND status = 'open'
+               AND application_deadline >= CURRENT_TIMESTAMP
+               AND COALESCE(required_applicants, 0) > 0
+             RETURNING job_id, company_id, title, required_applicants, status, application_deadline`,
+            [jobId, companyId]
+        );
+
+        return result.rows[0] || null;
     }
 
     // Get job skills

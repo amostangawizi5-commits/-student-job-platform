@@ -62,6 +62,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   bool _hasError = false;
   String _errorMessage = '';
   String _dashboardSearchQuery = '';
+  String _organizationChatQuery = '';
 
   List<Map<String, dynamic>> _universityStudentsData = const [];
   List<Map<String, dynamic>> _wallOfFame = const [];
@@ -71,6 +72,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   List<Map<String, dynamic>> _manualPlacementRecords = const [];
   List<Map<String, dynamic>> _companyContacts = const [];
   List<Map<String, dynamic>> _companyReports = const [];
+  List<Map<String, dynamic>> _chatOrganizations = const [];
   List<Map<String, dynamic>> get _awardedStudents {
     final awarded = <Map<String, dynamic>>[];
     awarded.addAll(_recentAnnouncements);
@@ -254,7 +256,10 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         ),
         'student_id': trackedStudent?['student_id'] ?? record['student_id'],
         'company_name': _stringValue(record['company_name']),
-        'title': _stringValue(record['job_title']),
+        'title': _stringValue(
+          record['training_title'],
+          fallback: _stringValue(record['job_title']),
+        ),
         'coordinator_status': 'assigned',
         'confirmed_at': record['assigned_at'] ?? record['updated_at'],
         'assigned_at': record['assigned_at'],
@@ -267,6 +272,11 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           record['placement_location'],
           fallback: '',
         ),
+        'placement_department': _stringValue(
+          record['placement_department'],
+          fallback: '',
+        ),
+        'company_phone': _stringValue(record['company_phone'], fallback: ''),
         'coordinator_notes': _stringValue(
           record['coordinator_notes'],
           fallback: '',
@@ -420,6 +430,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _CoordinatorStudentRecord(
           studentName: _stringValue(student['student_name']),
           email: _stringValue(student['email'], fallback: ''),
+          phone: _stringValue(student['phone'], fallback: ''),
           department: department,
           registrationNumber: registrationNumber,
           companyName: placed == null
@@ -431,7 +442,9 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           startDate: placed == null
               ? null
               : _formatDashboardDate(
-                  placed['confirmed_at'] ?? placed['created_at'],
+                  placed['start_date'] ??
+                      placed['confirmed_at'] ??
+                      placed['created_at'],
                 ),
           lastFeedback: lastFeedbackDate == null
               ? null
@@ -534,6 +547,51 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     return null;
   }
 
+  Map<String, dynamic>? _findCompanyContactById(String? companyId) {
+    final normalizedCompanyId = _normalizedText(companyId);
+    if (normalizedCompanyId.isEmpty) return null;
+
+    for (final company in _companyContacts) {
+      if (_normalizedText(company['company_id']) == normalizedCompanyId) {
+        return company;
+      }
+    }
+
+    return null;
+  }
+
+  List<Map<String, dynamic>> _companyAssignableJobs(
+    Map<String, dynamic>? company,
+  ) {
+    if (company == null) return const [];
+    final jobs = _mapList(company['open_jobs']);
+    jobs.sort((left, right) {
+      final leftStatus = _stringValue(
+        left['status'],
+        fallback: 'open',
+      ).toLowerCase();
+      final rightStatus = _stringValue(
+        right['status'],
+        fallback: 'open',
+      ).toLowerCase();
+      if (leftStatus != rightStatus) {
+        if (leftStatus == 'open') return -1;
+        if (rightStatus == 'open') return 1;
+      }
+      final leftTitle = _stringValue(left['title'], fallback: '').toLowerCase();
+      final rightTitle = _stringValue(
+        right['title'],
+        fallback: '',
+      ).toLowerCase();
+      return leftTitle.compareTo(rightTitle);
+    });
+    return jobs;
+  }
+
+  String _buildAssignableJobLabel(Map<String, dynamic> job) {
+    return _stringValue(job['title'], fallback: 'Job');
+  }
+
   List<_CoordinatorDeadlineItem> get _dashboardDeadlines {
     final items = <_CoordinatorDeadlineItem>[];
     final seen = <String>{};
@@ -569,6 +627,23 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         continue;
       }
       uniqueCompanies[normalizedName] = company;
+    }
+
+    for (final organization in _chatOrganizations) {
+      final organizationName = _stringValue(
+        organization['company_name'],
+        fallback: _stringValue(organization['organization_name'], fallback: ''),
+      );
+      final normalizedName = _normalizedText(organizationName);
+      if (normalizedName.isEmpty ||
+          uniqueCompanies.containsKey(normalizedName)) {
+        continue;
+      }
+      uniqueCompanies[normalizedName] = {
+        ...organization,
+        'company_name': organizationName,
+        'organization_name': organizationName,
+      };
     }
 
     final companies = uniqueCompanies.values.toList(growable: false);
@@ -642,6 +717,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _workspaceService.getReportsForUniversity(
           universityName: _universityName,
         ),
+        _apiService.getUniversityOrganizationChats(),
       ]);
 
       final awardsHomeResponse = responses[0] as Map<String, dynamic>;
@@ -653,6 +729,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       final manualPlacementRecordsResponse =
           responses[5] as List<Map<String, dynamic>>;
       final companyReportsResponse = responses[6] as List<Map<String, dynamic>>;
+      final chatOrganizationsResponse = responses[7] as Map<String, dynamic>;
 
       final awardsHomeData = awardsHomeResponse['data'] is Map<String, dynamic>
           ? awardsHomeResponse['data'] as Map<String, dynamic>
@@ -661,6 +738,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           ? studentsResponse['data'] as Map<String, dynamic>
           : const <String, dynamic>{};
       final companyContacts = _mapList(companyContactsResponse['data']);
+      final chatOrganizations = _mapList(chatOrganizationsResponse['data']);
 
       setState(() {
         _universityStudentsData = _mapList(studentsData['students']);
@@ -671,6 +749,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _approvalRecords = approvalRecordsResponse;
         _manualPlacementRecords = manualPlacementRecordsResponse;
         _companyReports = companyReportsResponse;
+        _chatOrganizations = chatOrganizations;
         _isLoading = false;
         _hasError =
             awardsHomeResponse['success'] != true &&
@@ -773,6 +852,13 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}';
+  }
+
+  int? _placementDurationInDays(DateTime? start, DateTime? end) {
+    if (start == null || end == null) return null;
+    final normalizedStart = DateTime(start.year, start.month, start.day);
+    final normalizedEnd = DateTime(end.year, end.month, end.day);
+    return normalizedEnd.difference(normalizedStart).inDays;
   }
 
   String _normalizedText(dynamic value) {
@@ -1195,11 +1281,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                     style: const TextStyle(color: _universityMuted),
                   ),
                   const SizedBox(height: 20),
+                  infoTile('Phone', record.phone),
                   infoTile('Email', record.email),
-                  infoTile(
-                    'Phone',
-                    _stringValue(trackedStudent?['phone'], fallback: ''),
-                  ),
                   infoTile('Program', record.department),
                   infoTile('Registration No.', record.registrationNumber),
                   infoTile(
@@ -1228,6 +1311,23 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                     'Location',
                     _stringValue(
                       placement?['placement_location'],
+                      fallback: '',
+                    ),
+                  ),
+                  infoTile(
+                    'Placement Department',
+                    _stringValue(
+                      placement?['placement_department'],
+                      fallback: '',
+                    ),
+                  ),
+                  infoTile(
+                    'Placement Phone',
+                    _stringValue(
+                      placement?['company_phone'] ??
+                          _findCompanyContact(
+                            placement?['company_name'],
+                          )?['phone'],
                       fallback: '',
                     ),
                   ),
@@ -1440,7 +1540,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                             const SizedBox(height: 4),
                                             Text(
                                               _stringValue(
-                                                report['job_title'],
+                                                report['training_title'] ??
+                                                    report['job_title'],
                                                 fallback: 'Placement',
                                               ),
                                               style: const TextStyle(
@@ -1491,7 +1592,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                     runSpacing: 10,
                                     children: [
                                       Text(
-                                        'Student email: ${_stringValue(report['student_email'], fallback: '-')}',
+                                        'Student phone: ${_stringValue(report['student_phone'], fallback: '-')}',
+                                        style: const TextStyle(
+                                          color: _universityMuted,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Registration number: ${_stringValue(report['registration_number'], fallback: '-')}',
                                         style: const TextStyle(
                                           color: _universityMuted,
                                           fontWeight: FontWeight.w600,
@@ -1622,6 +1730,27 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                     if (industry.isNotEmpty)
                       infoRow(Icons.apartment_outlined, 'Industry', industry),
                     const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          final chatCompany = company == null
+                              ? <String, dynamic>{
+                                  'company_name': normalizedName,
+                                }
+                              : {...company, 'company_name': normalizedName};
+                          _showOrganizationChatSheet(chatCompany);
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _coordinatorPrimary,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.chat_bubble_outline_rounded),
+                        label: const Text('Open chat'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
@@ -1645,6 +1774,796 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         );
       },
     );
+  }
+
+  String _chatCompanyId(Map<String, dynamic> company) {
+    return _stringValue(
+      company['company_user_id'] ?? company['company_id'],
+      fallback: '',
+    );
+  }
+
+  String _organizationChatPreview(Map<String, dynamic> conversation) {
+    final latest = _stringValue(
+      conversation['latest_message'],
+      fallback: '',
+    ).trim();
+    if (latest.isEmpty) {
+      return 'No messages yet. Start the conversation.';
+    }
+    return latest;
+  }
+
+  Future<void> _showOrganizationChatSheet(Map<String, dynamic> company) async {
+    final normalizedName = _stringValue(
+      company['company_name'],
+      fallback: '',
+    ).trim();
+    final companyUserId = _chatCompanyId(company);
+    if (normalizedName.isEmpty) {
+      _showCoordinatorMessage(
+        'Organization name is not available for chat.',
+        backgroundColor: _coordinatorDanger,
+      );
+      return;
+    }
+    if (companyUserId.isEmpty) {
+      _showCoordinatorMessage(
+        'Organization chat target is missing.',
+        backgroundColor: _coordinatorDanger,
+      );
+      return;
+    }
+
+    final initialResponse = await _apiService
+        .getUniversityOrganizationChatMessages(companyUserId);
+    final initialMessages = _mapList(initialResponse['data']);
+    if (!mounted) return;
+
+    final composerController = TextEditingController();
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) {
+          var messages = List<Map<String, dynamic>>.from(initialMessages);
+          var isSending = false;
+          var isBulkDeleting = false;
+          String? deletingMessageId;
+          String? editingMessageId;
+          String? composerError;
+          var selectedMessageIds = <String>{};
+
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              String formatChatTime(String value) {
+                final date = DateTime.tryParse(value)?.toLocal();
+                if (date == null) return '';
+                final hour = date.hour.toString().padLeft(2, '0');
+                final minute = date.minute.toString().padLeft(2, '0');
+                return '$hour:$minute';
+              }
+
+              String messageIdOf(Map<String, dynamic> item) =>
+                  _stringValue(item['id'], fallback: '');
+
+              bool isOwnMessage(Map<String, dynamic> item) =>
+                  '${item['sender_role'] ?? ''}'.trim().toLowerCase() ==
+                  'university';
+
+              void cancelEditing() {
+                composerController.clear();
+                setModalState(() {
+                  editingMessageId = null;
+                  composerError = null;
+                });
+              }
+
+              Future<void> startEditingMessage(
+                Map<String, dynamic> item,
+              ) async {
+                final messageId = messageIdOf(item);
+                if (messageId.isEmpty ||
+                    isBulkDeleting ||
+                    deletingMessageId != null) {
+                  return;
+                }
+
+                composerController.text = _stringValue(
+                  item['message'],
+                  fallback: '',
+                );
+                composerController.selection = TextSelection.fromPosition(
+                  TextPosition(offset: composerController.text.length),
+                );
+                setModalState(() {
+                  editingMessageId = messageId;
+                  composerError = null;
+                  selectedMessageIds = <String>{};
+                });
+              }
+
+              void toggleMessageSelection(Map<String, dynamic> item) {
+                final messageId = messageIdOf(item);
+                if (messageId.isEmpty || isBulkDeleting) {
+                  return;
+                }
+
+                setModalState(() {
+                  final nextSelected = <String>{...selectedMessageIds};
+                  if (!nextSelected.add(messageId)) {
+                    nextSelected.remove(messageId);
+                  }
+                  selectedMessageIds = nextSelected;
+                  if (editingMessageId != null &&
+                      selectedMessageIds.contains(editingMessageId)) {
+                    editingMessageId = null;
+                    composerController.clear();
+                  }
+                });
+              }
+
+              void selectAllOwnMessages() {
+                final ownMessageIds = messages
+                    .where(isOwnMessage)
+                    .map(messageIdOf)
+                    .where((id) => id.isNotEmpty)
+                    .toSet();
+                setModalState(() {
+                  selectedMessageIds = ownMessageIds;
+                  if (selectedMessageIds.contains(editingMessageId)) {
+                    editingMessageId = null;
+                    composerController.clear();
+                  }
+                });
+              }
+
+              Future<void> sendMessage() async {
+                final text = composerController.text.trim();
+                if (isSending || isBulkDeleting) return;
+                if (text.isEmpty) {
+                  setModalState(() => composerError = 'Write a message first.');
+                  return;
+                }
+
+                setModalState(() {
+                  composerError = null;
+                  isSending = true;
+                });
+                final response = editingMessageId == null
+                    ? await _apiService.sendUniversityOrganizationChatMessage(
+                        companyUserId: companyUserId,
+                        message: text,
+                      )
+                    : await _apiService.updateUniversityOrganizationChatMessage(
+                        companyUserId: companyUserId,
+                        messageId: editingMessageId!,
+                        message: text,
+                      );
+
+                if (!sheetContext.mounted) return;
+
+                if (response['success'] == true &&
+                    response['data'] is Map<String, dynamic>) {
+                  composerController.clear();
+                  setModalState(() {
+                    if (editingMessageId == null) {
+                      messages = [
+                        ...messages,
+                        Map<String, dynamic>.from(response['data']),
+                      ];
+                    } else {
+                      final updatedMessage = Map<String, dynamic>.from(
+                        response['data'],
+                      );
+                      messages = messages
+                          .map(
+                            (message) =>
+                                messageIdOf(message) == editingMessageId
+                                ? updatedMessage
+                                : message,
+                          )
+                          .toList(growable: false);
+                    }
+                    isSending = false;
+                    editingMessageId = null;
+                  });
+                } else {
+                  setModalState(() => isSending = false);
+                  ScaffoldMessenger.of(sheetContext).showAppSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '${response['message'] ?? 'Failed to save message.'}',
+                      ),
+                      backgroundColor: _coordinatorDanger,
+                    ),
+                  );
+                }
+              }
+
+              Future<bool> deleteMessage(
+                Map<String, dynamic> item, {
+                bool requireConfirmation = true,
+              }) async {
+                final messageId = messageIdOf(item);
+                if (messageId.isEmpty || deletingMessageId != null) {
+                  return false;
+                }
+
+                if (requireConfirmation) {
+                  final confirmed = await showDialog<bool>(
+                    context: sheetContext,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Delete message?'),
+                      content: const Text(
+                        'This will remove the message from your chat only.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _coordinatorDanger,
+                          ),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirmed != true) return false;
+                }
+
+                setModalState(() => deletingMessageId = messageId);
+                final response = await _apiService
+                    .deleteUniversityOrganizationChatMessage(
+                      companyUserId: companyUserId,
+                      messageId: messageId,
+                    );
+
+                if (!sheetContext.mounted) return false;
+
+                if (response['success'] == true) {
+                  setModalState(() {
+                    messages = messages
+                        .where((message) => messageIdOf(message) != messageId)
+                        .toList(growable: false);
+                    selectedMessageIds.remove(messageId);
+                    if (editingMessageId == messageId) {
+                      editingMessageId = null;
+                      composerController.clear();
+                    }
+                    deletingMessageId = null;
+                  });
+                  if (requireConfirmation) {
+                    ScaffoldMessenger.of(sheetContext).showAppSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '${response['message'] ?? 'Message deleted successfully.'}',
+                        ),
+                        backgroundColor: _coordinatorSuccess,
+                      ),
+                    );
+                  }
+                  return true;
+                } else {
+                  setModalState(() => deletingMessageId = null);
+                  if (requireConfirmation) {
+                    ScaffoldMessenger.of(sheetContext).showAppSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '${response['message'] ?? 'Failed to delete message.'}',
+                        ),
+                        backgroundColor: _coordinatorDanger,
+                      ),
+                    );
+                  }
+                  return false;
+                }
+              }
+
+              Future<void> deleteSelectedMessages() async {
+                if (selectedMessageIds.isEmpty || isBulkDeleting) return;
+
+                final confirmed = await showDialog<bool>(
+                  context: sheetContext,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Delete selected messages?'),
+                    content: Text(
+                      'Delete ${selectedMessageIds.length} selected message(s)?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(context).pop(true),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _coordinatorDanger,
+                        ),
+                        child: const Text('Delete all'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (confirmed != true) return;
+
+                final idsToDelete = selectedMessageIds.toList(growable: false);
+                setModalState(() => isBulkDeleting = true);
+
+                var deletedCount = 0;
+                for (final messageId in idsToDelete) {
+                  Map<String, dynamic>? target;
+                  for (final message in messages) {
+                    if (messageIdOf(message) == messageId) {
+                      target = message;
+                      break;
+                    }
+                  }
+                  if (target == null) continue;
+
+                  final didDelete = await deleteMessage(
+                    target,
+                    requireConfirmation: false,
+                  );
+                  if (didDelete) {
+                    deletedCount++;
+                  }
+                }
+
+                if (!sheetContext.mounted) return;
+
+                setModalState(() {
+                  isBulkDeleting = false;
+                  selectedMessageIds = <String>{};
+                });
+
+                final allDeleted = deletedCount == idsToDelete.length;
+                ScaffoldMessenger.of(sheetContext).showAppSnackBar(
+                  SnackBar(
+                    content: Text(
+                      allDeleted
+                          ? 'Selected messages deleted successfully.'
+                          : 'Deleted $deletedCount of ${idsToDelete.length} selected messages.',
+                    ),
+                    backgroundColor: allDeleted
+                        ? _coordinatorSuccess
+                        : _coordinatorWarning,
+                  ),
+                );
+              }
+
+              Future<void> showMessageActions(Map<String, dynamic> item) async {
+                if (isBulkDeleting) return;
+
+                final action = await showModalBottomSheet<String>(
+                  context: sheetContext,
+                  builder: (context) => SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isOwnMessage(item))
+                          ListTile(
+                            leading: const Icon(Icons.edit_outlined),
+                            title: const Text('Edit message'),
+                            onTap: () => Navigator.of(context).pop('edit'),
+                          ),
+                        ListTile(
+                          leading: const Icon(Icons.checklist_rounded),
+                          title: const Text('Select message'),
+                          onTap: () => Navigator.of(context).pop('select'),
+                        ),
+                        ListTile(
+                          leading: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: _coordinatorDanger,
+                          ),
+                          title: const Text('Delete message'),
+                          textColor: _coordinatorDanger,
+                          iconColor: _coordinatorDanger,
+                          onTap: () => Navigator.of(context).pop('delete'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+
+                if (action == 'edit') {
+                  await startEditingMessage(item);
+                } else if (action == 'select') {
+                  toggleMessageSelection(item);
+                } else if (action == 'delete') {
+                  await deleteMessage(item);
+                }
+              }
+
+              return SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    clipBehavior: Clip.antiAlias,
+                    child: SizedBox(
+                      height: math.min(
+                        MediaQuery.of(context).size.height * 0.72,
+                        math.max(
+                          320,
+                          MediaQuery.of(context).size.height -
+                              MediaQuery.of(context).viewInsets.bottom -
+                              32,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Chat with $normalizedName',
+                                        style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w800,
+                                          color: _universityInk,
+                                        ),
+                                      ),
+                                    ),
+                                    if (selectedMessageIds.isNotEmpty)
+                                      TextButton(
+                                        onPressed: isBulkDeleting
+                                            ? null
+                                            : () {
+                                                setModalState(() {
+                                                  selectedMessageIds =
+                                                      <String>{};
+                                                });
+                                              },
+                                        child: const Text('Clear'),
+                                      ),
+                                  ],
+                                ),
+                                if (selectedMessageIds.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: [
+                                        OutlinedButton.icon(
+                                          onPressed: isBulkDeleting
+                                              ? null
+                                              : selectAllOwnMessages,
+                                          icon: const Icon(
+                                            Icons.select_all_rounded,
+                                          ),
+                                          label: const Text('Select all'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        FilledButton.icon(
+                                          onPressed: isBulkDeleting
+                                              ? null
+                                              : deleteSelectedMessages,
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: _coordinatorDanger,
+                                          ),
+                                          icon: isBulkDeleting
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: Colors.white,
+                                                      ),
+                                                )
+                                              : const Icon(
+                                                  Icons.delete_sweep_rounded,
+                                                ),
+                                          label: Text(
+                                            'Delete (${selectedMessageIds.length})',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Use this chat for direct coordination with the organization.',
+                                  style: TextStyle(color: _universityMuted),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  selectedMessageIds.isNotEmpty
+                                      ? 'Tap your messages to add or remove them from selection.'
+                                      : 'Tap any message to remove it from your chat. Your own messages can also be edited.',
+                                  style: const TextStyle(
+                                    color: _universityMuted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          Expanded(
+                            child: messages.isEmpty
+                                ? const Center(
+                                    child: Text(
+                                      'No messages yet. Start the conversation.',
+                                      style: TextStyle(color: _universityMuted),
+                                    ),
+                                  )
+                                : ListView.builder(
+                                    padding: const EdgeInsets.all(16),
+                                    itemCount: messages.length,
+                                    itemBuilder: (context, index) {
+                                      final item = messages[index];
+                                      final isMine =
+                                          '${item['sender_role'] ?? ''}'
+                                              .trim()
+                                              .toLowerCase() ==
+                                          'university';
+                                      final bubbleColor = isMine
+                                          ? _coordinatorPrimary
+                                          : _universityMist;
+                                      final textColor = isMine
+                                          ? Colors.white
+                                          : _universityInk;
+                                      final messageId = messageIdOf(item);
+                                      final isSelected = selectedMessageIds
+                                          .contains(messageId);
+
+                                      final isDeleting =
+                                          deletingMessageId == item['id'];
+
+                                      return Align(
+                                        alignment: isMine
+                                            ? Alignment.centerRight
+                                            : Alignment.centerLeft,
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            if (selectedMessageIds.isNotEmpty) {
+                                              toggleMessageSelection(item);
+                                            } else {
+                                              showMessageActions(item);
+                                            }
+                                          },
+                                          onLongPress: () =>
+                                              toggleMessageSelection(item),
+                                          child: Container(
+                                            margin: const EdgeInsets.only(
+                                              bottom: 12,
+                                            ),
+                                            constraints: const BoxConstraints(
+                                              maxWidth: 360,
+                                            ),
+                                            padding: const EdgeInsets.all(14),
+                                            decoration: BoxDecoration(
+                                              color: bubbleColor,
+                                              border: isSelected
+                                                  ? Border.all(
+                                                      color:
+                                                          _coordinatorSecondary,
+                                                      width: 2,
+                                                    )
+                                                  : null,
+                                              borderRadius:
+                                                  BorderRadius.circular(18),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                if (isSelected) ...[
+                                                  Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        Icons
+                                                            .check_circle_rounded,
+                                                        color: textColor,
+                                                        size: 16,
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        'Selected',
+                                                        style: TextStyle(
+                                                          color: textColor,
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                ],
+                                                Text(
+                                                  '${item['message'] ?? ''}',
+                                                  style: TextStyle(
+                                                    color: textColor,
+                                                    height: 1.4,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      formatChatTime(
+                                                        '${item['created_at'] ?? ''}',
+                                                      ),
+                                                      style: TextStyle(
+                                                        color: textColor
+                                                            .withValues(
+                                                              alpha: 0.82,
+                                                            ),
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                    if (_stringValue(
+                                                      item['edited_at'],
+                                                      fallback: '',
+                                                    ).isNotEmpty) ...[
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        'edited',
+                                                        style: TextStyle(
+                                                          color: textColor
+                                                              .withValues(
+                                                                alpha: 0.82,
+                                                              ),
+                                                          fontSize: 11,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    if (isDeleting) ...[
+                                                      const SizedBox(width: 8),
+                                                      SizedBox(
+                                                        width: 12,
+                                                        height: 12,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                              color: textColor,
+                                                            ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                          const Divider(height: 1),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                            child: Column(
+                              children: [
+                                if (editingMessageId != null)
+                                  Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _universityMist,
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: _universityBorder,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Expanded(
+                                          child: Text(
+                                            'Editing selected message',
+                                            style: TextStyle(
+                                              color: _coordinatorPrimary,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: isSending
+                                              ? null
+                                              : cancelEditing,
+                                          child: const Text('Cancel'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: composerController,
+                                        minLines: 1,
+                                        maxLines: 4,
+                                        onChanged: (_) {
+                                          if (composerError != null) {
+                                            setModalState(
+                                              () => composerError = null,
+                                            );
+                                          }
+                                        },
+                                        decoration: InputDecoration(
+                                          hintText: editingMessageId == null
+                                              ? 'Write a message'
+                                              : 'Edit message',
+                                          errorText: composerError,
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    FilledButton(
+                                      onPressed: isSending || isBulkDeleting
+                                          ? null
+                                          : sendMessage,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: _coordinatorPrimary,
+                                      ),
+                                      child: isSending
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : Icon(
+                                              editingMessageId == null
+                                                  ? Icons.send_rounded
+                                                  : Icons.check_rounded,
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      composerController.dispose();
+      if (mounted) {
+        await _loadUniversityPortal();
+      }
+    }
   }
 
   Future<void> _showActiveCompaniesSheet() async {
@@ -1891,6 +2810,246 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
   }
 
+  Widget _buildOrganizationChatsCard() {
+    final hasConversations = _chatOrganizations.isNotEmpty;
+    final sourceItems = hasConversations
+        ? _chatOrganizations
+        : _activeCompanies;
+    final normalizedQuery = _normalizedText(_organizationChatQuery);
+    final filteredItems = sourceItems
+        .where((company) {
+          if (normalizedQuery.isEmpty) return true;
+          final target = _normalizedText(
+            '${company['company_name'] ?? ''} '
+            '${company['phone'] ?? ''} '
+            '${company['latest_message'] ?? ''}',
+          );
+          return target.contains(normalizedQuery);
+        })
+        .toList(growable: false);
+    final items = filteredItems.take(8).toList();
+
+    if (sourceItems.isEmpty) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: _activeCompanies.isNotEmpty ? _showActiveCompaniesSheet : null,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _universityBorder),
+          ),
+          child: Column(
+            children: [
+              const Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 42,
+                color: _universityMuted,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'No organization chats yet',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: _universityInk,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _activeCompanies.isNotEmpty
+                    ? 'Tap here to choose an organization and start chatting.'
+                    : 'Active organizations will appear here for direct messaging.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _universityMuted),
+              ),
+              if (_activeCompanies.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _showActiveCompaniesSheet,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _coordinatorPrimary,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.forum_outlined),
+                  label: const Text('Browse organizations'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          onChanged: (value) =>
+              setState(() => _organizationChatQuery = value.trim()),
+          decoration: InputDecoration(
+            hintText: 'Search company to chat with',
+            prefixIcon: const Icon(Icons.search_rounded),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: _universityBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: _universityBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: _coordinatorPrimary),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (filteredItems.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _universityBorder),
+            ),
+            child: const Text(
+              'No company matches your search yet.',
+              style: TextStyle(
+                color: _universityMuted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          )
+        else
+          ...items.map((company) {
+            final companyName = _stringValue(
+              company['company_name'],
+              fallback: 'Organization',
+            );
+            final phone = _stringValue(company['phone'], fallback: '');
+            final preview = hasConversations
+                ? _organizationChatPreview(company)
+                : 'Tap below to start chatting with this organization.';
+            final latestMessageAt = _stringValue(
+              company['latest_message_at'],
+              fallback: '',
+            );
+            final latestMessageLabel = latestMessageAt.isEmpty
+                ? ''
+                : _formatDashboardDate(latestMessageAt);
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: _universityBorder),
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => _showOrganizationChatSheet(company),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _universityMist,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.apartment_rounded,
+                          color: _coordinatorPrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              companyName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: _universityInk,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              preview,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _universityMuted,
+                                fontWeight: FontWeight.w500,
+                                height: 1.35,
+                              ),
+                            ),
+                            if (phone.isNotEmpty ||
+                                latestMessageLabel.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 4,
+                                children: [
+                                  if (phone.isNotEmpty)
+                                    Text(
+                                      phone,
+                                      style: const TextStyle(
+                                        color: _coordinatorPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  if (latestMessageLabel.isNotEmpty)
+                                    Text(
+                                      latestMessageLabel,
+                                      style: const TextStyle(
+                                        color: _universityMuted,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        onPressed: () => _showOrganizationChatSheet(company),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _coordinatorPrimary,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: Icon(
+                          hasConversations
+                              ? Icons.chat_bubble_outline_rounded
+                              : Icons.add_comment_outlined,
+                        ),
+                        label: Text(
+                          hasConversations ? 'Open chat' : 'Start chat',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
   Future<void> _openPlacementAssignmentDialog(
     _CoordinatorStudentRecord record,
   ) async {
@@ -1905,9 +3064,50 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     final companyController = TextEditingController();
     final roleController = TextEditingController();
     final locationController = TextEditingController();
+    final placementDepartmentController = TextEditingController();
+    final phoneController = TextEditingController();
     final notesController = TextEditingController();
     DateTime? startDate;
     DateTime? endDate;
+    bool isRegisteredCompany = true;
+    String? selectedCompanyId;
+    String? selectedJobId;
+    bool isSaving = false;
+
+    void syncCompanyContactDetails({
+      Map<String, dynamic>? company,
+      Map<String, dynamic>? job,
+      bool overwriteRole = false,
+    }) {
+      final selectedCompany =
+          company ??
+          _findCompanyContactById(selectedCompanyId) ??
+          _findCompanyContact(companyController.text.trim());
+      if (selectedCompany == null) return;
+
+      companyController.text = _stringValue(
+        selectedCompany['company_name'],
+        fallback: companyController.text,
+      );
+
+      final selectedJob = job;
+      final preferredLocation = _stringValue(
+        selectedJob?['location'],
+        fallback: _stringValue(selectedCompany['location'], fallback: ''),
+      );
+      if (locationController.text.trim().isEmpty || isRegisteredCompany) {
+        locationController.text = preferredLocation;
+      }
+      if (phoneController.text.trim().isEmpty || isRegisteredCompany) {
+        phoneController.text = _stringValue(
+          selectedCompany['phone'],
+          fallback: '',
+        );
+      }
+      if (overwriteRole && selectedJob != null) {
+        roleController.text = _stringValue(selectedJob['title'], fallback: '');
+      }
+    }
 
     try {
       final saved = await showDialog<bool>(
@@ -1915,6 +3115,24 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         builder: (dialogContext) {
           return StatefulBuilder(
             builder: (context, setModalState) {
+              Future<void> showInvalidDurationAlert(int durationDays) async {
+                await showDialog<void>(
+                  context: dialogContext,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Invalid placement duration'),
+                    content: Text(
+                      'Selected duration is $durationDays days. Placement duration must be at least 56 days.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
               Future<void> pickDate(bool isStart) async {
                 final picked = await showDatePicker(
                   context: context,
@@ -1925,22 +3143,74 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                   lastDate: DateTime(2100),
                 );
                 if (picked == null) return;
+                int? invalidDurationDays;
                 setModalState(() {
                   if (isStart) {
                     startDate = picked;
                     if (endDate != null && endDate!.isBefore(picked)) {
-                      endDate = picked;
+                      endDate = null;
                     }
                   } else {
                     endDate = picked;
                   }
+                  final durationDays = _placementDurationInDays(
+                    startDate,
+                    endDate,
+                  );
+                  if (durationDays != null && durationDays < 56) {
+                    invalidDurationDays = durationDays;
+                  }
                 });
+                if (invalidDurationDays != null) {
+                  await showInvalidDurationAlert(invalidDurationDays!);
+                }
               }
 
               String formatPickedDate(DateTime? value) {
                 if (value == null) return 'Select date';
                 return _formatDashboardDate(value.toIso8601String());
               }
+
+              final placementDurationDays = _placementDurationInDays(
+                startDate,
+                endDate,
+              );
+              final hasInvalidDuration =
+                  placementDurationDays != null && placementDurationDays < 56;
+              final registeredCompanies =
+                  _companyContacts
+                      .where((company) => company['is_registered'] != false)
+                      .toList(growable: false)
+                    ..sort((left, right) {
+                      final leftName = _stringValue(
+                        left['company_name'],
+                        fallback: '',
+                      ).toLowerCase();
+                      final rightName = _stringValue(
+                        right['company_name'],
+                        fallback: '',
+                      ).toLowerCase();
+                      return leftName.compareTo(rightName);
+                    });
+              final selectedRegisteredCompany = _findCompanyContactById(
+                selectedCompanyId,
+              );
+              final availableJobs = _companyAssignableJobs(
+                selectedRegisteredCompany,
+              );
+              Map<String, dynamic>? findJobById(
+                List<Map<String, dynamic>> jobs,
+                String? jobId,
+              ) {
+                for (final job in jobs) {
+                  if (_stringValue(job['job_id'], fallback: '') == jobId) {
+                    return job;
+                  }
+                }
+                return null;
+              }
+
+              final selectedJob = findJobById(availableJobs, selectedJobId);
 
               return AlertDialog(
                 shape: RoundedRectangleBorder(
@@ -1953,24 +3223,231 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        TextField(
-                          controller: companyController,
+                        DropdownButtonFormField<bool>(
+                          key: ValueKey(
+                            'company-registration-$isRegisteredCompany',
+                          ),
+                          initialValue: isRegisteredCompany,
+                          isExpanded: true,
                           decoration: const InputDecoration(
-                            labelText: 'Company / Organization',
+                            labelText: 'Company Registration',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: true,
+                              child: Text('Registered Company'),
+                            ),
+                            DropdownMenuItem(
+                              value: false,
+                              child: Text('Unregistered Company'),
+                            ),
+                          ],
+                          onChanged: isSaving
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setModalState(() {
+                                    isRegisteredCompany = value;
+                                    selectedCompanyId = null;
+                                    selectedJobId = null;
+                                    companyController.clear();
+                                    roleController.clear();
+                                    locationController.clear();
+                                    phoneController.clear();
+                                  });
+                                },
+                        ),
+                        const SizedBox(height: 12),
+                        if (isRegisteredCompany) ...[
+                          DropdownButtonFormField<String>(
+                            key: ValueKey(
+                              'registered-company-$isRegisteredCompany-$selectedCompanyId-${registeredCompanies.length}',
+                            ),
+                            initialValue: selectedRegisteredCompany == null
+                                ? null
+                                : _stringValue(
+                                    selectedRegisteredCompany['company_id'],
+                                    fallback: '',
+                                  ),
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Registered Company',
+                            ),
+                            items: registeredCompanies
+                                .map(
+                                  (company) => DropdownMenuItem<String>(
+                                    value: _stringValue(
+                                      company['company_id'],
+                                      fallback: '',
+                                    ),
+                                    child: Text(
+                                      _stringValue(
+                                        company['company_name'],
+                                        fallback: 'Company',
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged: isSaving
+                                ? null
+                                : (value) {
+                                    setModalState(() {
+                                      selectedCompanyId = value;
+                                      selectedJobId = null;
+                                      roleController.clear();
+                                      syncCompanyContactDetails(
+                                        company: _findCompanyContactById(value),
+                                      );
+                                    });
+                                  },
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _universityMist,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: _universityBorder),
+                            ),
+                            child: Text(
+                              selectedRegisteredCompany == null
+                                  ? 'Select a registered company first to see its jobs.'
+                                  : availableJobs.isEmpty
+                                  ? 'This registered company has no jobs listed yet.'
+                                  : 'Available Job dropdown now shows jobs from the selected company only.',
+                              style: const TextStyle(
+                                color: _coordinatorPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            key: ValueKey(
+                              'available-job-$selectedCompanyId-$selectedJobId-${availableJobs.length}',
+                            ),
+                            initialValue: selectedJob == null
+                                ? null
+                                : _stringValue(
+                                    selectedJob['job_id'],
+                                    fallback: '',
+                                  ),
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              labelText: 'Available Job',
+                              hintText: selectedRegisteredCompany == null
+                                  ? 'Select company first'
+                                  : 'Select a job from this company',
+                            ),
+                            items: availableJobs
+                                .map(
+                                  (job) => DropdownMenuItem<String>(
+                                    value: _stringValue(
+                                      job['job_id'],
+                                      fallback: '',
+                                    ),
+                                    child: Text(
+                                      _buildAssignableJobLabel(job),
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged:
+                                isSaving ||
+                                    selectedRegisteredCompany == null ||
+                                    availableJobs.isEmpty
+                                ? null
+                                : (value) {
+                                    final matchedJob = findJobById(
+                                      availableJobs,
+                                      value,
+                                    );
+                                    setModalState(() {
+                                      selectedJobId = value;
+                                      syncCompanyContactDetails(
+                                        company: selectedRegisteredCompany,
+                                        job: matchedJob,
+                                        overwriteRole: true,
+                                      );
+                                    });
+                                  },
+                          ),
+                        ] else ...[
+                          TextField(
+                            controller: companyController,
+                            decoration: const InputDecoration(
+                              labelText: 'Company / Organization',
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: locationController,
+                          decoration: const InputDecoration(
+                            labelText: 'Placement Location',
                           ),
                         ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: roleController,
-                          decoration: const InputDecoration(
-                            labelText: 'Role / Position',
+                          readOnly: isRegisteredCompany,
+                          decoration: InputDecoration(
+                            labelText: isRegisteredCompany
+                                ? 'Selected Job Title'
+                                : 'Position',
+                            hintText: isRegisteredCompany
+                                ? 'Choose a company job above'
+                                : null,
                           ),
                         ),
                         const SizedBox(height: 12),
                         TextField(
-                          controller: locationController,
+                          controller: placementDepartmentController,
                           decoration: const InputDecoration(
-                            labelText: 'Placement Location / Department',
+                            labelText: 'Placement Department',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: phoneController,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'Contact Number',
+                            hintText: 'Phone number for the organization',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: hasInvalidDuration
+                                ? _coordinatorDanger.withValues(alpha: 0.08)
+                                : _universityMist,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: hasInvalidDuration
+                                  ? _coordinatorDanger.withValues(alpha: 0.22)
+                                  : _universityBorder,
+                            ),
+                          ),
+                          child: Text(
+                            placementDurationDays == null
+                                ? 'Placement duration must be at least 8 weeks (56 days).'
+                                : hasInvalidDuration
+                                ? 'Selected duration is $placementDurationDays days. Minimum required is 56 days.'
+                                : 'Selected duration is $placementDurationDays days.',
+                            style: TextStyle(
+                              color: hasInvalidDuration
+                                  ? _coordinatorDanger
+                                  : _coordinatorPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -2012,56 +3489,178 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    onPressed: isSaving
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(false),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
-                    onPressed: () async {
-                      final companyName = companyController.text.trim();
-                      final role = roleController.text.trim();
-                      final location = locationController.text.trim();
-                      if (companyName.isEmpty ||
-                          role.isEmpty ||
-                          location.isEmpty) {
-                        _showCoordinatorMessage(
-                          'Company, role, and placement location are required.',
-                          backgroundColor: _coordinatorDanger,
-                        );
-                        return;
-                      }
+                    onPressed: isSaving
+                        ? null
+                        : () async {
+                            final selectedCompany = isRegisteredCompany
+                                ? _findCompanyContactById(selectedCompanyId)
+                                : null;
+                            final availableCompanyJobs = _companyAssignableJobs(
+                              selectedCompany,
+                            );
+                            final selectedCompanyJob = findJobById(
+                              availableCompanyJobs,
+                              selectedJobId,
+                            );
 
-                      await _workspaceService.assignManualPlacement(
-                        studentName: record.studentName,
-                        studentEmail: record.email,
-                        studentPhone: _stringValue(
-                          _findTrackedStudent(
-                            email: record.email,
-                            studentName: record.studentName,
-                          )?['phone'],
-                          fallback: '',
-                        ),
-                        registrationNumber: record.registrationNumber,
-                        department: record.department,
-                        studentId: _stringValue(
-                          _findTrackedStudent(
-                            email: record.email,
-                            studentName: record.studentName,
-                          )?['student_id'],
-                          fallback: '',
-                        ),
-                        universityName: _universityName,
-                        coordinatorName: _coordinatorName,
-                        companyName: companyName,
-                        trainingTitle: role,
-                        placementLocation: location,
-                        startDate: startDate?.toIso8601String(),
-                        endDate: endDate?.toIso8601String(),
-                        coordinatorNotes: notesController.text.trim(),
-                      );
-                      if (!dialogContext.mounted) return;
-                      Navigator.of(dialogContext).pop(true);
-                    },
-                    child: const Text('Save Assignment'),
+                            if (isRegisteredCompany) {
+                              if (selectedCompany == null) {
+                                _showCoordinatorMessage(
+                                  'Select a registered company first.',
+                                  backgroundColor: _coordinatorDanger,
+                                );
+                                return;
+                              }
+                              if (selectedCompanyJob == null) {
+                                _showCoordinatorMessage(
+                                  'Select a job for the registered company.',
+                                  backgroundColor: _coordinatorDanger,
+                                );
+                                return;
+                              }
+                              syncCompanyContactDetails(
+                                company: selectedCompany,
+                                job: selectedCompanyJob,
+                                overwriteRole: true,
+                              );
+                            } else {
+                              syncCompanyContactDetails();
+                            }
+
+                            final companyName = companyController.text.trim();
+                            final role = roleController.text.trim();
+                            final location = locationController.text.trim();
+                            final companyPhone = phoneController.text.trim();
+                            final companyId = _stringValue(
+                              selectedCompany?['company_id'],
+                              fallback: '',
+                            );
+                            final jobId = _stringValue(
+                              selectedCompanyJob?['job_id'],
+                              fallback: '',
+                            );
+                            final placementDepartment =
+                                placementDepartmentController.text.trim();
+                            final trackedStudent = _findTrackedStudent(
+                              email: record.email,
+                              studentName: record.studentName,
+                            );
+                            final studentId = _stringValue(
+                              trackedStudent?['student_id'],
+                              fallback: '',
+                            );
+                            final studentPhone = _stringValue(
+                              trackedStudent?['phone'],
+                              fallback: '',
+                            );
+                            if (companyName.isEmpty ||
+                                role.isEmpty ||
+                                location.isEmpty ||
+                                placementDepartment.isEmpty ||
+                                companyPhone.isEmpty) {
+                              _showCoordinatorMessage(
+                                'Company, role, placement location, placement department, and telephone number are required.',
+                                backgroundColor: _coordinatorDanger,
+                              );
+                              return;
+                            }
+                            if (startDate == null || endDate == null) {
+                              _showCoordinatorMessage(
+                                'Start date and end date are required for the 8-week placement.',
+                                backgroundColor: _coordinatorDanger,
+                              );
+                              return;
+                            }
+                            final placementDurationDays =
+                                _placementDurationInDays(startDate, endDate);
+                            if (placementDurationDays == null ||
+                                placementDurationDays < 56) {
+                              _showCoordinatorMessage(
+                                'Start date and end date must be at least 56 days apart.',
+                                backgroundColor: _coordinatorDanger,
+                              );
+                              return;
+                            }
+
+                            setModalState(() => isSaving = true);
+
+                            try {
+                              if (isRegisteredCompany &&
+                                  companyId.isNotEmpty &&
+                                  jobId.isNotEmpty) {
+                                final assignmentResponse = await _apiService
+                                    .assignUniversityStudentToCompanyJob(
+                                      companyId: companyId,
+                                      jobId: jobId,
+                                      studentId: studentId,
+                                      studentEmail: record.email,
+                                      placementDepartment: placementDepartment,
+                                      placementLocation: location,
+                                      companyPhone: companyPhone,
+                                      startDate: startDate!.toIso8601String(),
+                                      endDate: endDate!.toIso8601String(),
+                                      coordinatorNotes: notesController.text
+                                          .trim(),
+                                    );
+                                if (assignmentResponse['success'] != true) {
+                                  if (!mounted) return;
+                                  setModalState(() => isSaving = false);
+                                  _showCoordinatorMessage(
+                                    '${assignmentResponse['message'] ?? 'Unable to save assignment.'}',
+                                    backgroundColor: _coordinatorDanger,
+                                  );
+                                  return;
+                                }
+                              }
+
+                              await _workspaceService.assignManualPlacement(
+                                studentName: record.studentName,
+                                studentEmail: record.email,
+                                studentPhone: studentPhone,
+                                registrationNumber: record.registrationNumber,
+                                department: record.department,
+                                studentId: studentId,
+                                universityName: _universityName,
+                                coordinatorName: _coordinatorName,
+                                companyName: companyName,
+                                trainingTitle: role,
+                                placementLocation: location,
+                                placementDepartment: placementDepartment,
+                                companyPhone: companyPhone,
+                                startDate: startDate?.toIso8601String(),
+                                endDate: endDate?.toIso8601String(),
+                                coordinatorNotes: notesController.text.trim(),
+                              );
+                              if (!dialogContext.mounted) return;
+                              Navigator.of(dialogContext).pop(true);
+                            } catch (e) {
+                              if (!mounted) return;
+                              setModalState(() => isSaving = false);
+                              _showCoordinatorMessage(
+                                ApiService.normalizeErrorMessage(
+                                  e,
+                                  fallback: 'Unable to save assignment.',
+                                ),
+                                backgroundColor: _coordinatorDanger,
+                              );
+                            }
+                          },
+                    child: isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Save Assignment'),
                   ),
                 ],
               );
@@ -2074,7 +3673,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         await _loadUniversityPortal();
         if (!mounted) return;
         _showCoordinatorMessage(
-          'Placement assigned successfully and student notification sent.',
+          'Placement assigned successfully, acceptance letter generated, and notifications sent.',
           backgroundColor: _coordinatorSuccess,
         );
       }
@@ -2082,6 +3681,8 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       companyController.dispose();
       roleController.dispose();
       locationController.dispose();
+      placementDepartmentController.dispose();
+      phoneController.dispose();
       notesController.dispose();
     }
   }
@@ -2308,6 +3909,34 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         icon: Icons.apartment_rounded,
         color: _coordinatorSecondary,
         onTap: _showActiveCompaniesSheet,
+      ),
+      _MetricCardData(
+        title: 'Org Chats',
+        value: '${_chatOrganizations.length}',
+        caption: 'Open university chats',
+        icon: Icons.chat_bubble_outline_rounded,
+        color: _universityTeal,
+        onTap: () {
+          if (_selectedIndex != 2) {
+            _openNavigationItem(2);
+            return;
+          }
+
+          if (_chatOrganizations.length == 1) {
+            _showOrganizationChatSheet(_chatOrganizations.first);
+            return;
+          }
+
+          if (_chatOrganizations.isNotEmpty || _activeCompanies.isNotEmpty) {
+            _showActiveCompaniesSheet();
+            return;
+          }
+
+          _showCoordinatorMessage(
+            'No organizations are available for chat right now.',
+            backgroundColor: _coordinatorDanger,
+          );
+        },
       ),
     ];
 
@@ -3014,7 +4643,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       minWidth: 1180,
       columns: const [
         DataColumn(label: Text('Student')),
-        DataColumn(label: Text('Email')),
+        DataColumn(label: Text('Phone')),
         DataColumn(label: Text('Program')),
         DataColumn(label: Text('Registration Number')),
         DataColumn(label: Text('Placement')),
@@ -3028,7 +4657,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 DataCell(Text(record.studentName)),
                 DataCell(
                   Text(
-                    record.email.isEmpty ? '-' : record.email,
+                    record.phone.isEmpty ? '-' : record.phone,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -3197,6 +4826,12 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       padding: const EdgeInsets.all(20),
       children: [
         _PageHeader(title: 'Reports / Complaints', subtitle: ''),
+        const SizedBox(height: 16),
+        _buildSectionCard(
+          title: 'Organization Chats',
+          subtitle: '',
+          child: _buildOrganizationChatsCard(),
+        ),
         const SizedBox(height: 16),
         _buildSectionCard(
           title: 'Company Reports',
@@ -4030,6 +5665,7 @@ class _CoordinatorStudentRecord {
   const _CoordinatorStudentRecord({
     required this.studentName,
     required this.email,
+    required this.phone,
     required this.department,
     required this.registrationNumber,
     this.companyName,
@@ -4040,6 +5676,7 @@ class _CoordinatorStudentRecord {
 
   final String studentName;
   final String email;
+  final String phone;
   final String department;
   final String registrationNumber;
   final String? companyName;

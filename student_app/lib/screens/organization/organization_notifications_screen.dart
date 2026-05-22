@@ -5,6 +5,39 @@ import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/coordinator_workspace_service.dart';
 
+Map<String, dynamic>? _organizationNotificationProfile(
+  Map<String, dynamic>? user,
+) {
+  final companyData = user?['company_data'];
+  if (companyData is Map<String, dynamic>) {
+    return companyData;
+  }
+
+  final organizationData = user?['organization_data'];
+  if (organizationData is Map<String, dynamic>) {
+    return organizationData;
+  }
+
+  return null;
+}
+
+String? _organizationNotificationName(Map<String, dynamic>? user) {
+  final profile = _organizationNotificationProfile(user);
+  final candidates = [
+    profile?['company_name'],
+    profile?['organization_name'],
+    user?['full_name'],
+    user?['name'],
+  ];
+
+  for (final candidate in candidates) {
+    final value = '${candidate ?? ''}'.trim();
+    if (value.isNotEmpty) return value;
+  }
+
+  return null;
+}
+
 class OrganizationNotificationsScreen extends StatefulWidget {
   const OrganizationNotificationsScreen({super.key});
 
@@ -30,8 +63,7 @@ class _OrganizationNotificationsScreenState
   Future<void> _loadNotifications() async {
     setState(() => _isLoading = true);
     final currentUser = context.read<AuthProvider>().user;
-    final companyData = currentUser?['company_data'] as Map<String, dynamic>?;
-    final companyName = companyData?['company_name']?.toString();
+    final companyName = _organizationNotificationName(currentUser);
 
     try {
       final response = await _apiService.getNotifications();
@@ -94,8 +126,7 @@ class _OrganizationNotificationsScreenState
 
   Future<void> _markAllAsRead() async {
     final currentUser = context.read<AuthProvider>().user;
-    final companyData = currentUser?['company_data'] as Map<String, dynamic>?;
-    final companyName = companyData?['company_name']?.toString();
+    final companyName = _organizationNotificationName(currentUser);
     try {
       await _apiService.markAllNotificationsRead();
       await _workspaceService.markAllNotificationsReadForRole(
@@ -110,6 +141,8 @@ class _OrganizationNotificationsScreenState
     switch (type) {
       case 'coordinator_announcement':
         return Icons.campaign_rounded;
+      case 'university_organization_chat':
+        return Icons.chat_bubble_outline_rounded;
       case 'student_company_confirmed':
         return Icons.approval_rounded;
       case 'student_confirmed_other_company':
@@ -137,6 +170,8 @@ class _OrganizationNotificationsScreenState
     switch (type) {
       case 'coordinator_announcement':
         return const Color(0xFF103B63);
+      case 'university_organization_chat':
+        return Colors.teal;
       case 'student_company_confirmed':
         return Colors.teal;
       case 'student_confirmed_other_company':

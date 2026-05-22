@@ -9,6 +9,7 @@ class CoordinatorWorkspaceService {
   static const String _reportsKey = 'company_reports_to_university_v1';
   static const String _studentSelectionsKey = 'student_company_selections_v1';
   static const String _manualPlacementsKey = 'coordinator_manual_placements_v1';
+  static const String _chatMessagesKey = 'university_organization_chat_v1';
   static const Duration _studentChoiceWindow = Duration(hours: 48);
 
   Future<List<Map<String, dynamic>>> getAnnouncements({
@@ -406,6 +407,8 @@ class CoordinatorWorkspaceService {
     required String companyName,
     required String trainingTitle,
     required String placementLocation,
+    required String placementDepartment,
+    String? companyPhone,
     String? startDate,
     String? endDate,
     String? coordinatorNotes,
@@ -438,6 +441,8 @@ class CoordinatorWorkspaceService {
       'company_name': companyName.trim(),
       'training_title': trainingTitle.trim(),
       'placement_location': placementLocation.trim(),
+      'placement_department': placementDepartment.trim(),
+      'company_phone': companyPhone?.trim() ?? '',
       'start_date': startDate?.trim() ?? '',
       'end_date': endDate?.trim() ?? '',
       'coordinator_notes': coordinatorNotes?.trim() ?? '',
@@ -465,7 +470,13 @@ class CoordinatorWorkspaceService {
     if (placementLocation.trim().isNotEmpty) {
       message.write(' at $placementLocation');
     }
+    if (placementDepartment.trim().isNotEmpty) {
+      message.write(' in ${placementDepartment.trim()} department');
+    }
     message.write('.');
+    if ((companyPhone ?? '').trim().isNotEmpty) {
+      message.write(' Contact phone: ${companyPhone!.trim()}.');
+    }
     if ((startDate ?? '').trim().isNotEmpty) {
       message.write(' Start date: ${startDate!.trim()}.');
     }
@@ -490,12 +501,65 @@ class CoordinatorWorkspaceService {
       'is_read': false,
     });
 
+    final companyMessage = StringBuffer()
+      ..write(
+        '$coordinatorName from $universityName assigned $studentName to your organization for $trainingTitle.',
+      );
+    if ((registrationNumber ?? '').trim().isNotEmpty) {
+      companyMessage.write(
+        ' Registration number: ${registrationNumber!.trim()}.',
+      );
+    }
+    if ((studentPhone ?? '').trim().isNotEmpty) {
+      companyMessage.write(' Phone: ${studentPhone!.trim()}.');
+    }
+    if (normalizedEmail.isNotEmpty) {
+      companyMessage.write(' Email: $normalizedEmail.');
+    }
+    if ((department ?? '').trim().isNotEmpty) {
+      companyMessage.write(' Student program: ${department!.trim()}.');
+    }
+    if (placementLocation.trim().isNotEmpty) {
+      companyMessage.write(' Placement location: ${placementLocation.trim()}.');
+    }
+    if (placementDepartment.trim().isNotEmpty) {
+      companyMessage.write(
+        ' Placement department: ${placementDepartment.trim()}.',
+      );
+    }
+    if ((companyPhone ?? '').trim().isNotEmpty) {
+      companyMessage.write(' Placement phone: ${companyPhone!.trim()}.');
+    }
+    if ((startDate ?? '').trim().isNotEmpty) {
+      companyMessage.write(' Start date: ${startDate!.trim()}.');
+    }
+    if ((endDate ?? '').trim().isNotEmpty) {
+      companyMessage.write(' End date: ${endDate!.trim()}.');
+    }
+    if ((coordinatorNotes ?? '').trim().isNotEmpty) {
+      companyMessage.write(' Coordinator notes: ${coordinatorNotes!.trim()}');
+    }
+
+    await _appendNotification({
+      'notification_id': _generateId('notification'),
+      'source_id': record['id'],
+      'title': 'University assigned a student to your organization',
+      'message': companyMessage.toString(),
+      'type': 'coordinator_manual_assignment',
+      'audience': 'company',
+      'target_company_name': companyName.trim(),
+      'university_name': universityName.trim(),
+      'target_email': normalizedEmail,
+      'created_at': now,
+      'is_read': false,
+    });
+
     await _appendNotification({
       'notification_id': _generateId('notification'),
       'source_id': record['id'],
       'title': 'Placement assigned to $studentName',
       'message':
-          '$coordinatorName assigned $studentName to $companyName as $trainingTitle.',
+          '$coordinatorName assigned $studentName to $companyName as $trainingTitle and notified the organization.',
       'type': 'coordinator_manual_assignment',
       'audience': 'university',
       'university_name': universityName.trim(),
@@ -862,7 +926,8 @@ class CoordinatorWorkspaceService {
           }
 
           final targetCompanyName =
-              '${notification['target_company_name'] ?? ''}'.trim();
+              '${notification['target_company_name'] ?? notification['target_organization_name'] ?? ''}'
+                  .trim();
           if (role == 'company' &&
               targetCompanyName.isNotEmpty &&
               !_sameValue(targetCompanyName, companyName)) {
@@ -883,6 +948,8 @@ class CoordinatorWorkspaceService {
     required String applicationId,
     required String studentName,
     required String studentEmail,
+    required String studentPhone,
+    required String registrationNumber,
     required String universityName,
     required String companyName,
     required String trainingTitle,
@@ -898,6 +965,8 @@ class CoordinatorWorkspaceService {
         'application_id': applicationId,
         'student_name': studentName.trim(),
         'student_email': studentEmail.trim(),
+        'student_phone': studentPhone.trim(),
+        'registration_number': registrationNumber.trim(),
         'university_name': universityName.trim(),
         'company_name': companyName.trim(),
         'training_title': trainingTitle.trim(),
@@ -915,7 +984,7 @@ class CoordinatorWorkspaceService {
         'source_id': applicationId,
         'title': 'Student report from company',
         'message':
-            '$companyName reported $studentName for $trainingTitle. Issue: $issueType. $description',
+            '$companyName reported $studentName (${registrationNumber.trim().isEmpty ? 'no registration number' : registrationNumber.trim()}) for $trainingTitle. Phone: ${studentPhone.trim().isEmpty ? 'not provided' : studentPhone.trim()}. Issue: $issueType. $description',
         'type': 'company_report',
         'audience': 'university',
         'university_name': universityName.trim(),
@@ -935,6 +1004,8 @@ class CoordinatorWorkspaceService {
     required String applicationId,
     required String studentName,
     required String studentEmail,
+    required String studentPhone,
+    required String registrationNumber,
     required String universityName,
     required String organizationName,
     required String jobTitle,
@@ -946,6 +1017,8 @@ class CoordinatorWorkspaceService {
       applicationId: applicationId,
       studentName: studentName,
       studentEmail: studentEmail,
+      studentPhone: studentPhone,
+      registrationNumber: registrationNumber,
       universityName: universityName,
       companyName: organizationName,
       trainingTitle: jobTitle,
@@ -972,6 +1045,163 @@ class CoordinatorWorkspaceService {
       (left, right) => _sortByDateDesc(left['created_at'], right['created_at']),
     );
     return filtered;
+  }
+
+  Future<List<Map<String, dynamic>>> getUniversityOrganizationMessages({
+    required String universityName,
+    required String companyName,
+  }) async {
+    final normalizedOrganizationName = companyName.trim();
+    final messages = await _readList(_chatMessagesKey);
+    final filtered = messages
+        .where(
+          (message) =>
+              _sameInstitution(message['university_name'], universityName) &&
+              (_sameValue(
+                    message['company_name'],
+                    normalizedOrganizationName,
+                  ) ||
+                  _sameValue(
+                    message['organization_name'],
+                    normalizedOrganizationName,
+                  )),
+        )
+        .toList(growable: false);
+
+    filtered.sort(
+      (left, right) => _sortByDateAsc(left['created_at'], right['created_at']),
+    );
+    return filtered;
+  }
+
+  Future<List<String>> getChatUniversitiesForOrganization({
+    required String organizationName,
+  }) async {
+    final normalizedOrganizationName = organizationName.trim();
+    if (normalizedOrganizationName.isEmpty) {
+      return const <String>[];
+    }
+
+    final messages = await _readList(_chatMessagesKey);
+    final seen = <String>{};
+    final universities = <String>[];
+
+    for (final message in messages) {
+      final matchesOrganization =
+          _sameValue(message['company_name'], normalizedOrganizationName) ||
+          _sameValue(message['organization_name'], normalizedOrganizationName);
+      if (!matchesOrganization) continue;
+
+      final universityName = '${message['university_name'] ?? ''}'.trim();
+      if (universityName.isEmpty) continue;
+      final normalizedUniversity = universityName.toLowerCase();
+      if (!seen.add(normalizedUniversity)) continue;
+      universities.add(universityName);
+    }
+
+    universities.sort(
+      (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
+    );
+    return universities;
+  }
+
+  Future<List<String>> getChatOrganizationsForUniversity({
+    required String universityName,
+  }) async {
+    final normalizedUniversityName = universityName.trim();
+    if (normalizedUniversityName.isEmpty) {
+      return const <String>[];
+    }
+
+    final messages = await _readList(_chatMessagesKey);
+    final seen = <String>{};
+    final organizations = <String>[];
+
+    for (final message in messages) {
+      if (!_sameInstitution(
+        message['university_name'],
+        normalizedUniversityName,
+      )) {
+        continue;
+      }
+
+      final organizationName =
+          '${message['organization_name'] ?? message['company_name'] ?? ''}'
+              .trim();
+      if (organizationName.isEmpty) continue;
+      final normalizedOrganization = organizationName.toLowerCase();
+      if (!seen.add(normalizedOrganization)) continue;
+      organizations.add(organizationName);
+    }
+
+    organizations.sort(
+      (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
+    );
+    return organizations;
+  }
+
+  Future<Map<String, dynamic>> sendUniversityOrganizationMessage({
+    required String universityName,
+    required String companyName,
+    required String senderRole,
+    required String senderName,
+    String? senderPhone,
+    required String message,
+  }) async {
+    final trimmedMessage = message.trim();
+    if (trimmedMessage.isEmpty) {
+      return {'success': false, 'message': 'Message cannot be empty.'};
+    }
+
+    try {
+      final chatMessages = await _readList(_chatMessagesKey);
+      final now = DateTime.now().toUtc().toIso8601String();
+      final normalizedSenderRole = senderRole.trim().toLowerCase();
+      final chatSenderRole = normalizedSenderRole == 'company'
+          ? 'organization'
+          : normalizedSenderRole;
+      final normalizedOrganizationName = companyName.trim();
+
+      final chatRecord = {
+        'id': _generateId('chat-message'),
+        'university_name': universityName.trim(),
+        'company_name': normalizedOrganizationName,
+        'organization_name': normalizedOrganizationName,
+        'sender_role': chatSenderRole,
+        'sender_name': senderName.trim(),
+        'sender_phone': senderPhone?.trim() ?? '',
+        'message': trimmedMessage,
+        'created_at': now,
+      };
+
+      chatMessages.add(chatRecord);
+      await _writeList(_chatMessagesKey, chatMessages);
+
+      final outgoingFromUniversity = chatSenderRole == 'university';
+      await _appendNotification({
+        'notification_id': _generateId('notification'),
+        'source_id': chatRecord['id'],
+        'title': outgoingFromUniversity
+            ? 'New message from university'
+            : 'New message from organization',
+        'message': '${senderName.trim()} sent a message: $trimmedMessage',
+        'type': 'university_organization_chat',
+        'audience': outgoingFromUniversity ? 'organization' : 'university',
+        'university_name': universityName.trim(),
+        'target_company_name': normalizedOrganizationName,
+        'target_organization_name': normalizedOrganizationName,
+        'created_at': now,
+        'is_read': false,
+      });
+
+      return {
+        'success': true,
+        'message': 'Message sent successfully.',
+        'data': chatRecord,
+      };
+    } catch (e) {
+      return {'success': false, 'message': 'Failed to send message: $e'};
+    }
   }
 
   Future<void> markNotificationRead(String notificationId) async {
@@ -1083,7 +1313,8 @@ class CoordinatorWorkspaceService {
           }
 
           final targetCompanyName =
-              '${notification['target_company_name'] ?? ''}'.trim();
+              '${notification['target_company_name'] ?? notification['target_organization_name'] ?? ''}'
+                  .trim();
           if (role == 'company' &&
               targetCompanyName.isNotEmpty &&
               !_sameValue(targetCompanyName, companyName)) {
@@ -1144,7 +1375,9 @@ class CoordinatorWorkspaceService {
     required String role,
   }) {
     final normalizedAudience = targetAudience.trim().toLowerCase();
-    final normalizedRole = role.trim().toLowerCase();
+    final normalizedRole = role.trim().toLowerCase() == 'organization'
+        ? 'company'
+        : role.trim().toLowerCase();
 
     if (normalizedAudience == 'all') return true;
     if (normalizedRole == 'student' &&
@@ -1153,6 +1386,7 @@ class CoordinatorWorkspaceService {
     }
     if (normalizedRole == 'company' &&
         (normalizedAudience == 'company' ||
+            normalizedAudience == 'organization' ||
             normalizedAudience == 'companies')) {
       return true;
     }
@@ -1165,6 +1399,12 @@ class CoordinatorWorkspaceService {
 
   bool _sameValue(Object? left, Object? right) {
     return '$left'.trim().toLowerCase() == '$right'.trim().toLowerCase();
+  }
+
+  int _sortByDateAsc(Object? left, Object? right) {
+    final leftDate = _parseDateTimeValue(left) ?? DateTime(1970);
+    final rightDate = _parseDateTimeValue(right) ?? DateTime(1970);
+    return leftDate.compareTo(rightDate);
   }
 
   String _normalizedStatus(Object? value, {String fallback = ''}) {

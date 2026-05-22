@@ -119,6 +119,8 @@ class _UniversityNotificationsScreenState
     switch (type) {
       case 'company_report':
         return Icons.report_problem_rounded;
+      case 'university_organization_chat':
+        return Icons.chat_bubble_outline_rounded;
       case 'application':
         return Icons.assignment_outlined;
       case 'accepted':
@@ -136,6 +138,8 @@ class _UniversityNotificationsScreenState
     switch (type) {
       case 'company_report':
         return const Color(0xFFB42318);
+      case 'university_organization_chat':
+        return const Color(0xFF0F766E);
       case 'application':
         return const Color(0xFF103B63);
       case 'accepted':

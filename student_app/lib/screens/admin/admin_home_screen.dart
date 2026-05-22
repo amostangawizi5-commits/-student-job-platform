@@ -200,7 +200,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return role == 'student' || role == '';
       }).length;
       resolved['total_companies'] = users.where((user) {
-        return '${user['role'] ?? ''}'.trim().toLowerCase() == 'organization';
+        return '${user['role'] ?? ''}'.trim().toLowerCase() == 'company';
       }).length;
       resolved['total_universities'] = users.where((user) {
         return '${user['role'] ?? ''}'.trim().toLowerCase() == 'university';
@@ -992,11 +992,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
         ),
         const SizedBox(height: 6),
-       
-        
         if (_asInt(_stats['total_universities']) != 0) ...[
           const SizedBox(height: 6),
-          
         ],
         const SizedBox(height: 14),
         _buildStatsGrid(),

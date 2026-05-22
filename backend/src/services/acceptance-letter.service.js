@@ -958,7 +958,7 @@ async function buildAcceptanceLetterPdf({
     const signatureDetails = [
         { label: 'Name of Authorizing Officer', value: officerName },
         { label: 'Designation', value: officerDesignation },
-        { label: 'Telephone Number', value: officerPhone },
+        { label: 'Tele', value: officerPhone },
         { label: 'E-mail Address', value: officerEmail },
         { label: 'Region', value: officerRegion },
         { label: 'District', value: officerDistrict },

@@ -1667,5 +1667,6 @@ module.exports = {
     downloadCoverLetter,
     downloadSupportiveDocument,
     downloadResponseLetter,
-    updateApplicationStatus
+    updateApplicationStatus,
+    syncStudentOfferSelectionState
 };

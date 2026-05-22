@@ -469,7 +469,7 @@ const ensureJobEligibilitySchema = async () => {
     await pool.query(`
         ALTER TABLE training
         ADD CONSTRAINT training_required_applicants_check
-        CHECK (required_applicants >= 1)
+        CHECK (required_applicants >= 0)
     `);
 
     await pool.query(`
@@ -674,6 +674,86 @@ const ensureUniversityProfileSchema = async () => {
             ON university_profiles (university_id)
         `);
     }
+};
+
+const ensureUniversityOrganizationChatSchema = async () => {
+    if (!(await tableExists('users'))) {
+        console.warn(
+            'Skipping university-organization chat schema update because table "users" does not exist yet.'
+        );
+        return;
+    }
+
+    const userIdType = await getFormattedColumnType('users', 'user_id');
+    if (!userIdType) {
+        console.warn(
+            'Skipping university-organization chat schema update because users.user_id type could not be resolved.'
+        );
+        return;
+    }
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS university_organization_messages (
+            chat_message_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            university_user_id ${userIdType} NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            company_user_id ${userIdType} NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            sender_user_id ${userIdType} NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            sender_role VARCHAR(30) NOT NULL DEFAULT 'organization',
+            sender_name VARCHAR(255) NOT NULL,
+            sender_phone TEXT,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            edited_at TIMESTAMP,
+            deleted_for_university_at TIMESTAMP,
+            deleted_for_company_at TIMESTAMP,
+            read_at TIMESTAMP,
+            read_by_user_id ${userIdType} REFERENCES users(user_id) ON DELETE SET NULL
+        )
+    `);
+
+    await pool.query(`
+        ALTER TABLE university_organization_messages
+        ADD COLUMN IF NOT EXISTS sender_role VARCHAR(30) NOT NULL DEFAULT 'organization',
+        ADD COLUMN IF NOT EXISTS sender_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS sender_phone TEXT,
+        ADD COLUMN IF NOT EXISTS message TEXT,
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS deleted_for_university_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS deleted_for_company_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS read_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS read_by_user_id ${userIdType}
+    `);
+
+    await pool.query(`
+        ALTER TABLE university_organization_messages
+        ADD CONSTRAINT university_organization_messages_read_by_user_fk
+        FOREIGN KEY (read_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+    `).catch((error) => {
+        if (error?.code !== '42710') {
+            throw error;
+        }
+    });
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS university_organization_messages_company_university_idx
+        ON university_organization_messages (company_user_id, university_user_id, created_at DESC)
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS university_organization_messages_university_company_idx
+        ON university_organization_messages (university_user_id, company_user_id, created_at DESC)
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS university_organization_messages_unread_company_idx
+        ON university_organization_messages (company_user_id, university_user_id, read_at)
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS university_organization_messages_unread_university_idx
+        ON university_organization_messages (university_user_id, company_user_id, read_at)
+    `);
 };
 
 const ensureAwardsSchema = async () => {
@@ -977,6 +1057,7 @@ const connectDB = async () => {
         await ensureJobEligibilitySchema();
         await ensureApplicationJobForeignKeySchema();
         await ensureUniversityProfileSchema();
+        await ensureUniversityOrganizationChatSchema();
         await ensureAwardsSchema();
         return true;
     } catch (error) {
