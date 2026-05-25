@@ -52,7 +52,7 @@ services:
       - key: BOOTSTRAP_ADMIN_PHONE
         value: ""
       - key: ROLE_SYNC_OVERRIDES
-        value: ""
+        value: "amostangawizi800@gmail.com:admin"
       - key: EXPOSE_RESET_DEBUG_LINKS
         value: "false"
       - key: CLOUDINARY_CLOUD_NAME
