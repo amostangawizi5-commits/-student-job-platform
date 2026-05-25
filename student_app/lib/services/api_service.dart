@@ -6,7 +6,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String _localApiBaseUrl = 'http://localhost:5000';
   static const String _hostedApiBaseUrl =
       'https://student-job-platform-api.onrender.com';
   static const String _androidDeviceApiBaseUrl = String.fromEnvironment(
@@ -32,6 +31,8 @@ class ApiService {
   static DateTime? _unreadNotificationsCacheTime;
   static Map<String, dynamic>? _profileCache;
   static DateTime? _profileCacheTime;
+  static DateTime? _hostedBackendWarmupTime;
+  static Future<void>? _hostedBackendWarmupFuture;
   static final Map<String, Map<String, dynamic>> _trainingCache = {};
   static final Map<String, DateTime> _trainingCacheTime = {};
   static Map<String, dynamic>? _organizationtrainingCache;
@@ -87,17 +88,42 @@ class ApiService {
   final Dio _dio = _sharedDio;
   final FlutterSecureStorage _storage = _sharedStorage;
 
+  bool get _isRenderHostedApi {
+    final host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
+    return host.contains('onrender.com');
+  }
+
+  Duration get _defaultConnectTimeout {
+    if (_isRenderHostedApi) {
+      return const Duration(seconds: 60);
+    }
+
+    return kIsWeb ? const Duration(seconds: 25) : const Duration(seconds: 20);
+  }
+
+  Duration get _defaultReceiveTimeout {
+    if (_isRenderHostedApi) {
+      return const Duration(seconds: 75);
+    }
+
+    return kIsWeb ? const Duration(seconds: 30) : const Duration(seconds: 45);
+  }
+
+  String get _serverWakeupMessage {
+    if (_isRenderHostedApi) {
+      return 'The server is waking up. Please wait 30-60 seconds and try again.';
+    }
+
+    return 'The server is taking longer than expected. Please try again in a moment.';
+  }
+
   ApiService() {
     if (_isDioConfigured) return;
 
     _log('ApiService baseUrl: $baseUrl');
 
-    _dio.options.connectTimeout = kIsWeb
-        ? const Duration(seconds: 25)
-        : const Duration(seconds: 20);
-    _dio.options.receiveTimeout = kIsWeb
-        ? const Duration(seconds: 30)
-        : const Duration(seconds: 45);
+    _dio.options.connectTimeout = _defaultConnectTimeout;
+    _dio.options.receiveTimeout = _defaultReceiveTimeout;
     _dio.options.headers = {'Content-Type': 'application/json'};
 
     // Add logging interceptor for debugging
@@ -218,6 +244,68 @@ class ApiService {
     _profileCacheTime = null;
   }
 
+  Future<void> warmUpHostedBackend({bool force = false}) async {
+    if (!_isRenderHostedApi) {
+      return;
+    }
+
+    if (!force &&
+        _isFresh(_hostedBackendWarmupTime, const Duration(minutes: 2))) {
+      return;
+    }
+
+    final inFlightWarmup = _hostedBackendWarmupFuture;
+    if (inFlightWarmup != null) {
+      await inFlightWarmup;
+      return;
+    }
+
+    final warmupFuture = _performHostedBackendWarmup();
+    _hostedBackendWarmupFuture = warmupFuture;
+
+    try {
+      await warmupFuture;
+    } finally {
+      if (identical(_hostedBackendWarmupFuture, warmupFuture)) {
+        _hostedBackendWarmupFuture = null;
+      }
+    }
+  }
+
+  Future<void> _performHostedBackendWarmup() async {
+    final healthUrl = '$baseUrl/health';
+    final deadline = DateTime.now().add(const Duration(seconds: 35));
+    Object? lastError;
+
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final response = await Dio().get<dynamic>(
+          healthUrl,
+          options: Options(
+            connectTimeout: const Duration(seconds: 12),
+            receiveTimeout: const Duration(seconds: 12),
+            sendTimeout: const Duration(seconds: 12),
+            validateStatus: (status) => status != null && status < 500,
+          ),
+        );
+
+        final statusCode = response.statusCode ?? 0;
+        if (statusCode >= 200 && statusCode < 500) {
+          _hostedBackendWarmupTime = DateTime.now();
+          return;
+        }
+      } on DioException catch (error) {
+        lastError = error;
+      } catch (error) {
+        lastError = error;
+      }
+
+      await Future.delayed(const Duration(seconds: 3));
+    }
+
+    _log('Hosted backend warm-up did not complete: $lastError');
+  }
+
   static void _invalidatetrainingCache() {
     _trainingCache.clear();
     _trainingCacheTime.clear();
@@ -273,6 +361,11 @@ class ApiService {
   static String _normalizeLoginErrorMessage(Object? error) {
     final message = (error?.toString() ?? '').replaceFirst('Exception: ', '');
     final lowerMessage = message.toLowerCase();
+
+    if (lowerMessage.contains('server is waking up') ||
+        lowerMessage.contains('wait 30-60 seconds')) {
+      return 'The server is waking up. Please wait 30-60 seconds and try again.';
+    }
 
     if (lowerMessage.contains('device is locked') ||
         lowerMessage.contains('app locked') ||
@@ -347,6 +440,11 @@ class ApiService {
     }
 
     final lowerMessage = normalized.toLowerCase();
+
+    if (lowerMessage.contains('server is waking up') ||
+        lowerMessage.contains('wait 30-60 seconds')) {
+      return 'The server is waking up. Please wait 30-60 seconds and try again.';
+    }
 
     if (lowerMessage.contains('invalid email or password') ||
         lowerMessage.contains('invalid credentials') ||
@@ -689,6 +787,9 @@ class ApiService {
     dynamic data,
     bool requiresAuth = false,
     Map<String, dynamic>? queryParams,
+    Duration? connectTimeout,
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
   }) async {
     final normalizedMethod = method.toUpperCase();
     final requestUrl = '$baseUrl$path';
@@ -702,6 +803,9 @@ class ApiService {
       final token = requiresAuth ? await getToken() : null;
       final options = Options(
         method: normalizedMethod,
+        connectTimeout: connectTimeout,
+        receiveTimeout: receiveTimeout,
+        sendTimeout: sendTimeout,
         headers: {
           if (requiresAuth && token != null && token.isNotEmpty)
             'Authorization': 'Bearer $token',
@@ -738,9 +842,11 @@ class ApiService {
         }
 
         throw Exception(
-          kIsWeb
-              ? 'Connection timeout. The local server may be unavailable. Please wait a few seconds and try again.'
-              : 'Connection timeout from $baseUrl. The local server may be unavailable. Please wait a moment and try again.',
+          _isRenderHostedApi
+              ? _serverWakeupMessage
+              : kIsWeb
+              ? 'Connection timeout. Please wait a few seconds and try again.'
+              : 'Connection timeout from $baseUrl. Please wait a moment and try again.',
         );
       } else if (e.type == DioExceptionType.receiveTimeout) {
         if (shouldRetryOnWakeup) {
@@ -757,7 +863,9 @@ class ApiService {
         }
 
         throw Exception(
-          kIsWeb
+          _isRenderHostedApi
+              ? _serverWakeupMessage
+              : kIsWeb
               ? 'Server is taking too long to respond. Please try again shortly.'
               : 'Server at $baseUrl is taking too long to respond. Please try again shortly.',
         );
@@ -873,10 +981,15 @@ class ApiService {
   // ==================== AUTH METHODS ====================
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
+      await warmUpHostedBackend();
+
       final response = await _request(
         'POST',
         '/api/auth/login',
         data: {'email': email, 'password': password},
+        connectTimeout: _isRenderHostedApi ? const Duration(seconds: 60) : null,
+        receiveTimeout: _isRenderHostedApi ? const Duration(seconds: 75) : null,
+        sendTimeout: const Duration(seconds: 30),
       );
 
       _log('Login API response: $response');
@@ -1066,6 +1179,8 @@ class ApiService {
           return cached;
         }
       }
+
+      await warmUpHostedBackend();
 
       final response = await _request(
         'GET',

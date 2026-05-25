@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
@@ -26,6 +28,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final ApiService _apiService = ApiService();
   bool _isPasswordVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_apiService.warmUpHostedBackend());
+  }
 
   @override
   void dispose() {

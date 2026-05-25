@@ -64,10 +64,21 @@ During setup, provide:
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
 - `EMAIL_FROM`
+- `BOOTSTRAP_ADMIN_EMAILS`
+- `BOOTSTRAP_ADMIN_PASSWORD`
+- `ROLE_SYNC_OVERRIDES`
 
 Set both URL variables to your final public backend URL, for example:
 
 `https://student-job-platform-api.onrender.com`
+
+To make Render match your localhost roles for important accounts:
+
+- Set `BOOTSTRAP_ADMIN_EMAILS` to one or more emails separated by commas.
+- Set `BOOTSTRAP_ADMIN_PASSWORD` to the password that those admin accounts should use.
+- Optionally set `ROLE_SYNC_OVERRIDES` like `amostangawizi800@gmail.com:admin,user@example.com:student`.
+
+On every backend restart, the API will create missing bootstrap admins and promote existing matching users to the configured roles.
 
 For password reset emails that work from anywhere:
 

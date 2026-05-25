@@ -9,14 +9,17 @@ class _FakeApiService extends ApiService {
     this.token,
     this.profileResponse = const {'success': false},
     this.profileCompleter,
+    this.loginResponse,
   });
 
   final String? token;
   final Map<String, dynamic> profileResponse;
   final Completer<void>? profileCompleter;
+  final Map<String, dynamic>? loginResponse;
   int getTokenCalls = 0;
   int getProfileCalls = 0;
   int logoutCalls = 0;
+  int loginCalls = 0;
 
   @override
   Future<String?> getToken() async {
@@ -29,6 +32,12 @@ class _FakeApiService extends ApiService {
     getProfileCalls += 1;
     await profileCompleter?.future;
     return profileResponse;
+  }
+
+  @override
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    loginCalls += 1;
+    return loginResponse ?? const {'success': false, 'message': 'Login failed'};
   }
 
   @override
@@ -95,6 +104,26 @@ void main() {
 
       expect(provider.isAuthenticated, isTrue);
       expect(provider.user?['role'], 'admin');
+    });
+
+    test('preserves a hosted server wake-up login message', () async {
+      final apiService = _FakeApiService(
+        loginResponse: const {
+          'success': false,
+          'message':
+              'The server is waking up. Please wait 30-60 seconds and try again.',
+        },
+      );
+
+      final provider = AuthProvider(apiService: apiService);
+      final success = await provider.login('student@example.com', 'secret');
+
+      expect(success, isFalse);
+      expect(apiService.loginCalls, 1);
+      expect(
+        provider.errorMessage,
+        'The server is waking up. Please wait 30-60 seconds and try again.',
+      );
     });
   });
 }

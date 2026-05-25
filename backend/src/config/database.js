@@ -1,5 +1,6 @@
 // src/config/database.js
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 
 const databaseUrl = `${process.env.DATABASE_URL || ''}`;
 const sslRequestedViaEnv =
@@ -1040,6 +1041,151 @@ const ensureUserRoleSchema = async () => {
     `);
 };
 
+const normalizeBootstrapValue = (value) => `${value || ''}`.trim();
+
+const normalizeBootstrapEmail = (value) =>
+    normalizeBootstrapValue(value).toLowerCase();
+
+const parseBootstrapAdminEmails = () =>
+    `${process.env.BOOTSTRAP_ADMIN_EMAILS || process.env.BOOTSTRAP_ADMIN_EMAIL || ''}`
+        .split(',')
+        .map(normalizeBootstrapEmail)
+        .filter(Boolean);
+
+const parseRoleSyncOverrides = () =>
+    `${process.env.ROLE_SYNC_OVERRIDES || ''}`
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+            const [emailPart, rolePart] = entry.split(':');
+            const email = normalizeBootstrapEmail(emailPart);
+            const role = normalizeBootstrapValue(rolePart).toLowerCase();
+
+            if (!email || !role) {
+                return null;
+            }
+
+            if (!['student', 'company', 'university', 'admin'].includes(role)) {
+                console.warn(`Skipping invalid role override "${entry}"`);
+                return null;
+            }
+
+            return { email, role };
+        })
+        .filter(Boolean);
+
+const ensureBootstrapAdminUsers = async () => {
+    const bootstrapEmails = parseBootstrapAdminEmails();
+    const bootstrapPassword = normalizeBootstrapValue(
+        process.env.BOOTSTRAP_ADMIN_PASSWORD
+    );
+    const bootstrapFullName =
+        normalizeBootstrapValue(process.env.BOOTSTRAP_ADMIN_FULL_NAME) ||
+        'System Administrator';
+    const bootstrapPhone =
+        normalizeBootstrapValue(process.env.BOOTSTRAP_ADMIN_PHONE) || null;
+
+    if (bootstrapEmails.length === 0) {
+        return;
+    }
+
+    if (bootstrapPassword.length < 6) {
+        console.warn(
+            'Skipping bootstrap admin sync because BOOTSTRAP_ADMIN_PASSWORD is missing or too short.'
+        );
+        return;
+    }
+
+    const passwordHash = await bcrypt.hash(bootstrapPassword, 10);
+
+    for (const email of bootstrapEmails) {
+        const existingResult = await pool.query(
+            `SELECT user_id
+             FROM users
+             WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
+             LIMIT 1`,
+            [email]
+        );
+
+        if (existingResult.rows.length === 0) {
+            const insertResult = await pool.query(
+                `INSERT INTO users (
+                    email,
+                    password_hash,
+                    role,
+                    full_name,
+                    phone,
+                    is_verified,
+                    is_active
+                )
+                 VALUES ($1, $2, 'admin', $3, $4, true, true)
+                 RETURNING user_id`,
+                [email, passwordHash, bootstrapFullName, bootstrapPhone]
+            );
+
+            console.log(`Bootstrapped admin account for ${email}`);
+            await pool.query(
+                `DELETE FROM students WHERE student_id = $1`,
+                [insertResult.rows[0].user_id]
+            ).catch(() => {});
+            continue;
+        }
+
+        await pool.query(
+            `UPDATE users
+             SET role = 'admin',
+                 password_hash = $2,
+                 full_name = COALESCE(NULLIF(BTRIM(full_name), ''), $3),
+                 phone = COALESCE(NULLIF(BTRIM(phone), ''), $4),
+                 is_verified = true,
+                 is_active = true,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE user_id = $1`,
+            [
+                existingResult.rows[0].user_id,
+                passwordHash,
+                bootstrapFullName,
+                bootstrapPhone
+            ]
+        );
+
+        console.log(`Synced existing user ${email} to admin role`);
+    }
+};
+
+const ensureRoleSyncOverrides = async () => {
+    const overrides = parseRoleSyncOverrides();
+
+    if (overrides.length === 0) {
+        return;
+    }
+
+    for (const override of overrides) {
+        const result = await pool.query(
+            `UPDATE users
+             SET role = $2,
+                 is_active = true,
+                 is_verified = true,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
+             RETURNING user_id, email, role`,
+            [override.email, override.role]
+        );
+
+        if (result.rows.length === 0) {
+            console.warn(
+                `Role sync override skipped because ${override.email} was not found`
+            );
+            continue;
+        }
+
+        console.log(
+            `Role sync override applied: ${result.rows[0].email} -> ${result.rows[0].role}`
+        );
+    }
+};
+
 // Test database connection
 const connectDB = async () => {
     try {
@@ -1059,6 +1205,8 @@ const connectDB = async () => {
         await ensureUniversityProfileSchema();
         await ensureUniversityOrganizationChatSchema();
         await ensureAwardsSchema();
+        await ensureBootstrapAdminUsers();
+        await ensureRoleSyncOverrides();
         return true;
     } catch (error) {
         console.error('❌ PostgreSQL connection error:', error.message);

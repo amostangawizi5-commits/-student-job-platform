@@ -58,6 +58,11 @@ class AuthProvider extends ChangeNotifier {
     final message = (error?.toString() ?? '').replaceFirst('Exception: ', '');
     final lowerMessage = message.toLowerCase();
 
+    if (lowerMessage.contains('server is waking up') ||
+        lowerMessage.contains('wait 30-60 seconds')) {
+      return 'The server is waking up. Please wait 30-60 seconds and try again.';
+    }
+
     if (lowerMessage.contains('device is locked') ||
         lowerMessage.contains('app locked') ||
         lowerMessage.contains('app lock') ||
@@ -209,7 +214,9 @@ class AuthProvider extends ChangeNotifier {
         errorMsg,
         fallback: 'Registration failed',
       );
-      _log('Register failed - Raw message: $errorMsg, Sanitized: $_errorMessage');
+      _log(
+        'Register failed - Raw message: $errorMsg, Sanitized: $_errorMessage',
+      );
       _setLoading(false);
       notifyListeners();
       return false;
