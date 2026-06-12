@@ -61,3 +61,17 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+  - type: web
+    name: student-job-platform-web
+    runtime: static
+    buildCommand: bash scripts/render_build_flutter_web.sh
+    staticPublishPath: ./student_app/build/web
+    envVars:
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
+      - key: API_BASE_URL
+        value: https://student-job-platform-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

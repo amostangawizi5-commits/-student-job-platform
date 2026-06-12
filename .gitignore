@@ -19,3 +19,4 @@ student_app/.packages
 
 backend/node_modules/
 backend/uploads/
+.render/
