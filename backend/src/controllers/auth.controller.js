@@ -174,11 +174,17 @@ const GOVERNMENT_REGISTERED_ = [
 const UNIVERSITY_INSTITUTION_NAMES = TCU_REGISTERED_.map(({ name }) =>
     name.toLowerCase()
 );
+const OFFICIAL_UNIVERSITY_OF_DODOMA_NAME = 'University of Dodoma (UDOM)';
+const SINGLE_UNIVERSITY_NAMES = [
+    OFFICIAL_UNIVERSITY_OF_DODOMA_NAME,
+    'University of Dodoma',
+    'UDOM'
+].map((name) => name.toLowerCase());
 const GOVERNMENT_INSTITUTION_NAMES = GOVERNMENT_REGISTERED_.map(({ name }) =>
     name.toLowerCase()
 );
 const REGISTERABLE_INSTITUTION_NAMES = [
-    ...UNIVERSITY_INSTITUTION_NAMES,
+    ...SINGLE_UNIVERSITY_NAMES,
     ...GOVERNMENT_INSTITUTION_NAMES
 ];
 const DEFAULT_REGISTERABLE_ = [
@@ -259,6 +265,47 @@ const splitFullName = (value) => {
     };
 };
 
+const normalizeInstitutionKey = (value) => {
+    const normalized = `${value || ''}`.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (SINGLE_UNIVERSITY_NAMES.includes(normalized)) {
+        return OFFICIAL_UNIVERSITY_OF_DODOMA_NAME.toLowerCase();
+    }
+
+    return normalized;
+};
+
+const institutionPreferenceScore = (institution) => {
+    const name = `${institution?.name || ''}`.trim();
+    if (name === OFFICIAL_UNIVERSITY_OF_DODOMA_NAME) {
+        return 0;
+    }
+    if (UNIVERSITY_INSTITUTION_NAMES.includes(name.toLowerCase())) {
+        return 1;
+    }
+    return 2;
+};
+
+const dedupeInstitutions = (institutions) => {
+    const byName = new Map();
+
+    for (const institution of institutions) {
+        const key = normalizeInstitutionKey(institution?.name);
+        if (!key) continue;
+
+        const current = byName.get(key);
+        if (
+            !current ||
+            institutionPreferenceScore(institution) < institutionPreferenceScore(current)
+        ) {
+            byName.set(key, institution);
+        }
+    }
+
+    return Array.from(byName.values()).sort((left, right) =>
+        `${left?.name || ''}`.localeCompare(`${right?.name || ''}`)
+    );
+};
+
 const annotateInstitution = (institution) => {
     const name = `${institution?.name || ''}`.trim();
     const normalizedName = name.toLowerCase();
@@ -291,7 +338,7 @@ const fetchOfficial = async (institutionNames) => {
         [institutionNames]
     );
 
-    return result.rows.map(annotateInstitution);
+    return dedupeInstitutions(result.rows).map(annotateInstitution);
 };
 
 const fetchAllUniversity = async () => {
@@ -303,15 +350,15 @@ const fetchAllUniversity = async () => {
                  name,
                  location
              FROM universities
-             WHERE LOWER(name) <> ALL($1::text[])
+             WHERE LOWER(name) = ANY($1::text[])
                AND TRIM(COALESCE(name, '')) <> ''
              ORDER BY LOWER(name), university_id
          ) official_
          ORDER BY name`,
-        [GOVERNMENT_INSTITUTION_NAMES]
+        [SINGLE_UNIVERSITY_NAMES]
     );
 
-    return result.rows.map((institution) => ({
+    return dedupeInstitutions(result.rows).map((institution) => ({
         ...annotateInstitution(institution),
         category: 'university'
     }));

@@ -1,5 +1,6 @@
 // lib/screens/auth/register_screen.dart
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
@@ -11,9 +12,11 @@ import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
 import '../admin/admin_dashboard.dart';
+import '../home_screen.dart' as public_home;
 import '../organization/organization_dashboard.dart';
 import '../student/student_dashboard.dart';
 import '../university/university_dashboard.dart';
+import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -25,6 +28,7 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _apiService = ApiService();
+  final PageController _trainingPreviewController = PageController();
 
   final _firstNameController = TextEditingController();
   final _secondNameController = TextEditingController();
@@ -67,6 +71,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isSubmitting = false;
   bool _showStudentIdError = false;
   bool _showCollegeLogoError = false;
+  int _trainingPreviewIndex = 0;
 
   String? _selectedRole;
   String? _selectedUniversityId;
@@ -153,7 +158,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _organizationBusinessLicenseController.dispose();
     _organizationDepartmentController.dispose();
     _organizationSectorController.dispose();
+    _trainingPreviewController.dispose();
     super.dispose();
+  }
+
+  void _goHome() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const public_home.HomeScreen()),
+      (route) => false,
+    );
   }
 
   Future<void> _loadData({bool forceRefresh = false}) async {
@@ -196,9 +210,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
 
       setState(() {
-        _institutions = institutions;
-        _universities = universities;
-        _government = government;
+        _institutions = _dedupeInstitutionList(institutions);
+        _universities = _dedupeInstitutionList(universities);
+        _government = _dedupeInstitutionList(government);
         _universitiesError = universities.isEmpty
             ? (universitiesResponse['message']?.toString() ??
                   context.read<LanguageProvider>().tr(
@@ -336,6 +350,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _collegeDistrictController.clear();
       _universityNameController.clear();
     });
+  }
+
+  String _institutionDedupeKey(dynamic value) {
+    final name = value is Map ? '${value['name'] ?? ''}' : '';
+    final normalized = name
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .toLowerCase();
+    if (normalized == 'university of dodoma' ||
+        normalized == 'university of dodoma (udom)' ||
+        normalized == 'udom') {
+      return 'university of dodoma (udom)';
+    }
+    return normalized;
+  }
+
+  List<dynamic> _dedupeInstitutionList(List<dynamic> institutions) {
+    final byName = <String, dynamic>{};
+
+    for (final institution in institutions) {
+      final key = _institutionDedupeKey(institution);
+      if (key.isEmpty) continue;
+
+      final current = byName[key];
+      final candidateName = institution is Map
+          ? '${institution['name'] ?? ''}'.trim()
+          : '';
+      final currentName = current is Map
+          ? '${current['name'] ?? ''}'.trim()
+          : '';
+      final candidateIsOfficialUdom =
+          candidateName == 'University of Dodoma (UDOM)';
+      final currentIsOfficialUdom =
+          currentName == 'University of Dodoma (UDOM)';
+      if (current == null ||
+          (candidateIsOfficialUdom && !currentIsOfficialUdom)) {
+        byName[key] = institution;
+      }
+    }
+
+    return byName.values.toList(growable: false);
   }
 
   Map<String, dynamic>? _findInstitutionById(
@@ -2868,105 +2923,476 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  void _moveTrainingPreview(int direction) {
+    const slideCount = 4;
+    final nextIndex = (_trainingPreviewIndex + direction) % slideCount;
+    final resolvedIndex = nextIndex < 0 ? slideCount - 1 : nextIndex;
+
+    if (_trainingPreviewController.hasClients) {
+      _trainingPreviewController.animateToPage(
+        resolvedIndex,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOut,
+      );
+    }
+    setState(() => _trainingPreviewIndex = resolvedIndex);
+  }
+
+  Widget _buildTrainingPreviewPanel(bool isDesktop) {
+    final slides = const [
+      (
+        Icons.engineering_outlined,
+        'Industrial Practical Training',
+        'Hands-on workplace learning in companies, government institutions, '
+            'industries, and NGOs.',
+        Color(0xFF155A99),
+      ),
+      (
+        Icons.terrain_outlined,
+        'Field Practical Training',
+        'Field visits, surveys, community work, and professional observation.',
+        Color(0xFF047545),
+      ),
+      (
+        Icons.local_hospital_outlined,
+        'Clinical Practice',
+        'Supervised practical exposure in hospitals and health facilities.',
+        Color(0xFF0F766E),
+      ),
+      (
+        Icons.school_outlined,
+        'Teaching Practice',
+        'Classroom practice and academic mentorship for education students.',
+        Color(0xFF7C3AED),
+      ),
+    ];
+
+    return Container(
+      height: isDesktop ? 720 : 430,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFC8ECF8), Color(0xFFE2F4D9)],
+        ),
+        borderRadius: BorderRadius.circular(isDesktop ? 28 : 22),
+      ),
+      padding: EdgeInsets.all(isDesktop ? 34 : 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Practical Training',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Explore pathways that connect classroom learning with real '
+            'workplace experience.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: 14,
+              height: 1.45,
+              letterSpacing: 0,
+            ),
+          ),
+          const Spacer(),
+          SizedBox(
+            height: isDesktop ? 390 : 250,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                PageView.builder(
+                  controller: _trainingPreviewController,
+                  itemCount: slides.length,
+                  onPageChanged: (index) {
+                    setState(() => _trainingPreviewIndex = index);
+                  },
+                  itemBuilder: (context, index) {
+                    final slide = slides[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: _TrainingPreviewCard(
+                        icon: slide.$1,
+                        title: slide.$2,
+                        body: slide.$3,
+                        color: slide.$4,
+                      ),
+                    );
+                  },
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _TrainingPreviewArrow(
+                    icon: Icons.arrow_back_rounded,
+                    onPressed: () => _moveTrainingPreview(-1),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _TrainingPreviewArrow(
+                    icon: Icons.arrow_forward_rounded,
+                    onPressed: () => _moveTrainingPreview(1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var index = 0; index < slides.length; index++)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  height: 10,
+                  width: _trainingPreviewIndex == index ? 22 : 10,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: _trainingPreviewIndex == index
+                        ? AppTheme.primaryBlue
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+            ],
+          ),
+          const Spacer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRegisterCard(LanguageProvider language, bool isDesktop) {
+    return Card(
+      elevation: 4,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: AppTheme.primaryBlue.withValues(alpha: 0.18),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(
+          color: AppTheme.primaryBlue.withValues(alpha: 0.28),
+          width: 1.2,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(isDesktop ? 32 : 22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(language),
+            const SizedBox(height: 24),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _selectedRole == null
+                  ? _buildRoleSelection(language, isDesktop)
+                  : _buildForm(language, isDesktop),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${language.tr('already_have_account')} ',
+                  style: AppTheme.caption,
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    language.tr('login'),
+                    style: const TextStyle(
+                      color: AppTheme.primaryBlue,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              '© 2026 ${language.tr('IPTkiganjani', {'name': 'IPTkiganjani'})}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              language.tr('united_republic_of_tanzania'),
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade400),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isDesktop = screenWidth >= 900;
-    final contentMaxWidth = isDesktop ? 960.0 : 640.0;
+    final showPortalChrome = kIsWeb && isDesktop;
+    final contentMaxWidth = isDesktop ? 1480.0 : 640.0;
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
-      appBar: AppBar(
-        title: Text(language.tr('create_account')),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: AppTheme.textDark,
-      ),
+      appBar: showPortalChrome
+          ? null
+          : AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                tooltip: 'Back to home',
+                onPressed: _goHome,
+              ),
+              title: Text(language.tr('create_account')),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: AppTheme.textDark,
+            ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: EdgeInsets.symmetric(
-                horizontal: isDesktop ? 32 : 16,
-                vertical: 16,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                  child: Card(
-                    elevation: 4,
-                    surfaceTintColor: Colors.transparent,
-                    shadowColor: AppTheme.primaryBlue.withValues(alpha: 0.18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      side: BorderSide(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.28),
-                        width: 1.2,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: EdgeInsets.all(isDesktop ? 32 : 22),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildHeader(language),
-                          const SizedBox(height: 24),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 250),
-                            child: _selectedRole == null
-                                ? _buildRoleSelection(language, isDesktop)
-                                : _buildForm(language, isDesktop),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${language.tr('already_have_account')} ',
-                                style: AppTheme.caption,
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: Text(
-                                  language.tr('login'),
-                                  style: const TextStyle(
-                                    color: AppTheme.primaryBlue,
-                                    fontWeight: FontWeight.w600,
+            return Stack(
+              children: [
+                SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    isDesktop ? 32 : 16,
+                    showPortalChrome ? 112 : 16,
+                    isDesktop ? 32 : 16,
+                    16,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                      child: isDesktop
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _buildTrainingPreviewPanel(isDesktop),
+                                ),
+                                const SizedBox(width: 30),
+                                SizedBox(
+                                  width: 600,
+                                  child: _buildRegisterCard(
+                                    language,
+                                    isDesktop,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          const Divider(),
-                          const SizedBox(height: 8),
-                          Text(
-                            '© 2026 ${language.tr('IPTkiganjani', {'name': 'IPTkiganjani'})}',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade500,
+                              ],
+                            )
+                          : Column(
+                              children: [
+                                _buildRegisterCard(language, isDesktop),
+                              ],
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            language.tr('united_republic_of_tanzania'),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey.shade400,
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
                 ),
-              ),
+                if (showPortalChrome)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: public_home.PublicPortalHeader(
+                      isCompact: false,
+                      onHomePressed: _goHome,
+                      onVacanciesPressed: () {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const public_home.TrainingPortalScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      },
+                      onLoginPressed: () {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      },
+                    ),
+                  ),
+              ],
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _TrainingPreviewCard extends StatelessWidget {
+  const _TrainingPreviewCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    right: -24,
+                    top: -24,
+                    child: Icon(
+                      icon,
+                      size: 160,
+                      color: color.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  Center(
+                    child: Container(
+                      height: 128,
+                      width: 128,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withValues(alpha: 0.24),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 64, color: Colors.white),
+                    ),
+                  ),
+                  Positioned(
+                    left: 18,
+                    bottom: 18,
+                    right: 18,
+                    child: Row(
+                      children: [
+                        _TrainingPreviewMiniIcon(
+                          icon: Icons.business_center_outlined,
+                          color: color,
+                        ),
+                        const SizedBox(width: 8),
+                        _TrainingPreviewMiniIcon(
+                          icon: Icons.groups_outlined,
+                          color: color,
+                        ),
+                        const SizedBox(width: 8),
+                        _TrainingPreviewMiniIcon(
+                          icon: Icons.assignment_turned_in_outlined,
+                          color: color,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppTheme.textDark,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 13,
+              height: 1.4,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrainingPreviewMiniIcon extends StatelessWidget {
+  const _TrainingPreviewMiniIcon({required this.icon, required this.color});
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 34,
+      width: 34,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(icon, color: color, size: 18),
+    );
+  }
+}
+
+class _TrainingPreviewArrow extends StatelessWidget {
+  const _TrainingPreviewArrow({required this.icon, required this.onPressed});
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, color: AppTheme.textDark),
+        tooltip: 'Change training preview',
       ),
     );
   }

@@ -390,7 +390,7 @@ class _PosttrainingcreenState extends State<Posttrainingcreen> {
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.pop(context);
+          Navigator.pop(context, true);
         } else {
           ScaffoldMessenger.of(context).showAppSnackBar(
             SnackBar(

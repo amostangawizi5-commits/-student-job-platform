@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/auth/login_screen.dart';
+import '../screens/home_screen.dart' as public_home;
 import '../screens/student/student_dashboard.dart';
 import '../screens/organization/organization_dashboard.dart';
 import '../screens/admin/admin_dashboard.dart';
@@ -17,6 +19,11 @@ class AuthWrapper extends StatefulWidget {
 
 class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
+
+  bool get _isMobileDevice =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   @override
   void initState() {
@@ -55,7 +62,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
           }
         }
 
-        return const LoginScreen();
+        return _isMobileDevice
+            ? const LoginScreen()
+            : const public_home.HomeScreen();
       },
     );
   }

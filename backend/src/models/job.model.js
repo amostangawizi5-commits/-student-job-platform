@@ -84,7 +84,7 @@ class JobModel {
                 c.logo_url,
                 COALESCE(NULLIF(c.location, ''), NULLIF(j.location, '')) AS company_location,
                 (
-                    SELECT json_agg(json_build_object('skill_id', s.skill_id, 'name', s.name))
+                    SELECT json_agg(json_build_object('skill_id', s.skill_id, 'name', s.name, 'category', s.category))
                     FROM job_skills js
                     JOIN skills s ON js.skill_id = s.skill_id
                     WHERE js.job_id = j.job_id

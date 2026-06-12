@@ -4,6 +4,7 @@ const multer = require('multer');
 const { query } = require('../config/database');
 const { authMiddleware, authorize } = require('../middleware/auth.middleware');
 const universityOrganizationChatController = require('../controllers/university-organization-chat.controller');
+const testController = require('../controllers/test.controller');
 const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
 
 const matchesAllowedUpload = (file, { allowedExtensions, allowedMimeTypes }) => {
@@ -44,7 +45,7 @@ const logoUpload = createUpload({
 
 const acceptanceAssetUpload = createUpload({
   allowedExtensions: ['.jpg', '.jpeg', '.png'],
-  message: 'Only JPG, JPEG, or PNG files are allowed for acceptance letter assets',
+  message: 'Only JPG, JPEG, or PNG files are allowed for acceptance letter Training',
 });
 
 const ensureCompanyProfileExists = async (userId) => {
@@ -194,11 +195,52 @@ router.post(
   universityOrganizationChatController.sendCompanyChatMessage,
 );
 
+router.put(
+  '/university-chats/:universityUserId/messages/:messageId',
+  authMiddleware,
+  authorize('company'),
+  universityOrganizationChatController.updateCompanyChatMessage,
+);
+
 router.delete(
   '/university-chats/:universityUserId/messages/:messageId',
   authMiddleware,
   authorize('company'),
   universityOrganizationChatController.deleteCompanyChatMessage,
+);
+
+router.get('/tests', authMiddleware, authorize('company'), testController.listTests);
+router.post('/tests', authMiddleware, authorize('company'), testController.createTest);
+router.get('/tests/:testId', authMiddleware, authorize('company'), testController.getTest);
+router.post(
+  '/tests/:testId/invite',
+  authMiddleware,
+  authorize('company'),
+  testController.inviteStudents,
+);
+router.get(
+  '/tests/:testId/results',
+  authMiddleware,
+  authorize('company'),
+  testController.getResults,
+);
+router.get(
+  '/tests/attempts/:attemptId/answers',
+  authMiddleware,
+  authorize('company'),
+  testController.getAttemptAnswersForAdmin,
+);
+router.put(
+  '/tests/answers/:answerId/score',
+  authMiddleware,
+  authorize('company'),
+  testController.gradeAnswerManually,
+);
+router.post(
+  '/tests/:testId/auto-selection',
+  authMiddleware,
+  authorize('company'),
+  testController.applyAutoSelection,
 );
 
 router.post(

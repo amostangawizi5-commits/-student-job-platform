@@ -396,6 +396,8 @@ class CoordinatorWorkspaceService {
   }
 
   Future<void> assignManualPlacement({
+    String? applicationId,
+    String? jobId,
     required String studentName,
     required String studentEmail,
     String? studentPhone,
@@ -430,6 +432,8 @@ class CoordinatorWorkspaceService {
       'id': existingIndex == -1
           ? _generateId('manual-placement')
           : placements[existingIndex]['id'],
+      'application_id': applicationId?.trim() ?? '',
+      'job_id': jobId?.trim() ?? '',
       'student_name': studentName.trim(),
       'student_email': normalizedEmail,
       'student_phone': studentPhone?.trim() ?? '',
@@ -446,6 +450,7 @@ class CoordinatorWorkspaceService {
       'start_date': startDate?.trim() ?? '',
       'end_date': endDate?.trim() ?? '',
       'coordinator_notes': coordinatorNotes?.trim() ?? '',
+      'status': 'assigned',
       'assigned_at': existingIndex == -1
           ? now
           : '${placements[existingIndex]['assigned_at'] ?? now}',
@@ -570,6 +575,141 @@ class CoordinatorWorkspaceService {
     });
   }
 
+  Future<Map<String, dynamic>> updateManualPlacementStatus({
+    required String placementId,
+    required String status,
+    required String companyName,
+    String? companyFeedback,
+    String? reportingStartDate,
+    String? reportingEndDate,
+  }) async {
+    final normalizedStatus = status.trim().toLowerCase();
+    if (normalizedStatus != 'accepted' && normalizedStatus != 'rejected') {
+      return {
+        'success': false,
+        'message': 'Manual placements can only be accepted or rejected.',
+      };
+    }
+
+    final lookupId = placementId.trim().startsWith('manual-placement:')
+        ? placementId.trim().substring('manual-placement:'.length)
+        : placementId.trim();
+    if (lookupId.isEmpty || lookupId == 'manual-placement') {
+      return {'success': false, 'message': 'Manual placement ID is missing.'};
+    }
+
+    final placements = await _readList(_manualPlacementsKey);
+    final index = placements.indexWhere((placement) {
+      final id = '${placement['id'] ?? ''}'.trim();
+      final applicationId = '${placement['application_id'] ?? ''}'.trim();
+      return _sameValue(id, lookupId) ||
+          _sameValue(applicationId, lookupId) ||
+          _sameValue('manual-placement:$id', placementId);
+    });
+
+    if (index == -1) {
+      return {'success': false, 'message': 'Manual placement was not found.'};
+    }
+
+    final current = placements[index];
+    final now = DateTime.now().toUtc().toIso8601String();
+    final feedbackText = companyFeedback?.trim() ?? '';
+    final responseAtKey = normalizedStatus == 'accepted'
+        ? 'company_accepted_at'
+        : 'company_rejected_at';
+
+    final updated = {
+      ...current,
+      'status': normalizedStatus,
+      'company_response_status': normalizedStatus,
+      'company_response_notes': feedbackText,
+      'company_response_by': companyName.trim(),
+      'reporting_start_date': reportingStartDate?.trim().isNotEmpty == true
+          ? reportingStartDate!.trim()
+          : '${current['reporting_start_date'] ?? current['start_date'] ?? ''}',
+      'reporting_end_date': reportingEndDate?.trim().isNotEmpty == true
+          ? reportingEndDate!.trim()
+          : '${current['reporting_end_date'] ?? current['end_date'] ?? ''}',
+      responseAtKey: now,
+      'updated_at': now,
+    };
+
+    placements[index] = updated;
+    await _writeList(_manualPlacementsKey, placements);
+
+    final studentName = '${current['student_name'] ?? 'Student'}'.trim();
+    final studentEmail = '${current['student_email'] ?? ''}'.trim();
+    final universityName = '${current['university_name'] ?? 'University'}'
+        .trim();
+    final trainingTitle = '${current['training_title'] ?? 'placement'}'.trim();
+    final resolvedCompanyName = companyName.trim().isNotEmpty
+        ? companyName.trim()
+        : '${current['company_name'] ?? 'Company'}'.trim();
+    final outcomeText = normalizedStatus == 'accepted'
+        ? 'accepted'
+        : 'rejected';
+
+    final studentMessage = StringBuffer()
+      ..write(
+        '$resolvedCompanyName has $outcomeText your assigned placement for $trainingTitle.',
+      );
+    if (feedbackText.isNotEmpty) {
+      studentMessage.write(' Notes: $feedbackText');
+    }
+
+    await _appendNotification({
+      'notification_id': _generateId('notification'),
+      'source_id': '${updated['id'] ?? placementId}',
+      'title': normalizedStatus == 'accepted'
+          ? 'Company accepted your placement'
+          : 'Company rejected your placement',
+      'message': studentMessage.toString(),
+      'type': normalizedStatus == 'accepted'
+          ? 'manual_assignment_accepted'
+          : 'manual_assignment_rejected',
+      'audience': 'student',
+      'target_email': studentEmail,
+      'university_name': universityName,
+      'company_name': resolvedCompanyName,
+      'created_at': now,
+      'is_read': false,
+    });
+
+    final universityMessage = StringBuffer()
+      ..write(
+        '$resolvedCompanyName has $outcomeText the coordinator assignment for $studentName on $trainingTitle.',
+      );
+    if (feedbackText.isNotEmpty) {
+      universityMessage.write(' Notes: $feedbackText');
+    }
+
+    await _appendNotification({
+      'notification_id': _generateId('notification'),
+      'source_id': '${updated['id'] ?? placementId}',
+      'title': normalizedStatus == 'accepted'
+          ? 'Company accepted assigned student'
+          : 'Company rejected assigned student',
+      'message': universityMessage.toString(),
+      'type': normalizedStatus == 'accepted'
+          ? 'manual_assignment_accepted'
+          : 'manual_assignment_rejected',
+      'audience': 'university',
+      'target_email': studentEmail,
+      'university_name': universityName,
+      'company_name': resolvedCompanyName,
+      'created_at': now,
+      'is_read': false,
+    });
+
+    return {
+      'success': true,
+      'message': normalizedStatus == 'accepted'
+          ? 'Assigned student accepted successfully.'
+          : 'Assigned student rejected successfully.',
+      'data': updated,
+    };
+  }
+
   Future<void> queueApprovalFromCompany({
     required String applicationId,
     required String studentName,
@@ -678,7 +818,7 @@ class CoordinatorWorkspaceService {
         .where((email) => email.isNotEmpty)
         .toSet();
 
-    final pendingOfferIndexesByStudent = <String, List<int>>{};
+    final expirableOfferIndexesByStudent = <String, List<int>>{};
     for (var index = 0; index < approvals.length; index++) {
       final approval = approvals[index];
       final studentEmail = '${approval['student_email'] ?? ''}'
@@ -696,12 +836,17 @@ class CoordinatorWorkspaceService {
         fallback: 'pending',
       );
 
-      if (companySelectionStatus != 'accepted' ||
-          studentChoiceStatus != 'pending') {
+      final isPendingAcceptedOffer =
+          companySelectionStatus == 'accepted' &&
+          studentChoiceStatus == 'pending';
+      final isLegacyRejectedTimeout =
+          companySelectionStatus == 'rejected' ||
+          studentChoiceStatus == 'rejected';
+      if (!isPendingAcceptedOffer && !isLegacyRejectedTimeout) {
         continue;
       }
 
-      pendingOfferIndexesByStudent
+      expirableOfferIndexesByStudent
           .putIfAbsent(studentEmail, () => <int>[])
           .add(index);
     }
@@ -710,11 +855,7 @@ class CoordinatorWorkspaceService {
     final nowIso = now.toIso8601String();
     var hasChanges = false;
 
-    for (final entry in pendingOfferIndexesByStudent.entries) {
-      if (entry.value.length <= 1) {
-        continue;
-      }
-
+    for (final entry in expirableOfferIndexesByStudent.entries) {
       for (final index in entry.value) {
         final approval = approvals[index];
         final acceptedAt = _parseDateTimeValue(

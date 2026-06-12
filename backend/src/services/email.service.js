@@ -404,10 +404,69 @@ async function sendPasswordChangedEmail({
     });
 }
 
+async function sendTestInvitationEmail({
+    to,
+    studentName,
+    testTitle,
+    testLink,
+    duration,
+    deadline
+}) {
+    if (!to || !testLink) {
+        return { skipped: true };
+    }
+
+    const greetingName = studentName || 'Student';
+    const deadlineLabel = deadline
+        ? new Date(deadline).toLocaleString('en-GB', {
+              dateStyle: 'medium',
+              timeStyle: 'short'
+          })
+        : 'the stated deadline';
+    const text = [
+        `Hello ${greetingName},`,
+        '',
+        `You have been invited to take: ${testTitle}.`,
+        `Duration: ${duration} minutes.`,
+        `Deadline: ${deadlineLabel}.`,
+        `Open your unique test link: ${testLink}`,
+        '',
+        'You can save progress and continue before the deadline.',
+        '',
+        'Best regards,',
+        'Student Job Platform'
+    ].join('\n');
+
+    const html = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+            <p>Hello ${greetingName},</p>
+            <p>You have been invited to take <strong>${testTitle}</strong>.</p>
+            <p><strong>Duration:</strong> ${duration} minutes<br><strong>Deadline:</strong> ${deadlineLabel}</p>
+            <p>
+                <a href="${testLink}" style="display: inline-block; padding: 12px 18px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Open test
+                </a>
+            </p>
+            <p>If the button does not open, use this link:</p>
+            <p><a href="${testLink}">${testLink}</a></p>
+            <p>You can save progress and continue before the deadline.</p>
+            <p style="margin-top: 20px;">Best regards,<br>Student Job Platform</p>
+        </div>
+    `;
+
+    return sendMail({
+        to,
+        subject: `Online Test Invitation: ${testTitle}`,
+        text,
+        html
+    });
+}
+
 module.exports = {
     isEmailConfigured,
     getConfiguredEmailProviders,
     sendApplicationStatusEmail,
     sendPasswordResetEmail,
-    sendPasswordChangedEmail
+    sendPasswordChangedEmail,
+    sendTestInvitationEmail
 };

@@ -992,6 +992,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
         ),
         const SizedBox(height: 6),
+
         if (_asInt(_stats['total_universities']) != 0) ...[
           const SizedBox(height: 6),
         ],

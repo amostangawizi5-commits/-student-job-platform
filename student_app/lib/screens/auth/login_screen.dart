@@ -9,6 +9,7 @@ import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
+import '../home_screen.dart' as public_home;
 import 'register_screen.dart';
 import '../student/student_dashboard.dart';
 import '../organization/organization_dashboard.dart';
@@ -244,380 +245,530 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
-      body: Stack(
-        children: [
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 450),
-                  child: Card(
-                    elevation: 4,
-                    surfaceTintColor: Colors.transparent,
-                    shadowColor: AppTheme.primaryBlue.withValues(alpha: 0.18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      side: BorderSide(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.28),
-                        width: 1.2,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Logo ya Serikali na Header
-                          Column(
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final showPortalChrome = kIsWeb && constraints.maxWidth >= 900;
+          return Stack(
+            children: [
+              Center(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    showPortalChrome ? 112 : 16,
+                    16,
+                    showPortalChrome ? 92 : 16,
+                  ),
+                  child: Center(
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 450),
+                      child: Card(
+                        elevation: 4,
+                        surfaceTintColor: Colors.transparent,
+                        shadowColor: AppTheme.primaryBlue.withValues(
+                          alpha: 0.18,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          side: BorderSide(
+                            color: AppTheme.primaryBlue.withValues(alpha: 0.28),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Logo ya Serikali
-                              Container(
-                                height: 108,
-                                width: 108,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withValues(alpha: 0.3),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 4),
+                              // Logo ya Serikali na Header
+                              Column(
+                                children: [
+                                  // Logo ya Serikali
+                                  Container(
+                                    height: 108,
+                                    width: 108,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.grey.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipOval(
+                                      child: Image.asset(
+                                        'assets/images/splash_logo.png',
+                                        height: 108,
+                                        width: 108,
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (context, error, stackTrace) {
+                                              return Container(
+                                                color: Colors.blue.shade100,
+                                                child: const Icon(
+                                                  Icons.verified,
+                                                  size: 50,
+                                                  color: Colors.blue,
+                                                ),
+                                              );
+                                            },
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    language.tr('united_republic_of_tanzania'),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF4A90E2),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    language.tr('internship_government_system'),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF666666),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    language.tr('empowering_tanzanian_youth'),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+
+                                      color: Color(0xFF888888),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 32),
+
+                              Text(
+                                language.tr('login'),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF333333),
+                                ),
+                              ),
+
+                              const SizedBox(height: 32),
+
+                              Form(
+                                key: _formKey,
+                                child: Column(
+                                  children: [
+                                    TextFormField(
+                                      controller: _emailController,
+                                      keyboardType: TextInputType.emailAddress,
+                                      decoration: InputDecoration(
+                                        labelText: language.tr(
+                                          'email_or_username',
+                                        ),
+                                        hintText: language.tr(
+                                          'enter_your_email_address',
+                                        ),
+                                        prefixIcon: const Icon(
+                                          Icons.email_outlined,
+                                        ),
+                                        filled: true,
+                                        fillColor: AppTheme.surfaceSoft,
+                                      ),
+                                      validator: (value) {
+                                        if (value == null || value.isEmpty) {
+                                          return language.tr(
+                                            'please_enter_your_email',
+                                          );
+                                        }
+                                        if (!value.contains('@')) {
+                                          return language.tr(
+                                            'enter_valid_email_address',
+                                          );
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                    const SizedBox(height: 20),
+
+                                    TextFormField(
+                                      controller: _passwordController,
+                                      obscureText: !_isPasswordVisible,
+                                      decoration: InputDecoration(
+                                        labelText: language.tr('password'),
+                                        prefixIcon: const Icon(
+                                          Icons.lock_outline,
+                                        ),
+                                        suffixIcon: IconButton(
+                                          icon: Icon(
+                                            _isPasswordVisible
+                                                ? Icons.visibility_off
+                                                : Icons.visibility,
+                                            color: AppTheme.textLight,
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _isPasswordVisible =
+                                                  !_isPasswordVisible;
+                                            });
+                                          },
+                                        ),
+                                        filled: true,
+                                        fillColor: AppTheme.surfaceSoft,
+                                      ),
+                                      validator: (value) {
+                                        if (value == null || value.isEmpty) {
+                                          return language.tr(
+                                            'please_enter_your_password',
+                                          );
+                                        }
+                                        if (value.length < 6) {
+                                          return language.tr('password_min_6');
+                                        }
+                                        return null;
+                                      },
                                     ),
                                   ],
                                 ),
-                                child: ClipOval(
-                                  child: Image.asset(
-                                    'assets/images/splash_logo.png',
-                                    height: 108,
-                                    width: 108,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: Colors.blue.shade100,
-                                        child: const Icon(
-                                          Icons.verified,
-                                          size: 50,
-                                          color: Colors.blue,
+                              ),
+
+                              Material(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                child: InkWell(
+                                  onTap: isLoggingIn
+                                      ? null
+                                      : _showForgotPasswordDialog,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      color: const Color(0xFFF6FAFF),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppTheme.shadow.withValues(
+                                            alpha: 0.04,
+                                          ),
+                                          blurRadius: 18,
+                                          offset: const Offset(0, 8),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.primaryBlue
+                                                .withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.lock_reset_rounded,
+                                            color: AppTheme.primaryBlue,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            language.tr('forgot_password'),
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppTheme.primaryBlue,
+                                            ),
+                                          ),
+                                        ),
+                                        const Icon(
+                                          Icons.arrow_forward_ios_rounded,
+                                          size: 16,
+                                          color: AppTheme.primaryBlue,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 24),
+
+                              ElevatedButton(
+                                onPressed: isLoggingIn ? null : _handleLogin,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.primaryBlue,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: isLoggingIn
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Text(
+                                        language.tr('login'),
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                              ),
+
+                              const SizedBox(height: 24),
+
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    '${language.tr('dont_have_account')} ',
+                                    style: AppTheme.caption,
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const RegisterScreen(),
                                         ),
                                       );
                                     },
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                language.tr('united_republic_of_tanzania'),
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF4A90E2),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                language.tr('internship_government_system'),
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: Color(0xFF666666),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                language.tr('empowering_tanzanian_youth'),
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 11,
-
-                                  color: Color(0xFF888888),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 32),
-
-                          Text(
-                            language.tr('login'),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
-
-                          const SizedBox(height: 32),
-
-                          Form(
-                            key: _formKey,
-                            child: Column(
-                              children: [
-                                TextFormField(
-                                  controller: _emailController,
-                                  keyboardType: TextInputType.emailAddress,
-                                  decoration: InputDecoration(
-                                    labelText: language.tr('email_or_username'),
-                                    hintText: language.tr(
-                                      'enter_your_email_address',
-                                    ),
-                                    prefixIcon: const Icon(
-                                      Icons.email_outlined,
-                                    ),
-                                    filled: true,
-                                    fillColor: AppTheme.surfaceSoft,
-                                  ),
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return language.tr(
-                                        'please_enter_your_email',
-                                      );
-                                    }
-                                    if (!value.contains('@')) {
-                                      return language.tr(
-                                        'enter_valid_email_address',
-                                      );
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 20),
-
-                                TextFormField(
-                                  controller: _passwordController,
-                                  obscureText: !_isPasswordVisible,
-                                  decoration: InputDecoration(
-                                    labelText: language.tr('password'),
-                                    prefixIcon: const Icon(Icons.lock_outline),
-                                    suffixIcon: IconButton(
-                                      icon: Icon(
-                                        _isPasswordVisible
-                                            ? Icons.visibility_off
-                                            : Icons.visibility,
-                                        color: AppTheme.textLight,
-                                      ),
-                                      onPressed: () {
-                                        setState(() {
-                                          _isPasswordVisible =
-                                              !_isPasswordVisible;
-                                        });
-                                      },
-                                    ),
-                                    filled: true,
-                                    fillColor: AppTheme.surfaceSoft,
-                                  ),
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return language.tr(
-                                        'please_enter_your_password',
-                                      );
-                                    }
-                                    if (value.length < 6) {
-                                      return language.tr('password_min_6');
-                                    }
-                                    return null;
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          Material(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            child: InkWell(
-                              onTap: isLoggingIn
-                                  ? null
-                                  : _showForgotPasswordDialog,
-                              borderRadius: BorderRadius.circular(16),
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  color: const Color(0xFFF6FAFF),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppTheme.shadow.withValues(
-                                        alpha: 0.04,
-                                      ),
-                                      blurRadius: 18,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: AppTheme.primaryBlue.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: const Icon(
-                                        Icons.lock_reset_rounded,
+                                    child: Text(
+                                      language.tr('register'),
+                                      style: TextStyle(
                                         color: AppTheme.primaryBlue,
-                                        size: 20,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        language.tr('forgot_password'),
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppTheme.primaryBlue,
-                                        ),
-                                      ),
-                                    ),
-                                    const Icon(
-                                      Icons.arrow_forward_ios_rounded,
-                                      size: 16,
-                                      color: AppTheme.primaryBlue,
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ),
 
-                          const SizedBox(height: 24),
+                              const SizedBox(height: 16),
 
-                          ElevatedButton(
-                            onPressed: isLoggingIn ? null : _handleLogin,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryBlue,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: isLoggingIn
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(
-                                    language.tr('login'),
+                              const Divider(),
+
+                              const SizedBox(height: 12),
+
+                              Column(
+                                children: [
+                                  Text(
+                                    '© 2026 ${language.tr('IPTkiganjani', {'name': 'IPTkiganjani'})}',
+                                    textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                      color: Colors.grey.shade500,
                                     ),
                                   ),
-                          ),
-
-                          const SizedBox(height: 24),
-
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${language.tr('dont_have_account')} ',
-                                style: AppTheme.caption,
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const RegisterScreen(),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    language.tr('version_value', {
+                                      'value': '1.2.1',
+                                    }),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade400,
                                     ),
-                                  );
-                                },
-                                child: Text(
-                                  language.tr('register'),
-                                  style: TextStyle(
-                                    color: AppTheme.primaryBlue,
-                                    fontWeight: FontWeight.w600,
                                   ),
-                                ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    language.tr('united_republic_of_tanzania'),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-
-                          const SizedBox(height: 16),
-
-                          const Divider(),
-
-                          const SizedBox(height: 12),
-
-                          Column(
-                            children: [
-                              Text(
-                                '© 2026 ${language.tr('IPTkiganjani', {'name': 'IPTkiganjani'})}',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                language.tr('version_value', {
-                                  'value': '1.2.1',
-                                }),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey.shade400,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                language.tr('united_republic_of_tanzania'),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
+              if (showPortalChrome)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: public_home.PublicPortalHeader(
+                    isCompact: false,
+                    onHomePressed: () {
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const public_home.HomeScreen(),
+                        ),
+                        (route) => false,
+                      );
+                    },
+                    onVacanciesPressed: () {
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const public_home.TrainingPortalScreen(),
+                        ),
+                        (route) => false,
+                      );
+                    },
+                    onLoginPressed: () {},
+                  ),
+                ),
+              if (showPortalChrome)
+                const Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _LoginPortalFooter(),
+                ),
+
+              // Loading Overlay
+              if (isLoggingIn)
+                Container(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          language.tr('logging_in'),
+                          style: TextStyle(color: Colors.white, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LoginPortalFooter extends StatelessWidget {
+  const _LoginPortalFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: Color(0xFF155A99),
+        border: Border(top: BorderSide(color: Color(0xFF10B981), width: 3)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+      child: const Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        runSpacing: 10,
+        children: [
+          Text(
+            'Copyright © 2026 IPTkiganjani | All Rights Reserved (version 2.2.0)',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              letterSpacing: 0,
             ),
           ),
+          _LoginDownloadBadges(),
+        ],
+      ),
+    );
+  }
+}
 
-          // Loading Overlay
-          if (isLoggingIn)
-            Container(
-              color: Colors.black.withValues(alpha: 0.5),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      language.tr('logging_in'),
-                      style: TextStyle(color: Colors.white, fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
+class _LoginDownloadBadges extends StatelessWidget {
+  const _LoginDownloadBadges();
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: const [
+        Text(
+          'Download IPtkiganjani app',
+          style: TextStyle(color: Colors.white, fontSize: 12, letterSpacing: 0),
+        ),
+        _LoginStoreBadge(icon: Icons.apple, label: 'App Store'),
+        _LoginStoreBadge(icon: Icons.play_arrow_rounded, label: 'Google Play'),
+      ],
+    );
+  }
+}
+
+class _LoginStoreBadge extends StatelessWidget {
+  const _LoginStoreBadge({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 16),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
             ),
+          ),
         ],
       ),
     );

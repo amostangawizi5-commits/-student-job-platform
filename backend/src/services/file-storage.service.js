@@ -63,6 +63,19 @@ const buildLocalUrl = (segments) => {
     return `/${segments.map((segment) => `${segment}`.replace(/^\/+|\/+$/g, '')).join('/')}`;
 };
 
+const createAssetNotFoundError = (fileUrl, absolutePath) => {
+    const error = new Error('Asset file could not be found');
+    error.code = 'ASSET_NOT_FOUND';
+    error.fileUrl = fileUrl;
+    error.path = absolutePath;
+    return error;
+};
+
+const getLocalAssetPath = (fileUrl) => {
+    const normalizedPath = `${fileUrl}`.replace(/^\/+/, '');
+    return path.join(__dirname, '../../', normalizedPath);
+};
+
 const saveFileLocally = ({
     buffer,
     uploadSubdir,
@@ -322,8 +335,7 @@ const resolveAssetDownloadUrl = (fileUrl) => {
         !fileUrl.startsWith('http://') &&
         !fileUrl.startsWith('https://')
     ) {
-        const normalizedPath = `${fileUrl}`.replace(/^\/+/, '');
-        const absolutePath = path.join(__dirname, '../../', normalizedPath);
+        const absolutePath = getLocalAssetPath(fileUrl);
         return fs.existsSync(absolutePath) ? fileUrl : null;
     }
 
@@ -416,9 +428,20 @@ const readBinaryFromUrl = async (fileUrl) => {
         return Buffer.from(arrayBuffer);
     }
 
-    const normalizedPath = `${fileUrl}`.replace(/^\/+/, '');
-    const absolutePath = path.join(__dirname, '../../', normalizedPath);
-    return fs.readFileSync(absolutePath);
+    const absolutePath = getLocalAssetPath(fileUrl);
+    if (!fs.existsSync(absolutePath)) {
+        throw createAssetNotFoundError(fileUrl, absolutePath);
+    }
+
+    try {
+        return fs.readFileSync(absolutePath);
+    } catch (error) {
+        if (error?.code === 'ENOENT') {
+            throw createAssetNotFoundError(fileUrl, absolutePath);
+        }
+
+        throw error;
+    }
 };
 
 const readAssetBuffer = async (fileUrl) => {

@@ -44,6 +44,42 @@ const mapAdminDecisionToDbStatus = (status) => {
     return normalizedStatus;
 };
 
+const compactTextPayload = (payload = {}, allowedFields = []) => {
+    const result = {};
+    for (const field of allowedFields) {
+        if (payload[field] === undefined || payload[field] === null) continue;
+        const value = `${payload[field]}`.trim();
+        if (value !== '') {
+            result[field] = value;
+        }
+    }
+    return result;
+};
+
+const updateTableFields = async ({
+    client,
+    tableName,
+    idField,
+    idValue,
+    payload,
+    allowedFields
+}) => {
+    const data = compactTextPayload(payload, allowedFields);
+    const entries = Object.entries(data);
+    if (entries.length === 0) return;
+
+    const assignments = entries.map(([field], index) => `${field} = $${index + 1}`);
+    const values = entries.map(([, value]) => value);
+    values.push(idValue);
+
+    await client.query(
+        `UPDATE ${tableName}
+         SET ${assignments.join(', ')}
+         WHERE ${idField} = $${values.length}`,
+        values
+    );
+};
+
 const PASSWORD_RESET_TABLE_SQL = `
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
         token_id SERIAL PRIMARY KEY,
@@ -214,11 +250,15 @@ const getAllUsers = async (req, res) => {
             SELECT u.user_id, u.email, u.role, u.full_name, u.phone, 
                    u.is_verified, u.is_active, u.created_at,
                    s.program, s.university_id, u2.name as university_name,
-                   c.company_name, c.industry, c.location
+                   s.registration_number,
+                   c.company_name, c.industry, c.location,
+                   up.college_name, up.coordinator_name,
+                   up.coordinator_phone, up.coordinator_email
             FROM users u
             LEFT JOIN students s ON u.user_id = s.student_id
             LEFT JOIN universities u2 ON s.university_id = u2.university_id
             LEFT JOIN companies c ON u.user_id = c.company_id
+            LEFT JOIN university_profiles up ON u.user_id = up.user_id
             ORDER BY u.created_at DESC
         `);
         
@@ -235,11 +275,15 @@ const getUserById = async (req, res) => {
         const { id } = req.params;
         const result = await query(`
             SELECT u.*, s.program, s.university_id, u2.name as university_name,
-                   c.company_name, c.industry, c.location, c.company_size
+                   s.registration_number,
+                   c.company_name, c.industry, c.location, c.company_size,
+                   up.college_name, up.coordinator_name,
+                   up.coordinator_phone, up.coordinator_email
             FROM users u
             LEFT JOIN students s ON u.user_id = s.student_id
             LEFT JOIN universities u2 ON s.university_id = u2.university_id
             LEFT JOIN companies c ON u.user_id = c.company_id
+            LEFT JOIN university_profiles up ON u.user_id = up.user_id
             WHERE u.user_id = $1
         `, [id]);
         
@@ -259,7 +303,12 @@ const updateUserRole = async (req, res) => {
     let client;
     try {
         const { id } = req.params;
-        const { role } = req.body;
+        const {
+            role,
+            student_data: studentData = {},
+            company_data: companyData = {},
+            university_data: universityData = {}
+        } = req.body;
         const allowedRoles = new Set(['student', 'company', 'university', 'admin']);
  
         if (!allowedRoles.has(role)) {
@@ -292,6 +341,9 @@ const updateUserRole = async (req, res) => {
         const updatedUser = result.rows[0];
 
         if (role === 'company') {
+            const companyName =
+                `${companyData.company_name || updatedUser.full_name || updatedUser.email || 'Company'}`
+                    .trim();
             await client.query(
                 `INSERT INTO companies (
                     company_id,
@@ -306,12 +358,89 @@ const updateUserRole = async (req, res) => {
                     NULLIF(companies.company_name, ''),
                     EXCLUDED.company_name
                 )`,
+                [updatedUser.user_id, companyName]
+            );
+
+            await updateTableFields({
+                client,
+                tableName: 'companies',
+                idField: 'company_id',
+                idValue: updatedUser.user_id,
+                payload: companyData,
+                allowedFields: [
+                    'company_name',
+                    'industry',
+                    'company_size',
+                    'location',
+                    'description',
+                    'website_url',
+                    'region',
+                    'district'
+                ]
+            });
+        }
+
+        if (role === 'university') {
+            const collegeName =
+                `${universityData.college_name || updatedUser.full_name || updatedUser.email || 'Institution'}`
+                    .trim();
+            const coordinatorName =
+                `${universityData.coordinator_name || updatedUser.full_name || ''}`.trim();
+            const coordinatorPhone =
+                `${universityData.coordinator_phone || ''}`.trim();
+            const coordinatorEmail =
+                `${universityData.coordinator_email || updatedUser.email || ''}`.trim();
+
+            await client.query(
+                `INSERT INTO university_profiles (
+                    user_id,
+                    college_name,
+                    registration_number,
+                    college_email,
+                    college_phone,
+                    address,
+                    region,
+                    district,
+                    subscription_status,
+                    coordinator_name,
+                    coordinator_phone,
+                    coordinator_email
+                )
+                 VALUES ($1, $2, '', $3, $4, '', '', '', 'trial', $5, $6, $7)
+                 ON CONFLICT (user_id) DO NOTHING`,
                 [
                     updatedUser.user_id,
-                    `${updatedUser.full_name || updatedUser.email || 'Company'}`
-                        .trim(),
+                    collegeName,
+                    coordinatorEmail,
+                    coordinatorPhone,
+                    coordinatorName,
+                    coordinatorPhone,
+                    coordinatorEmail
                 ]
             );
+
+            await updateTableFields({
+                client,
+                tableName: 'university_profiles',
+                idField: 'user_id',
+                idValue: updatedUser.user_id,
+                payload: universityData,
+                allowedFields: [
+                    'college_name',
+                    'registration_number',
+                    'college_email',
+                    'college_phone',
+                    'address',
+                    'region',
+                    'district',
+                    'website_url',
+                    'college_type',
+                    'subscription_status',
+                    'coordinator_name',
+                    'coordinator_phone',
+                    'coordinator_email'
+                ]
+            });
         }
 
         if (role === 'student') {
@@ -322,6 +451,27 @@ const updateUserRole = async (req, res) => {
                  SET student_type = EXCLUDED.student_type`,
                 [updatedUser.user_id, 'current']
             );
+
+            await updateTableFields({
+                client,
+                tableName: 'students',
+                idField: 'student_id',
+                idValue: updatedUser.user_id,
+                payload: {
+                    ...studentData,
+                    student_type: studentData.student_type || 'current'
+                },
+                allowedFields: [
+                    'university_id',
+                    'program',
+                    'student_type',
+                    'registration_number',
+                    'experience_level',
+                    'bio',
+                    'github_url',
+                    'linkedin_url'
+                ]
+            });
         }
 
         await client.query('COMMIT');

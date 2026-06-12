@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const testController = require('../controllers/test.controller');
 const { authMiddleware, authorize } = require('../middleware/auth.middleware');
 
 // All admin routes require authentication and admin role
@@ -37,5 +38,15 @@ router.get('/students/with-awards', adminController.getStudentsWithAwards);
 router.get('/students/no-field', adminController.getStudentsNoField);
 
 router.delete('/training/:id', adminController.deleteJob);
+
+// Online test management
+router.get('/tests', testController.listTests);
+router.post('/tests', testController.createTest);
+router.get('/tests/:testId', testController.getTest);
+router.post('/tests/:testId/invite', testController.inviteStudents);
+router.get('/tests/:testId/results', testController.getResults);
+router.get('/tests/attempts/:attemptId/answers', testController.getAttemptAnswersForAdmin);
+router.put('/tests/answers/:answerId/score', testController.gradeAnswerManually);
+router.post('/tests/:testId/auto-selection', testController.applyAutoSelection);
 
 module.exports = router;

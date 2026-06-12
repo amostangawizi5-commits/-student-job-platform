@@ -27,6 +27,7 @@ const adminRoutes = require('./src/routes/admin.routes');
 const universityRoutes = require('./src/routes/university.routes');
 const projectRoutes = require('./src/routes/project.routes');  // ADDED
 const awardRoutes = require('./src/routes/award.routes');
+const testRoutes = require('./src/routes/test.routes');
 
 // Import resume routes
 const resumeRoutes = require('./simple-resume.js');
@@ -125,6 +126,9 @@ app.use('/api/university', universityRoutes);
 
 console.log('  Registering /api/admin...');
 app.use('/api/admin', adminRoutes);
+
+console.log('  Registering /api/tests...');
+app.use('/api/tests', testRoutes);
 
 console.log('  Registering /api/awards...');
 app.use('/api/awards', awardRoutes);

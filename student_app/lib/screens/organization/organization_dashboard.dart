@@ -21,6 +21,7 @@ import '../../services/local_file_service.dart';
 import '../../utils/role_theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../auth/login_screen.dart';
+import '../admin/admin_test_management_screen.dart';
 import 'post_job_screen.dart';
 import 'edit_organization_profile_screen.dart';
 import 'organization_notifications_screen.dart';
@@ -1057,17 +1058,918 @@ List<String> buildApplicantConditionLabels(
 
 String formatApplicationStatus(String status, LanguageProvider language) {
   switch (status) {
+    case 'assigned':
+      return language.tr('status_assigned');
     case 'shortlisted':
       return language.tr('status_shortlisted');
     case '':
       return language.tr('status_');
     case 'accepted':
       return language.tr('status_accepted');
+    case 'expired':
+      return language.tr('expired');
     case 'rejected':
       return language.tr('status_rejected');
     case 'pending':
     default:
       return language.tr('status_pending');
+  }
+}
+
+class OrganizationUniversityChatsPage extends StatefulWidget {
+  final List<Map<String, dynamic>> initialConversations;
+
+  const OrganizationUniversityChatsPage({
+    super.key,
+    this.initialConversations = const [],
+  });
+
+  @override
+  State<OrganizationUniversityChatsPage> createState() =>
+      _OrganizationUniversityChatsPageState();
+}
+
+class _OrganizationUniversityChatsPageState
+    extends State<OrganizationUniversityChatsPage> {
+  final ApiService _apiService = ApiService();
+  final TextEditingController _composerController = TextEditingController();
+
+  List<Map<String, dynamic>> _conversations = const [];
+  List<Map<String, dynamic>> _messages = const [];
+  Map<String, dynamic>? _selectedConversation;
+  bool _isLoadingConversations = true;
+  bool _isLoadingMessages = false;
+  bool _isSending = false;
+  String? _deletingMessageId;
+  String? _editingMessageId;
+  String? _composerError;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _conversations = _mergeConversations(widget.initialConversations, const []);
+    _loadConversations();
+  }
+
+  @override
+  void dispose() {
+    _composerController.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> _mapList(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => item.map((key, entry) => MapEntry('$key', entry)))
+        .toList(growable: false);
+  }
+
+  List<Map<String, dynamic>> _mergeConversations(
+    List<Map<String, dynamic>> first,
+    List<Map<String, dynamic>> second,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    void add(Map<String, dynamic> item) {
+      final universityUserId = '${item['university_user_id'] ?? ''}'.trim();
+      final universityName = '${item['university_name'] ?? ''}'.trim();
+      final key = universityUserId.isNotEmpty
+          ? universityUserId
+          : universityName.toLowerCase();
+      if (key.isEmpty || !seen.add(key)) return;
+      merged.add(item);
+    }
+
+    for (final item in second) {
+      add(item);
+    }
+    for (final item in first) {
+      add(item);
+    }
+    return merged;
+  }
+
+  String _universityName(Map<String, dynamic>? conversation) {
+    return '${conversation?['university_name'] ?? 'University'}'.trim();
+  }
+
+  String _universityUserId(Map<String, dynamic>? conversation) {
+    return '${conversation?['university_user_id'] ?? ''}'.trim();
+  }
+
+  String _preview(Map<String, dynamic> conversation) {
+    final latest = '${conversation['latest_message'] ?? ''}'.trim();
+    return latest.isEmpty ? 'Tap to start the conversation.' : latest;
+  }
+
+  int _unreadCount(Map<String, dynamic> conversation) {
+    final value = conversation['unread_count'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('${value ?? 0}') ?? 0;
+  }
+
+  String _formatTime(Object? value) {
+    final date = DateTime.tryParse('${value ?? ''}')?.toLocal();
+    if (date == null) return '';
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  Future<void> _loadConversations() async {
+    setState(() {
+      _isLoadingConversations = true;
+      _error = null;
+    });
+
+    try {
+      final response = await _apiService.getOrganizationUniversityChats();
+      final remoteConversations = _mapList(response['data']);
+      final conversations = _mergeConversations(
+        widget.initialConversations,
+        remoteConversations,
+      );
+      if (!mounted) return;
+      setState(() {
+        _conversations = conversations;
+        _selectedConversation ??= conversations.isNotEmpty
+            ? conversations.first
+            : null;
+        _isLoadingConversations = false;
+      });
+      if (_selectedConversation != null && _messages.isEmpty) {
+        await _selectConversation(_selectedConversation!, openDetail: false);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = ApiService.normalizeErrorMessage(
+          error,
+          fallback: 'Failed to load university chats.',
+        );
+        _isLoadingConversations = false;
+      });
+    }
+  }
+
+  Future<void> _selectConversation(
+    Map<String, dynamic> conversation, {
+    bool openDetail = true,
+  }) async {
+    final universityUserId = _universityUserId(conversation);
+    if (universityUserId.isEmpty) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text('University chat target is missing.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _selectedConversation = conversation;
+      _messages = const [];
+      _isLoadingMessages = true;
+      _editingMessageId = null;
+      _composerError = null;
+    });
+    _composerController.clear();
+
+    try {
+      final response = await _apiService.getOrganizationUniversityChatMessages(
+        universityUserId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _messages = _mapList(response['data']);
+        _isLoadingMessages = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isLoadingMessages = false);
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              error,
+              fallback: 'Failed to load messages.',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    final selected = _selectedConversation;
+    final universityUserId = _universityUserId(selected);
+    final text = _composerController.text.trim();
+    final editingMessageId = _editingMessageId;
+    if (_isSending) return;
+    if (selected == null || universityUserId.isEmpty) return;
+    if (text.isEmpty) {
+      setState(() => _composerError = 'Write a message first.');
+      return;
+    }
+
+    setState(() {
+      _isSending = true;
+      _composerError = null;
+    });
+
+    try {
+      final response = editingMessageId == null
+          ? await _apiService.sendOrganizationUniversityChatMessage(
+              universityUserId: universityUserId,
+              message: text,
+            )
+          : await _apiService.updateOrganizationUniversityChatMessage(
+              universityUserId: universityUserId,
+              messageId: editingMessageId,
+              message: text,
+            );
+      if (!mounted) return;
+      if (response['success'] == true && response['data'] is Map) {
+        _composerController.clear();
+        setState(() {
+          if (editingMessageId == null) {
+            _messages = [
+              ..._messages,
+              Map<String, dynamic>.from(response['data'] as Map),
+            ];
+          } else {
+            final updatedMessage = Map<String, dynamic>.from(
+              response['data'] as Map,
+            );
+            _messages = _messages
+                .map(
+                  (message) =>
+                      '${message['id'] ?? ''}'.trim() == editingMessageId
+                      ? updatedMessage
+                      : message,
+                )
+                .toList(growable: false);
+          }
+          _editingMessageId = null;
+          _isSending = false;
+        });
+        await _loadConversations();
+      } else {
+        setState(() => _isSending = false);
+        ScaffoldMessenger.of(context).showAppSnackBar(
+          SnackBar(
+            content: Text(
+              '${response['message'] ?? 'Failed to send message.'}',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSending = false);
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              error,
+              fallback: 'Failed to send message.',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteMessage(Map<String, dynamic> message) async {
+    final selected = _selectedConversation;
+    final universityUserId = _universityUserId(selected);
+    final messageId = '${message['id'] ?? ''}'.trim();
+    if (universityUserId.isEmpty || messageId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: const Text(
+          'This will remove the message from your chat only.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _deletingMessageId = messageId);
+    final response = await _apiService.deleteOrganizationUniversityChatMessage(
+      universityUserId: universityUserId,
+      messageId: messageId,
+    );
+    if (!mounted) return;
+
+    if (response['success'] == true) {
+      setState(() {
+        _messages = _messages
+            .where((item) => '${item['id'] ?? ''}'.trim() != messageId)
+            .toList(growable: false);
+        if (_editingMessageId == messageId) {
+          _editingMessageId = null;
+          _composerController.clear();
+        }
+        _deletingMessageId = null;
+      });
+    } else {
+      setState(() => _deletingMessageId = null);
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(
+            '${response['message'] ?? 'Failed to delete message.'}',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  bool _isOwnMessage(Map<String, dynamic> message) {
+    final senderRole = '${message['sender_role'] ?? ''}'.trim().toLowerCase();
+    return senderRole == 'organization' || senderRole == 'company';
+  }
+
+  void _startEditingMessage(Map<String, dynamic> message) {
+    final messageId = '${message['id'] ?? ''}'.trim();
+    if (messageId.isEmpty ||
+        !_isOwnMessage(message) ||
+        _deletingMessageId != null) {
+      return;
+    }
+
+    _composerController.text = '${message['message'] ?? ''}'.trim();
+    _composerController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _composerController.text.length),
+    );
+    setState(() {
+      _editingMessageId = messageId;
+      _composerError = null;
+    });
+  }
+
+  void _cancelEditingMessage() {
+    _composerController.clear();
+    setState(() {
+      _editingMessageId = null;
+      _composerError = null;
+    });
+  }
+
+  Future<void> _showMessageActions(Map<String, dynamic> message) async {
+    final messageId = '${message['id'] ?? ''}'.trim();
+    if (messageId.isEmpty || _deletingMessageId != null) return;
+    final isOwnMessage = _isOwnMessage(message);
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isOwnMessage)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit message'),
+                onTap: () => Navigator.of(context).pop('edit'),
+              ),
+            ListTile(
+              leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.red,
+              ),
+              title: const Text('Delete message'),
+              textColor: Colors.red,
+              iconColor: Colors.red,
+              onTap: () => Navigator.of(context).pop('delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (action == 'edit') {
+      _startEditingMessage(message);
+    } else if (action == 'delete') {
+      await _deleteMessage(message);
+    }
+  }
+
+  Widget _buildConversationList({required bool compact}) {
+    if (_isLoadingConversations && _conversations.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null && _conversations.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _loadConversations,
+                child: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_conversations.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 58,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'No university chats yet',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Universities connected to your placements will appear here.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: _conversations.length,
+      separatorBuilder: (context, index) =>
+          const Divider(height: 1, indent: 76),
+      itemBuilder: (context, index) {
+        final conversation = _conversations[index];
+        final selected =
+            _universityUserId(conversation) ==
+            _universityUserId(_selectedConversation);
+        final unreadCount = _unreadCount(conversation);
+
+        return Material(
+          color: selected
+              ? _organizationStudentSurfaceSoft
+              : Colors.transparent,
+          child: InkWell(
+            onTap: () => _selectConversation(conversation),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: const Color(0xFFDDF6EC),
+                    child: Text(
+                      _universityName(conversation).isEmpty
+                          ? 'U'
+                          : _universityName(conversation)[0].toUpperCase(),
+                      style: const TextStyle(
+                        color: _organizationStudentPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _universityName(conversation),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: _organizationStudentPrimaryDark,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _preview(conversation),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (unreadCount > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _organizationStudentPrimary,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        unreadCount > 99 ? '99+' : '$unreadCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> message) {
+    final isMine = _isOwnMessage(message);
+    final isDeleting = _deletingMessageId == '${message['id'] ?? ''}'.trim();
+    final isEdited = '${message['edited_at'] ?? ''}'.trim().isNotEmpty;
+    final bubbleColor = isMine ? const Color(0xFFDCF8C6) : Colors.white;
+    final alignment = isMine ? Alignment.centerRight : Alignment.centerLeft;
+
+    return Align(
+      alignment: alignment,
+      child: GestureDetector(
+        onTap: () => _showMessageActions(message),
+        onLongPress: () => _deleteMessage(message),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 7),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(14),
+              topRight: const Radius.circular(14),
+              bottomLeft: Radius.circular(isMine ? 14 : 4),
+              bottomRight: Radius.circular(isMine ? 4 : 14),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${message['message'] ?? ''}',
+                style: const TextStyle(
+                  color: Color(0xFF1F2937),
+                  height: 1.35,
+                  fontSize: 14.5,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _formatTime(message['created_at']),
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                  ),
+                  if (isEdited) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      'edited',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                  if (isDeleting) ...[
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 11,
+                      height: 11,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChatPane({required bool compact}) {
+    final selected = _selectedConversation;
+    if (selected == null) {
+      return const Center(
+        child: Text(
+          'Select a university chat',
+          style: TextStyle(color: Colors.black54),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Container(
+          color: _organizationStudentPrimary,
+          padding: EdgeInsets.fromLTRB(compact ? 8 : 16, 10, 16, 10),
+          child: SafeArea(
+            bottom: false,
+            child: Row(
+              children: [
+                if (compact)
+                  IconButton(
+                    onPressed: () => setState(() {
+                      _selectedConversation = null;
+                      _messages = const [];
+                    }),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    color: Colors.white,
+                  ),
+                CircleAvatar(
+                  backgroundColor: Colors.white.withValues(alpha: 0.18),
+                  child: const Icon(
+                    Icons.account_balance_outlined,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _universityName(selected),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        'University chat',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _selectConversation(selected),
+                  icon: const Icon(Icons.refresh_rounded),
+                  color: Colors.white,
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: Container(
+            color: const Color(0xFFECE5DD),
+            child: _isLoadingMessages
+                ? const Center(child: CircularProgressIndicator())
+                : _messages.isEmpty
+                ? Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        'No messages yet. Start the conversation.',
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) =>
+                        _buildMessageBubble(_messages[index]),
+                  ),
+          ),
+        ),
+        Container(
+          color: const Color(0xFFF0F2F5),
+          padding: EdgeInsets.fromLTRB(
+            12,
+            10,
+            12,
+            MediaQuery.of(context).padding.bottom + 10,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_editingMessageId != null) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _organizationStudentBorder),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: _organizationStudentPrimary,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Editing message',
+                          style: TextStyle(
+                            color: _organizationStudentPrimaryDark,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _isSending ? null : _cancelEditingMessage,
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'Cancel edit',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _composerController,
+                      minLines: 1,
+                      maxLines: 5,
+                      onChanged: (_) {
+                        if (_composerError != null) {
+                          setState(() => _composerError = null);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        hintText: _editingMessageId == null
+                            ? 'Message'
+                            : 'Edit message',
+                        errorText: _composerError,
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    height: 48,
+                    width: 48,
+                    child: FilledButton(
+                      onPressed: _isSending ? null : _sendMessage,
+                      style: FilledButton.styleFrom(
+                        shape: const CircleBorder(),
+                        padding: EdgeInsets.zero,
+                        backgroundColor: _organizationStudentPrimary,
+                      ),
+                      child: _isSending
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              _editingMessageId == null
+                                  ? Icons.send_rounded
+                                  : Icons.check_rounded,
+                              color: Colors.white,
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F2F5),
+      appBar: AppBar(
+        title: const Text('University Chats'),
+        backgroundColor: _organizationStudentPrimary,
+        foregroundColor: Colors.white,
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 760;
+          if (compact && _selectedConversation != null) {
+            return _buildChatPane(compact: true);
+          }
+
+          if (compact) {
+            return _buildConversationList(compact: true);
+          }
+
+          return Row(
+            children: [
+              SizedBox(
+                width: 360,
+                child: Material(
+                  color: Colors.white,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                        child: Text(
+                          'Chats',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      Expanded(child: _buildConversationList(compact: false)),
+                    ],
+                  ),
+                ),
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: _buildChatPane(compact: false)),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -1143,22 +2045,6 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
         .toList(growable: false);
   }
 
-  String _conversationUniversityName(Map<String, dynamic> conversation) {
-    return '${conversation['university_name'] ?? 'University'}'.trim();
-  }
-
-  String _conversationUniversityId(Map<String, dynamic> conversation) {
-    return '${conversation['university_user_id'] ?? ''}'.trim();
-  }
-
-  String _conversationPreview(Map<String, dynamic> conversation) {
-    final latest = '${conversation['latest_message'] ?? ''}'.trim();
-    if (latest.isEmpty) {
-      return 'Open chat to start the conversation.';
-    }
-    return latest;
-  }
-
   int _conversationUnreadCount(Map<String, dynamic> conversation) {
     final value = conversation['unread_count'];
     if (value is int) return value;
@@ -1230,719 +2116,27 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
     return candidatesByKey.values.toList(growable: false);
   }
 
-  Future<void> _openUniversityChatCard(
-    Map<String, dynamic> conversation,
-  ) async {
-    final universityName = _conversationUniversityName(conversation);
-    final universityUserId = _conversationUniversityId(conversation);
-    if (universityUserId.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text('University chat target is missing.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    final composerController = TextEditingController();
-    final initialResponse = await _apiService
-        .getOrganizationUniversityChatMessages(universityUserId);
-    final initialMessages = _mapConversationList(initialResponse['data']);
-    if (!mounted) return;
+  Future<void> _openUniversityChatsPage() async {
+    var chatCandidates = List<Map<String, dynamic>>.from(_chatUniversities);
 
     try {
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        backgroundColor: Colors.transparent,
-        builder: (sheetContext) {
-          var messages = List<Map<String, dynamic>>.from(initialMessages);
-          var isSending = false;
-          String? deletingMessageId;
-          String? composerError;
-
-          String formatChatTime(String value) {
-            final date = DateTime.tryParse(value)?.toLocal();
-            if (date == null) return '';
-            final hour = date.hour.toString().padLeft(2, '0');
-            final minute = date.minute.toString().padLeft(2, '0');
-            return '$hour:$minute';
-          }
-
-          Future<void> sendMessage(StateSetter setModalState) async {
-            final text = composerController.text.trim();
-            if (isSending) return;
-            if (text.isEmpty) {
-              setModalState(() => composerError = 'Write a message first.');
-              return;
-            }
-
-            setModalState(() {
-              composerError = null;
-              isSending = true;
-            });
-            final response = await _apiService
-                .sendOrganizationUniversityChatMessage(
-                  universityUserId: universityUserId,
-                  message: text,
-                );
-
-            if (!sheetContext.mounted) return;
-
-            if (response['success'] == true &&
-                response['data'] is Map<String, dynamic>) {
-              composerController.clear();
-              setModalState(() {
-                messages = [
-                  ...messages,
-                  Map<String, dynamic>.from(response['data']),
-                ];
-                isSending = false;
-              });
-            } else {
-              setModalState(() => isSending = false);
-              ScaffoldMessenger.of(sheetContext).showAppSnackBar(
-                SnackBar(
-                  content: Text(
-                    '${response['message'] ?? 'Failed to send message.'}',
-                  ),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          }
-
-          Future<void> deleteMessage(
-            StateSetter setModalState,
-            Map<String, dynamic> item,
-          ) async {
-            final messageId = '${item['id'] ?? ''}'.trim();
-            if (messageId.isEmpty || deletingMessageId != null) return;
-
-            final confirmed = await showDialog<bool>(
-              context: sheetContext,
-              builder: (context) => AlertDialog(
-                title: const Text('Delete message?'),
-                content: const Text(
-                  'This will remove the message from your chat only.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                    child: const Text('Delete'),
-                  ),
-                ],
-              ),
-            );
-
-            if (confirmed != true) return;
-
-            setModalState(() => deletingMessageId = messageId);
-            final response = await _apiService
-                .deleteOrganizationUniversityChatMessage(
-                  universityUserId: universityUserId,
-                  messageId: messageId,
-                );
-
-            if (!sheetContext.mounted) return;
-
-            if (response['success'] == true) {
-              setModalState(() {
-                messages = messages
-                    .where(
-                      (message) => '${message['id'] ?? ''}'.trim() != messageId,
-                    )
-                    .toList(growable: false);
-                deletingMessageId = null;
-              });
-              ScaffoldMessenger.of(sheetContext).showAppSnackBar(
-                SnackBar(
-                  content: Text(
-                    '${response['message'] ?? 'Message deleted successfully.'}',
-                  ),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            } else {
-              setModalState(() => deletingMessageId = null);
-              ScaffoldMessenger.of(sheetContext).showAppSnackBar(
-                SnackBar(
-                  content: Text(
-                    '${response['message'] ?? 'Failed to delete message.'}',
-                  ),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          }
-
-          return StatefulBuilder(
-            builder: (context, setModalState) => SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 12,
-                  right: 12,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                ),
-                child: Material(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  clipBehavior: Clip.antiAlias,
-                  child: SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.72,
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'University Chat',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: _organizationStudentPrimaryDark,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                universityName,
-                                style: const TextStyle(
-                                  color: _organizationStudentPrimary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Long-press any message to remove it from your chat.',
-                                style: TextStyle(
-                                  color: Colors.black54,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Divider(height: 1),
-                        Expanded(
-                          child: messages.isEmpty
-                              ? const Center(
-                                  child: Text(
-                                    'No messages yet. Start the conversation.',
-                                    style: TextStyle(color: Colors.black54),
-                                  ),
-                                )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.all(16),
-                                  itemCount: messages.length,
-                                  itemBuilder: (context, index) {
-                                    final item = messages[index];
-                                    final isMine =
-                                        '${item['sender_role'] ?? ''}'
-                                                .trim()
-                                                .toLowerCase() ==
-                                            'organization' ||
-                                        '${item['sender_role'] ?? ''}'
-                                                .trim()
-                                                .toLowerCase() ==
-                                            'company';
-                                    final bubbleColor = isMine
-                                        ? _organizationStudentPrimary
-                                        : const Color(0xFFEFF3F8);
-                                    final textColor = isMine
-                                        ? Colors.white
-                                        : _organizationStudentPrimaryDark;
-
-                                    final isDeleting =
-                                        deletingMessageId == item['id'];
-
-                                    return Align(
-                                      alignment: isMine
-                                          ? Alignment.centerRight
-                                          : Alignment.centerLeft,
-                                      child: GestureDetector(
-                                        onLongPress: () =>
-                                            deleteMessage(setModalState, item),
-                                        child: Container(
-                                          margin: const EdgeInsets.only(
-                                            bottom: 12,
-                                          ),
-                                          constraints: const BoxConstraints(
-                                            maxWidth: 360,
-                                          ),
-                                          padding: const EdgeInsets.all(14),
-                                          decoration: BoxDecoration(
-                                            color: bubbleColor,
-                                            borderRadius: BorderRadius.circular(
-                                              18,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                '${item['message'] ?? ''}',
-                                                style: TextStyle(
-                                                  color: textColor,
-                                                  height: 1.4,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    formatChatTime(
-                                                      '${item['created_at'] ?? ''}',
-                                                    ),
-                                                    style: TextStyle(
-                                                      color: textColor
-                                                          .withValues(
-                                                            alpha: 0.82,
-                                                          ),
-                                                      fontSize: 11,
-                                                    ),
-                                                  ),
-                                                  if (isDeleting) ...[
-                                                    const SizedBox(width: 8),
-                                                    SizedBox(
-                                                      width: 12,
-                                                      height: 12,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                            strokeWidth: 2,
-                                                            color: textColor,
-                                                          ),
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                        const Divider(height: 1),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Send message to university',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: _organizationStudentPrimaryDark,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: composerController,
-                                      minLines: 1,
-                                      maxLines: 4,
-                                      onChanged: (_) {
-                                        if (composerError != null) {
-                                          setModalState(
-                                            () => composerError = null,
-                                          );
-                                        }
-                                      },
-                                      decoration: InputDecoration(
-                                        hintText: 'Write a message',
-                                        errorText: composerError,
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  FilledButton.icon(
-                                    onPressed: isSending
-                                        ? null
-                                        : () => sendMessage(setModalState),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor:
-                                          _organizationStudentPrimary,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 16,
-                                      ),
-                                    ),
-                                    icon: isSending
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : const Icon(Icons.send_rounded),
-                                    label: Text(
-                                      isSending ? 'Sending...' : 'Send',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      );
-    } finally {
-      composerController.dispose();
-      if (mounted) {
-        await _loadData(forceRefresh: true);
-      }
+      chatCandidates = await _loadUniversityChatCandidates();
+    } catch (error) {
+      chatCandidates = List<Map<String, dynamic>>.from(_chatUniversities);
     }
-  }
 
-  Future<void> _openUniversityChatDirectory() async {
-    final chatCandidates = await _loadUniversityChatCandidates();
     if (!mounted) return;
-
-    if (chatCandidates.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showAppSnackBar(
-        const SnackBar(
-          content: Text('No university is available for chat yet.'),
-          backgroundColor: Colors.red,
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OrganizationUniversityChatsPage(
+          initialConversations: chatCandidates,
         ),
-      );
-      return;
-    }
-
-    if (chatCandidates.length == 1) {
-      await _openUniversityChatCard(chatCandidates.first);
-      return;
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-            child: Material(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'University Chats',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: _organizationStudentPrimaryDark,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Choose a university to continue the conversation.',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                    const SizedBox(height: 16),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: chatCandidates
-                              .map((conversation) {
-                                final universityName =
-                                    _conversationUniversityName(conversation);
-                                final unreadCount = _conversationUnreadCount(
-                                  conversation,
-                                );
-                                return Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(18),
-                                    border: Border.all(
-                                      color: _organizationStudentBorder,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: _organizationStudentSurface,
-                                          borderRadius: BorderRadius.circular(
-                                            14,
-                                          ),
-                                        ),
-                                        child: const Icon(
-                                          Icons.account_balance_outlined,
-                                          color: _organizationStudentPrimary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          universityName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color:
-                                                _organizationStudentPrimaryDark,
-                                          ),
-                                        ),
-                                      ),
-                                      if (unreadCount > 0) ...[
-                                        Container(
-                                          margin: const EdgeInsets.only(
-                                            right: 10,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: _organizationStudentPrimary,
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            unreadCount > 99
-                                                ? '99+'
-                                                : '$unreadCount',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                      FilledButton(
-                                        onPressed: () {
-                                          Navigator.of(sheetContext).pop();
-                                          _openUniversityChatCard(conversation);
-                                        },
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor:
-                                              _organizationStudentPrimary,
-                                          foregroundColor: Colors.white,
-                                        ),
-                                        child: const Text('Open'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              })
-                              .toList(growable: false),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+      ),
     );
-  }
 
-  Widget _buildChatSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Text(
-              'University Chats',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            if (_totalUniversityUnreadCount > 0) ...[
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: _organizationStudentPrimary,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  _totalUniversityUnreadCount > 99
-                      ? '99+ new'
-                      : '$_totalUniversityUnreadCount new',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (_chatUniversities.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: _organizationStudentBorder),
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  size: 42,
-                  color: Colors.grey.shade500,
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'No university chats yet',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF17324D),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Universities connected to your organization will appear here for direct messaging.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-              ],
-            ),
-          )
-        else
-          Column(
-            children: _chatUniversities
-                .map((conversation) {
-                  final universityName = _conversationUniversityName(
-                    conversation,
-                  );
-                  final preview = _conversationPreview(conversation);
-                  final unreadCount = _conversationUnreadCount(conversation);
-                  return Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: _organizationStudentBorder),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: _organizationStudentSurface,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(
-                            Icons.account_balance_outlined,
-                            color: _organizationStudentPrimary,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                universityName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF17324D),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                preview,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (unreadCount > 0) ...[
-                          Container(
-                            margin: const EdgeInsets.only(right: 10),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _organizationStudentPrimary,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              unreadCount > 99 ? '99+' : '$unreadCount',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                        FilledButton.icon(
-                          onPressed: () =>
-                              _openUniversityChatCard(conversation),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _organizationStudentPrimary,
-                            foregroundColor: Colors.white,
-                          ),
-                          icon: const Icon(Icons.chat_bubble_outline_rounded),
-                          label: const Text('Open chat'),
-                        ),
-                      ],
-                    ),
-                  );
-                })
-                .toList(growable: false),
-          ),
-      ],
-    );
+    if (mounted) {
+      _loadData(forceRefresh: true);
+    }
   }
 
   void _goTotrainingTab() {
@@ -2446,6 +2640,7 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
                           icon: Icons.add_circle_outline,
                           title: language.tr('post_training'),
                           color: Colors.blue,
+                          badgeCount: 0,
                           onTap: () async {
                             final result = await Navigator.push(
                               context,
@@ -2466,6 +2661,7 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
                           icon: Icons.people_outline,
                           title: language.tr('view_training'),
                           color: Colors.green,
+                          badgeCount: 0,
                           onTap: () {
                             final dashboard = context
                                 .findAncestorStateOfType<
@@ -2478,12 +2674,14 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
                           icon: Icons.chat_bubble_outline_rounded,
                           title: 'University Chats',
                           color: Colors.teal,
-                          onTap: _openUniversityChatDirectory,
+                          badgeCount: _totalUniversityUnreadCount,
+                          onTap: _openUniversityChatsPage,
                         ),
                         (
                           icon: Icons.analytics,
                           title: language.tr('statistics'),
                           color: Colors.purple,
+                          badgeCount: 0,
                           onTap: () {
                             _showStatsDialog(context);
                           },
@@ -2509,6 +2707,7 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
                                   icon: action.icon,
                                   title: action.title,
                                   color: action.color,
+                                  badgeCount: action.badgeCount,
                                   onTap: action.onTap,
                                 ),
                               ),
@@ -2517,8 +2716,6 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
                       );
                     },
                   ),
-                  const SizedBox(height: 28),
-                  _buildChatSection(),
                   const SizedBox(height: 28),
                   _buildAnnouncementSection(),
                   const SizedBox(height: 28),
@@ -2586,6 +2783,7 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
     required String title,
     required Color color,
     required VoidCallback onTap,
+    int badgeCount = 0,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -2606,13 +2804,42 @@ class _OrganizationHomeScreenState extends State<OrganizationHomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 24),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                if (badgeCount > 0)
+                  Positioned(
+                    right: -8,
+                    top: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _organizationStudentPrimary,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      child: Text(
+                        badgeCount > 99 ? '99+' : '$badgeCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -3902,7 +4129,166 @@ class _OrganizationApplicationsTabState
 
   bool get _showAllApplications => _normalizedTrainingId.isEmpty;
 
+  bool get _hasSelectedTraining => _normalizedTrainingId.isNotEmpty;
+
+  List<dynamic> get _testSelectionApplicants {
+    if (_applicationFilter == 'shortlisted') {
+      return _shortlistedApplications;
+    }
+    return _shortlistedApplications.isNotEmpty
+        ? _shortlistedApplications
+        : _applications;
+  }
+
+  String get _testSelectionJobId {
+    return _resolveTestJobId(_testSelectionApplicants);
+  }
+
+  String _resolveTestJobId(List<dynamic> applicants) {
+    if (_hasSelectedTraining) return _normalizedTrainingId;
+    if (applicants.isEmpty) return '';
+
+    final firstJobId = '${applicants.first['job_id'] ?? ''}'.trim();
+    if (firstJobId.isEmpty) return '';
+
+    final allSameJob = applicants.every(
+      (app) => '${app['job_id'] ?? ''}'.trim() == firstJobId,
+    );
+    return allSameJob ? firstJobId : '';
+  }
+
+  String get _testSelectionJobTitle {
+    return _resolveTestJobTitle(_testSelectionApplicants);
+  }
+
+  String _resolveTestJobTitle(List<dynamic> applicants) {
+    final widgetTitle = widget.trainingTitle?.trim() ?? '';
+    if (widgetTitle.isNotEmpty) return widgetTitle;
+
+    if (applicants.isEmpty) return 'Applications';
+    return '${applicants.first['training_title'] ?? applicants.first['job_title'] ?? 'Applications'}';
+  }
+
+  String _normalizedLookupValue(Object? value) {
+    return '${value ?? ''}'.trim().toLowerCase();
+  }
+
+  bool _sameLookupValue(Object? left, Object? right) {
+    final normalizedLeft = _normalizedLookupValue(left);
+    final normalizedRight = _normalizedLookupValue(right);
+    return normalizedLeft.isNotEmpty && normalizedLeft == normalizedRight;
+  }
+
+  Map<String, dynamic> _mapManualPlacementToOrganizationApplication(
+    Map<String, dynamic> placement,
+  ) {
+    final placementId = '${placement['id'] ?? ''}'.trim();
+    final applicationId = '${placement['application_id'] ?? ''}'.trim();
+    final fallbackApplicationId = placementId.isEmpty
+        ? 'manual-placement'
+        : 'manual-placement:$placementId';
+
+    return {
+      'application_id': applicationId.isEmpty
+          ? fallbackApplicationId
+          : applicationId,
+      'job_id': '${placement['job_id'] ?? ''}',
+      'status': '${placement['status'] ?? 'assigned'}'.trim().isEmpty
+          ? 'assigned'
+          : '${placement['status']}',
+      'full_name': '${placement['student_name'] ?? 'Student'}',
+      'student_name': '${placement['student_name'] ?? 'Student'}',
+      'email': '${placement['student_email'] ?? ''}',
+      'phone': '${placement['student_phone'] ?? ''}',
+      'student_registration_number':
+          '${placement['registration_number'] ?? ''}',
+      'registration_number': '${placement['registration_number'] ?? ''}',
+      'university_name': '${placement['university_name'] ?? ''}',
+      'training_title': '${placement['training_title'] ?? 'Placement'}',
+      'job_title': '${placement['training_title'] ?? 'Placement'}',
+      'company_name': '${placement['company_name'] ?? 'Organization'}',
+      'organization_name': '${placement['company_name'] ?? 'Organization'}',
+      'company_feedback':
+          '${placement['company_response_notes'] ?? placement['coordinator_notes'] ?? ''}',
+      'reporting_start_date':
+          '${placement['reporting_start_date'] ?? placement['start_date'] ?? ''}',
+      'reporting_end_date':
+          '${placement['reporting_end_date'] ?? placement['end_date'] ?? ''}',
+      'placement_location': '${placement['placement_location'] ?? ''}',
+      'placement_department': '${placement['placement_department'] ?? ''}',
+      'company_phone': '${placement['company_phone'] ?? ''}',
+      'applied_date':
+          '${placement['assigned_at'] ?? placement['updated_at'] ?? placement['created_at'] ?? ''}',
+      'is_manual_assignment': true,
+    };
+  }
+
+  List<dynamic> _mergeOrganizationApplications({
+    required List<dynamic> apiApplications,
+    required List<Map<String, dynamic>> manualPlacements,
+  }) {
+    final merged = <Map<String, dynamic>>[];
+    final seenApplicationIds = <String>{};
+    final seenAssignmentKeys = <String>{};
+
+    void addApplication(Map<String, dynamic> app) {
+      final applicationId = '${app['application_id'] ?? ''}'.trim();
+      if (applicationId.isNotEmpty &&
+          !applicationId.startsWith('manual-placement') &&
+          !seenApplicationIds.add(applicationId)) {
+        return;
+      }
+
+      final assignmentKey = [
+        _normalizedLookupValue(app['email'] ?? app['student_email']),
+        _normalizedLookupValue(app['company_name'] ?? app['organization_name']),
+        _normalizedLookupValue(app['job_id']),
+        _normalizedLookupValue(app['training_title'] ?? app['job_title']),
+      ].join('|');
+
+      if (assignmentKey.trim().replaceAll('|', '').isNotEmpty &&
+          !seenAssignmentKeys.add(assignmentKey)) {
+        return;
+      }
+
+      merged.add(app);
+    }
+
+    for (final app in apiApplications.whereType<Map>()) {
+      addApplication(app.map((key, value) => MapEntry('$key', value)));
+    }
+
+    for (final placement in manualPlacements) {
+      addApplication(_mapManualPlacementToOrganizationApplication(placement));
+    }
+
+    DateTime parseSortDate(Map<String, dynamic> item) {
+      final candidates = [
+        item['updated_date'],
+        item['updated_at'],
+        item['accepted_at'],
+        item['applied_date'],
+        item['assigned_at'],
+        item['created_at'],
+      ];
+      for (final candidate in candidates) {
+        final parsed = DateTime.tryParse('${candidate ?? ''}');
+        if (parsed != null) return parsed;
+      }
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    merged.sort(
+      (left, right) => parseSortDate(right).compareTo(parseSortDate(left)),
+    );
+    return merged;
+  }
+
   int _countByStatus(String status) {
+    if (status == 'pending') {
+      return _pendingApplications.length;
+    }
+
     if (status == 'accepted') {
       return _acceptedApplications.length;
     }
@@ -3913,6 +4299,11 @@ class _OrganizationApplicationsTabState
   }
 
   bool _isStudentConfirmedForApplication(dynamic app) {
+    if (app['is_manual_assignment'] == true &&
+        '${app['status'] ?? ''}'.trim().toLowerCase() == 'accepted') {
+      return true;
+    }
+
     final backendConfirmationStatus =
         '${app['student_confirmation_status'] ?? ''}'.trim().toLowerCase();
     if (backendConfirmationStatus == 'confirmed') {
@@ -3928,6 +4319,30 @@ class _OrganizationApplicationsTabState
     return selectedApplicationId.isNotEmpty &&
         applicationId.isNotEmpty &&
         selectedApplicationId == applicationId;
+  }
+
+  bool _isAwaitingStudentConfirmation(dynamic app) {
+    final status = '${app['status'] ?? 'pending'}'.trim().toLowerCase();
+    if (status != 'accepted' ||
+        _isOfferConfirmationExpired('${app['application_id'] ?? ''}') ||
+        _isStudentConfirmedForApplication(app)) {
+      return false;
+    }
+
+    final email = '${app['email'] ?? ''}'.trim().toLowerCase();
+    final selection = _studentSelectionsByEmail[email];
+    final selectedApplicationId =
+        '${selection?['selected_application_id'] ?? ''}'.trim();
+    return selectedApplicationId.isEmpty;
+  }
+
+  List<dynamic> get _pendingApplications {
+    return _applications
+        .where((app) {
+          final status = '${app['status'] ?? 'pending'}'.trim().toLowerCase();
+          return status == 'pending' || _isAwaitingStudentConfirmation(app);
+        })
+        .toList(growable: false);
   }
 
   List<dynamic> get _acceptedApplications {
@@ -3947,6 +4362,12 @@ class _OrganizationApplicationsTabState
         .toList(growable: false);
   }
 
+  List<dynamic> get _assignedApplications {
+    return _applications
+        .where((app) => '${app['status'] ?? 'pending'}' == 'assigned')
+        .toList(growable: false);
+  }
+
   bool _isOfferConfirmationExpired(String applicationId) {
     final approval = _approvalByApplicationId[applicationId.trim()];
     if (approval == null) return false;
@@ -3958,12 +4379,28 @@ class _OrganizationApplicationsTabState
         '${approval['organization_selection_status'] ?? ''}'
             .trim()
             .toLowerCase();
+    final companyStatus = '${approval['company_selection_status'] ?? ''}'
+        .trim()
+        .toLowerCase();
 
-    return choiceStatus == 'expired' || organizationStatus == 'expired';
+    return choiceStatus == 'expired' ||
+        organizationStatus == 'expired' ||
+        companyStatus == 'expired';
+  }
+
+  String _effectiveOrganizationStatus(dynamic app) {
+    if (_isOfferConfirmationExpired('${app['application_id'] ?? ''}')) {
+      return 'expired';
+    }
+    return '${app['status'] ?? 'pending'}'.trim().toLowerCase();
   }
 
   Future<void> _loadApplications() async {
     final language = context.read<LanguageProvider>();
+    final organizationName = _organizationDisplayName(
+      context.read<AuthProvider>().user,
+      language,
+    );
     setState(() {
       _isLoading = true;
       _error = null;
@@ -3973,6 +4410,20 @@ class _OrganizationApplicationsTabState
       final response = _showAllApplications
           ? await _apiService.getOrganizationApplications()
           : await _apiService.getJobApplications(_normalizedTrainingId);
+      final manualPlacements = (await _workspaceService.getManualPlacements())
+          .where((placement) {
+            final matchesOrganization = _sameLookupValue(
+              placement['company_name'],
+              organizationName,
+            );
+            if (!matchesOrganization) return false;
+
+            if (_showAllApplications) return true;
+            final placementJobId = '${placement['job_id'] ?? ''}'.trim();
+            return placementJobId.isNotEmpty &&
+                placementJobId == _normalizedTrainingId;
+          })
+          .toList(growable: false);
       final selections = await _workspaceService.getStudentSelections();
       final approvals = await _workspaceService.getApprovalRecords();
       final selectionsByEmail = <String, Map<String, dynamic>>{};
@@ -3994,25 +4445,52 @@ class _OrganizationApplicationsTabState
       }
 
       if (response['success'] == true) {
+        final apiApplications = response['data'] is List
+            ? response['data'] as List<dynamic>
+            : const <dynamic>[];
         setState(() {
-          _applications = response['data'] ?? [];
+          _applications = _mergeOrganizationApplications(
+            apiApplications: apiApplications,
+            manualPlacements: manualPlacements,
+          );
           _studentSelectionsByEmail = selectionsByEmail;
           _approvalByApplicationId = approvalsByApplicationId;
           _isLoading = false;
         });
       } else {
         setState(() {
-          _error =
-              response['message']?.toString() ??
-              language.tr('failed_to_load_applications');
+          _applications = _mergeOrganizationApplications(
+            apiApplications: const <dynamic>[],
+            manualPlacements: manualPlacements,
+          );
+          _error = _applications.isEmpty
+              ? response['message']?.toString() ??
+                    language.tr('failed_to_load_applications')
+              : null;
           _studentSelectionsByEmail = selectionsByEmail;
           _approvalByApplicationId = approvalsByApplicationId;
           _isLoading = false;
         });
       }
     } catch (e) {
+      final manualPlacements = (await _workspaceService.getManualPlacements())
+          .where(
+            (placement) =>
+                _sameLookupValue(placement['company_name'], organizationName) &&
+                (_showAllApplications ||
+                    _sameLookupValue(
+                      placement['job_id'],
+                      _normalizedTrainingId,
+                    )),
+          )
+          .toList(growable: false);
+      final fallbackApplications = _mergeOrganizationApplications(
+        apiApplications: const <dynamic>[],
+        manualPlacements: manualPlacements,
+      );
       setState(() {
-        _error = _formatErrorMessage(e);
+        _applications = fallbackApplications;
+        _error = fallbackApplications.isEmpty ? _formatErrorMessage(e) : null;
         _isLoading = false;
       });
     }
@@ -4154,13 +4632,14 @@ class _OrganizationApplicationsTabState
   Future<void> _acceptApplicant(Map<String, dynamic> application) async {
     final applicationId = '${application['application_id'] ?? ''}';
     if (applicationId.isEmpty) return;
+    final isManualAssignment = application['is_manual_assignment'] == true;
 
     final reportingDates = await _collectReportingDates();
     if (reportingDates == null) return;
-    final acceptanceLetterData = await _collectAcceptanceLetterData(
-      application,
-    );
-    if (acceptanceLetterData == null) return;
+    final acceptanceLetterData = isManualAssignment
+        ? null
+        : await _collectAcceptanceLetterData(application);
+    if (!isManualAssignment && acceptanceLetterData == null) return;
 
     final updated = await _updateStatus(
       applicationId,
@@ -4172,20 +4651,22 @@ class _OrganizationApplicationsTabState
 
     if (!updated) return;
 
-    await _workspaceService.queueApprovalFromOrganization(
-      applicationId: applicationId,
-      studentName:
-          application['full_name']?.toString() ??
-          application['student_name']?.toString() ??
-          'Student',
-      studentEmail: application['email']?.toString() ?? '',
-      universityName: application['university_name']?.toString() ?? '',
-      organizationName:
-          application['organization_name']?.toString() ?? 'Organization',
-      jobTitle: application['training_title']?.toString() ?? 'Placement',
-      reportingStartDate: reportingDates['reporting_start_date'],
-      reportingEndDate: reportingDates['reporting_end_date'],
-    );
+    if (!isManualAssignment) {
+      await _workspaceService.queueApprovalFromOrganization(
+        applicationId: applicationId,
+        studentName:
+            application['full_name']?.toString() ??
+            application['student_name']?.toString() ??
+            'Student',
+        studentEmail: application['email']?.toString() ?? '',
+        universityName: application['university_name']?.toString() ?? '',
+        organizationName:
+            application['organization_name']?.toString() ?? 'Organization',
+        jobTitle: application['training_title']?.toString() ?? 'Placement',
+        reportingStartDate: reportingDates['reporting_start_date'],
+        reportingEndDate: reportingDates['reporting_end_date'],
+      );
+    }
     if (!mounted) return;
     await _loadApplications();
   }
@@ -4422,6 +4903,8 @@ class _OrganizationApplicationsTabState
         builder: (sheetContext) {
           var messages = List<Map<String, dynamic>>.from(initialMessages);
           var isSending = false;
+          String? deletingMessageId;
+          String? editingMessageId;
           String? composerError;
 
           String formatChatTime(String value) {
@@ -4432,8 +4915,48 @@ class _OrganizationApplicationsTabState
             return '$hour:$minute';
           }
 
+          String messageIdOf(Map<String, dynamic> item) =>
+              '${item['id'] ?? ''}'.trim();
+
+          bool isOwnMessage(Map<String, dynamic> item) {
+            final senderRole = '${item['sender_role'] ?? ''}'
+                .trim()
+                .toLowerCase();
+            return senderRole == 'organization' || senderRole == 'company';
+          }
+
+          void startEditingMessage(
+            StateSetter setModalState,
+            Map<String, dynamic> item,
+          ) {
+            final messageId = messageIdOf(item);
+            if (messageId.isEmpty ||
+                !isOwnMessage(item) ||
+                deletingMessageId != null) {
+              return;
+            }
+
+            composerController.text = '${item['message'] ?? ''}'.trim();
+            composerController.selection = TextSelection.fromPosition(
+              TextPosition(offset: composerController.text.length),
+            );
+            setModalState(() {
+              editingMessageId = messageId;
+              composerError = null;
+            });
+          }
+
+          void cancelEditing(StateSetter setModalState) {
+            composerController.clear();
+            setModalState(() {
+              editingMessageId = null;
+              composerError = null;
+            });
+          }
+
           Future<void> sendMessage(StateSetter setModalState) async {
             final text = composerController.text.trim();
+            final currentEditingMessageId = editingMessageId;
             if (isSending) return;
             if (text.isEmpty) {
               setModalState(() => composerError = 'Write a message first.');
@@ -4444,11 +4967,16 @@ class _OrganizationApplicationsTabState
               composerError = null;
               isSending = true;
             });
-            final response = await _apiService
-                .sendOrganizationUniversityChatMessage(
-                  universityUserId: universityUserId,
-                  message: text,
-                );
+            final response = currentEditingMessageId == null
+                ? await _apiService.sendOrganizationUniversityChatMessage(
+                    universityUserId: universityUserId,
+                    message: text,
+                  )
+                : await _apiService.updateOrganizationUniversityChatMessage(
+                    universityUserId: universityUserId,
+                    messageId: currentEditingMessageId,
+                    message: text,
+                  );
 
             if (!sheetContext.mounted) return;
 
@@ -4456,10 +4984,25 @@ class _OrganizationApplicationsTabState
                 response['data'] is Map<String, dynamic>) {
               composerController.clear();
               setModalState(() {
-                messages = [
-                  ...messages,
-                  Map<String, dynamic>.from(response['data']),
-                ];
+                if (currentEditingMessageId == null) {
+                  messages = [
+                    ...messages,
+                    Map<String, dynamic>.from(response['data']),
+                  ];
+                } else {
+                  final updatedMessage = Map<String, dynamic>.from(
+                    response['data'],
+                  );
+                  messages = messages
+                      .map(
+                        (message) =>
+                            messageIdOf(message) == currentEditingMessageId
+                            ? updatedMessage
+                            : message,
+                      )
+                      .toList(growable: false);
+                }
+                editingMessageId = null;
                 isSending = false;
               });
             } else {
@@ -4472,6 +5015,117 @@ class _OrganizationApplicationsTabState
                   backgroundColor: Colors.red,
                 ),
               );
+            }
+          }
+
+          Future<void> deleteMessage(
+            StateSetter setModalState,
+            Map<String, dynamic> item,
+          ) async {
+            final messageId = '${item['id'] ?? ''}'.trim();
+            if (messageId.isEmpty || deletingMessageId != null) return;
+
+            final confirmed = await showDialog<bool>(
+              context: sheetContext,
+              builder: (context) => AlertDialog(
+                title: const Text('Delete message?'),
+                content: const Text(
+                  'This will remove the message from your chat only.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            );
+
+            if (confirmed != true) return;
+
+            setModalState(() => deletingMessageId = messageId);
+            final response = await _apiService
+                .deleteOrganizationUniversityChatMessage(
+                  universityUserId: universityUserId,
+                  messageId: messageId,
+                );
+
+            if (!sheetContext.mounted) return;
+
+            if (response['success'] == true) {
+              setModalState(() {
+                messages = messages
+                    .where((message) => messageIdOf(message) != messageId)
+                    .toList(growable: false);
+                if (editingMessageId == messageId) {
+                  editingMessageId = null;
+                  composerController.clear();
+                }
+                deletingMessageId = null;
+              });
+              ScaffoldMessenger.of(sheetContext).showAppSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${response['message'] ?? 'Message deleted successfully.'}',
+                  ),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            } else {
+              setModalState(() => deletingMessageId = null);
+              ScaffoldMessenger.of(sheetContext).showAppSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${response['message'] ?? 'Failed to delete message.'}',
+                  ),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+
+          Future<void> showMessageActions(
+            StateSetter setModalState,
+            Map<String, dynamic> item,
+          ) async {
+            if (messageIdOf(item).isEmpty || deletingMessageId != null) return;
+
+            final action = await showModalBottomSheet<String>(
+              context: sheetContext,
+              builder: (context) => SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isOwnMessage(item))
+                      ListTile(
+                        leading: const Icon(Icons.edit_outlined),
+                        title: const Text('Edit message'),
+                        onTap: () => Navigator.of(context).pop('edit'),
+                      ),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.red,
+                      ),
+                      title: const Text('Delete message'),
+                      textColor: Colors.red,
+                      iconColor: Colors.red,
+                      onTap: () => Navigator.of(context).pop('delete'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+
+            if (action == 'edit') {
+              startEditingMessage(setModalState, item);
+            } else if (action == 'delete') {
+              await deleteMessage(setModalState, item);
             }
           }
 
@@ -4509,6 +5163,14 @@ class _OrganizationApplicationsTabState
                                 'Use this chat for placement coordination and follow-up.',
                                 style: TextStyle(color: Colors.black54),
                               ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Tap any message for actions. You can edit your own messages.',
+                                style: TextStyle(
+                                  color: Colors.black54,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -4526,64 +5188,101 @@ class _OrganizationApplicationsTabState
                                   itemCount: messages.length,
                                   itemBuilder: (context, index) {
                                     final item = messages[index];
-                                    final isMine =
-                                        '${item['sender_role'] ?? ''}'
-                                                .trim()
-                                                .toLowerCase() ==
-                                            'organization' ||
-                                        '${item['sender_role'] ?? ''}'
-                                                .trim()
-                                                .toLowerCase() ==
-                                            'company';
+                                    final isMine = isOwnMessage(item);
                                     final bubbleColor = isMine
                                         ? _organizationStudentPrimary
                                         : const Color(0xFFEFF3F8);
                                     final textColor = isMine
                                         ? Colors.white
                                         : _organizationStudentPrimaryDark;
+                                    final isDeleting =
+                                        deletingMessageId == messageIdOf(item);
+                                    final isEdited =
+                                        '${item['edited_at'] ?? ''}'
+                                            .trim()
+                                            .isNotEmpty;
 
                                     return Align(
                                       alignment: isMine
                                           ? Alignment.centerRight
                                           : Alignment.centerLeft,
-                                      child: Container(
-                                        margin: const EdgeInsets.only(
-                                          bottom: 12,
+                                      child: GestureDetector(
+                                        onTap: () => showMessageActions(
+                                          setModalState,
+                                          item,
                                         ),
-                                        constraints: const BoxConstraints(
-                                          maxWidth: 360,
-                                        ),
-                                        padding: const EdgeInsets.all(14),
-                                        decoration: BoxDecoration(
-                                          color: bubbleColor,
-                                          borderRadius: BorderRadius.circular(
-                                            18,
+                                        onLongPress: () =>
+                                            deleteMessage(setModalState, item),
+                                        child: Container(
+                                          margin: const EdgeInsets.only(
+                                            bottom: 12,
                                           ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              '${item['message'] ?? ''}',
-                                              style: TextStyle(
-                                                color: textColor,
-                                                height: 1.4,
-                                              ),
+                                          constraints: const BoxConstraints(
+                                            maxWidth: 360,
+                                          ),
+                                          padding: const EdgeInsets.all(14),
+                                          decoration: BoxDecoration(
+                                            color: bubbleColor,
+                                            borderRadius: BorderRadius.circular(
+                                              18,
                                             ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              formatChatTime(
-                                                '${item['created_at'] ?? ''}',
-                                              ),
-                                              style: TextStyle(
-                                                color: textColor.withValues(
-                                                  alpha: 0.82,
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${item['message'] ?? ''}',
+                                                style: TextStyle(
+                                                  color: textColor,
+                                                  height: 1.4,
                                                 ),
-                                                fontSize: 11,
                                               ),
-                                            ),
-                                          ],
+                                              const SizedBox(height: 8),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    formatChatTime(
+                                                      '${item['created_at'] ?? ''}',
+                                                    ),
+                                                    style: TextStyle(
+                                                      color: textColor
+                                                          .withValues(
+                                                            alpha: 0.82,
+                                                          ),
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                  if (isDeleting) ...[
+                                                    const SizedBox(width: 8),
+                                                    SizedBox(
+                                                      width: 12,
+                                                      height: 12,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color: textColor,
+                                                          ),
+                                                    ),
+                                                  ],
+                                                  if (isEdited) ...[
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      'edited',
+                                                      style: TextStyle(
+                                                        color: textColor
+                                                            .withValues(
+                                                              alpha: 0.82,
+                                                            ),
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     );
@@ -4596,9 +5295,56 @@ class _OrganizationApplicationsTabState
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Send message to university',
-                                style: TextStyle(
+                              if (editingMessageId != null) ...[
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _organizationStudentSurface,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _organizationStudentBorder,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.edit_outlined,
+                                        size: 18,
+                                        color: _organizationStudentPrimary,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'Editing message',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color:
+                                                _organizationStudentPrimaryDark,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        onPressed: isSending
+                                            ? null
+                                            : () =>
+                                                  cancelEditing(setModalState),
+                                        icon: const Icon(Icons.close_rounded),
+                                        tooltip: 'Cancel edit',
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              Text(
+                                editingMessageId == null
+                                    ? 'Send message to university'
+                                    : 'Update message',
+                                style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   color: _organizationStudentPrimaryDark,
                                 ),
@@ -4620,7 +5366,9 @@ class _OrganizationApplicationsTabState
                                         }
                                       },
                                       decoration: InputDecoration(
-                                        hintText: 'Write a message',
+                                        hintText: editingMessageId == null
+                                            ? 'Write a message'
+                                            : 'Edit message',
                                         errorText: composerError,
                                         border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(
@@ -4653,9 +5401,17 @@ class _OrganizationApplicationsTabState
                                               color: Colors.white,
                                             ),
                                           )
-                                        : const Icon(Icons.send_rounded),
+                                        : Icon(
+                                            editingMessageId == null
+                                                ? Icons.send_rounded
+                                                : Icons.check_rounded,
+                                          ),
                                     label: Text(
-                                      isSending ? 'Sending...' : 'Send',
+                                      isSending
+                                          ? 'Saving...'
+                                          : editingMessageId == null
+                                          ? 'Send'
+                                          : 'Save',
                                     ),
                                   ),
                                 ],
@@ -4793,16 +5549,33 @@ class _OrganizationApplicationsTabState
     Map<String, dynamic>? acceptanceLetterData,
   }) async {
     try {
-      final response = await _apiService.updateApplicationStatusWithLetter(
-        applicationId: applicationId,
-        status: status,
-        feedback: feedback,
-        scheduledDate: scheduledDate,
-        scheduledVenue: scheduledVenue,
-        reportingStartDate: reportingStartDate,
-        reportingEndDate: reportingEndDate,
-        acceptanceLetterData: acceptanceLetterData,
-      );
+      final isManualPlacement = applicationId.startsWith('manual-placement');
+      final organizationName = isManualPlacement
+          ? _organizationDisplayName(
+              context.read<AuthProvider>().user,
+              context.read<LanguageProvider>(),
+            )
+          : '';
+
+      final response = isManualPlacement
+          ? await _workspaceService.updateManualPlacementStatus(
+              placementId: applicationId,
+              status: status,
+              companyName: organizationName,
+              companyFeedback: feedback,
+              reportingStartDate: reportingStartDate,
+              reportingEndDate: reportingEndDate,
+            )
+          : await _apiService.updateApplicationStatusWithLetter(
+              applicationId: applicationId,
+              status: status,
+              feedback: feedback,
+              scheduledDate: scheduledDate,
+              scheduledVenue: scheduledVenue,
+              reportingStartDate: reportingStartDate,
+              reportingEndDate: reportingEndDate,
+              acceptanceLetterData: acceptanceLetterData,
+            );
 
       if (response['success'] == true) {
         if (!mounted) return false;
@@ -4847,12 +5620,16 @@ class _OrganizationApplicationsTabState
 
   Color _statusColor(String status) {
     switch (status) {
+      case 'assigned':
+        return const Color(0xFF2563EB);
       case 'shortlisted':
         return const Color(0xFF5C7FA3);
       case '':
         return const Color(0xFF7D6AA8);
       case 'accepted':
         return const Color(0xFF5D8D73);
+      case 'expired':
+        return const Color(0xFFD97706);
       case 'rejected':
         return const Color(0xFFB26B6B);
       default:
@@ -4862,12 +5639,16 @@ class _OrganizationApplicationsTabState
 
   Color _statusBackground(String status) {
     switch (status) {
+      case 'assigned':
+        return const Color(0xFFEFF6FF);
       case 'shortlisted':
         return const Color(0xFFEAF1F7);
       case '':
         return const Color(0xFFF1ECF8);
       case 'accepted':
         return const Color(0xFFEAF4EE);
+      case 'expired':
+        return const Color(0xFFFFF4EC);
       case 'rejected':
         return const Color(0xFFF8ECEC);
       default:
@@ -4876,7 +5657,7 @@ class _OrganizationApplicationsTabState
   }
 
   bool _hasReachedStatus(String currentStatus, String targetStatus) {
-    const order = ['pending', 'shortlisted', '', 'accepted'];
+    const order = ['pending', 'assigned', 'shortlisted', '', 'accepted'];
     final currentIndex = order.indexOf(currentStatus);
     final targetIndex = order.indexOf(targetStatus);
     if (currentStatus == 'rejected') return false;
@@ -4927,6 +5708,50 @@ class _OrganizationApplicationsTabState
     dashboard?.navigateToTab(2);
   }
 
+  Future<void> _openTestSelection({List<dynamic>? applicantsOverride}) async {
+    final testApplicants = applicantsOverride ?? _testSelectionApplicants;
+    final testJobId = applicantsOverride == null
+        ? _testSelectionJobId
+        : _resolveTestJobId(testApplicants);
+    final testJobTitle = applicantsOverride == null
+        ? _testSelectionJobTitle
+        : _resolveTestJobTitle(testApplicants);
+
+    if (testJobId.isEmpty) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text(
+            'Select one training or filter shortlisted students from one training before assigning a test.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (testApplicants.isEmpty) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text('No students available for test assignment.'),
+        ),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AdminTestManagementScreen(
+          organizationMode: true,
+          jobId: testJobId,
+          jobTitle: testJobTitle,
+          applicants: testApplicants,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    await _loadApplications();
+  }
+
   String _escapeCsvCell(String value) {
     final escaped = value.replaceAll('"', '""');
     return '"$escaped"';
@@ -4934,7 +5759,9 @@ class _OrganizationApplicationsTabState
 
   List<dynamic> _applicationsForCurrentExport() {
     return switch (_applicationFilter) {
+      'pending' => _pendingApplications,
       'accepted' => _acceptedApplications,
+      'assigned' => _assignedApplications,
       'shortlisted' => _shortlistedApplications,
       _ => _applications,
     };
@@ -4942,7 +5769,9 @@ class _OrganizationApplicationsTabState
 
   String _currentExportLabel() {
     return switch (_applicationFilter) {
+      'pending' => 'pending students',
       'accepted' => 'accepted students',
+      'assigned' => 'assigned students',
       'shortlisted' => 'shortlisted students',
       _ => 'total students',
     };
@@ -5050,8 +5879,16 @@ class _OrganizationApplicationsTabState
     setState(() => _applicationFilter = 'accepted');
   }
 
+  void _showPendingApplications() {
+    setState(() => _applicationFilter = 'pending');
+  }
+
   void _showShortlistedApplications() {
     setState(() => _applicationFilter = 'shortlisted');
+  }
+
+  void _showAssignedApplications() {
+    setState(() => _applicationFilter = 'assigned');
   }
 
   void _showAllApplicationsList() {
@@ -5060,6 +5897,7 @@ class _OrganizationApplicationsTabState
 
   Widget _buildApplicationsExportButton() {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         ElevatedButton.icon(
@@ -5092,6 +5930,36 @@ class _OrganizationApplicationsTabState
                 : 'Download ${_currentExportLabel()}',
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildApplicationsActionBar() {
+    final canAssignTest =
+        _hasSelectedTraining || _shortlistedApplications.isNotEmpty;
+
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      alignment: WrapAlignment.end,
+      children: [
+        if (canAssignTest)
+          ElevatedButton.icon(
+            onPressed: _openTestSelection,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _organizationStudentPrimary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              minimumSize: const Size(0, 40),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: const Icon(Icons.quiz_outlined, size: 18),
+            label: const Text('Assign test'),
+          ),
+        _buildApplicationsExportButton(),
       ],
     );
   }
@@ -5224,7 +6092,7 @@ class _OrganizationApplicationsTabState
             ],
           ),
           const SizedBox(height: 12),
-          _buildApplicationsExportButton(),
+          _buildApplicationsActionBar(),
           const SizedBox(height: 14),
           if (acceptedApplicants.isEmpty)
             Text(
@@ -5430,12 +6298,15 @@ class _OrganizationApplicationsTabState
     final language = context.read<LanguageProvider>();
     final fullName = '${app['full_name'] ?? language.tr('unknown_applicant')}';
     final email = '${app['email'] ?? language.tr('no_email')}';
-    final status = '${app['status'] ?? 'pending'}';
+    final rawStatus = '${app['status'] ?? 'pending'}'.trim().toLowerCase();
+    final status = _effectiveOrganizationStatus(app);
     final selection = _studentSelectionsByEmail[email.trim().toLowerCase()];
     final statusColor = _statusColor(status);
     final applicationId = '${app['application_id']}';
+    final hasBackendApplication = !applicationId.startsWith('manual-placement');
+    final isManualAssignment = app['is_manual_assignment'] == true;
     final trainingTitle =
-        '${app['training_title'] ?? widget.trainingTitle ?? language.tr('selected_training')}';
+        '${app['training_title'] ?? app['job_title'] ?? widget.trainingTitle ?? language.tr('selected_training')}';
     final coverLetterUrl = app['cover_letter']?.toString() ?? '';
     final hasCoverLetter =
         coverLetterUrl.trim().startsWith('http://') ||
@@ -5458,12 +6329,19 @@ class _OrganizationApplicationsTabState
     final documentReviewed = app['supportive_document_verified'] != null;
     final isDocumentAuthentic = app['supportive_document_verified'] == true;
     final canShortlist =
-        status == 'pending' && (!hasSupportiveDocument || isDocumentAuthentic);
+        hasBackendApplication &&
+        (status == 'pending' || status == 'assigned') &&
+        (!hasSupportiveDocument || isDocumentAuthentic);
     final canAccept =
-        (status == 'shortlisted' || status == '') &&
+        (hasBackendApplication || isManualAssignment) &&
+        (status == 'assigned' || status == 'shortlisted' || status == '') &&
         (!hasSupportiveDocument || isDocumentAuthentic);
     final canReject =
-        (status == 'pending' || status == 'shortlisted' || status == '') &&
+        (hasBackendApplication || isManualAssignment) &&
+        (status == 'pending' ||
+            status == 'assigned' ||
+            status == 'shortlisted' ||
+            status == '') &&
         (!hasSupportiveDocument || documentReviewed);
     final isOfferExpired = _isOfferConfirmationExpired(applicationId);
     final selectedApplicationId =
@@ -5714,7 +6592,7 @@ class _OrganizationApplicationsTabState
               ),
             ),
           ],
-          if (status == 'accepted' && isOfferExpired) ...[
+          if (rawStatus == 'accepted' && isOfferExpired) ...[
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
@@ -5725,9 +6603,28 @@ class _OrganizationApplicationsTabState
                 border: Border.all(color: const Color(0xFFD97706)),
               ),
               child: const Text(
-                'The student did not confirm this offer within 48 hours while holding multiple offers. This slot is now open again.',
+                'The student did not confirm this offer within 48 hours, so the offer expired and this slot is open again.',
                 style: TextStyle(
                   color: Color(0xFF9A3412),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ] else if (status == 'accepted' &&
+              _isAwaitingStudentConfirmation(app)) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF8E7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFB38A45)),
+              ),
+              child: Text(
+                '$fullName has been accepted and is waiting to confirm your organization.',
+                style: const TextStyle(
+                  color: Color(0xFF8A5D13),
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -5843,7 +6740,9 @@ class _OrganizationApplicationsTabState
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
     final visibleApplications = switch (_applicationFilter) {
+      'pending' => _pendingApplications,
       'accepted' => _acceptedApplications,
+      'assigned' => _assignedApplications,
       'shortlisted' => _shortlistedApplications,
       _ => _applications,
     };
@@ -5893,6 +6792,22 @@ class _OrganizationApplicationsTabState
                   onTap: _showAllApplicationsList,
                 ),
                 _buildSummaryCard(
+                  label: language.tr('status_pending'),
+                  value: '${_countByStatus('pending')}',
+                  icon: Icons.hourglass_top_rounded,
+                  color: const Color(0xFFB38A45),
+                  isSelected: _applicationFilter == 'pending',
+                  onTap: _showPendingApplications,
+                ),
+                _buildSummaryCard(
+                  label: 'Assigned',
+                  value: '${_countByStatus('assigned')}',
+                  icon: Icons.assignment_turned_in_outlined,
+                  color: const Color(0xFF2563EB),
+                  isSelected: _applicationFilter == 'assigned',
+                  onTap: _showAssignedApplications,
+                ),
+                _buildSummaryCard(
                   label: language.tr('shortlisted'),
                   value: '${_countByStatus('shortlisted')}',
                   icon: Icons.playlist_add_check_circle_outlined,
@@ -5933,7 +6848,7 @@ class _OrganizationApplicationsTabState
           ),
           const SizedBox(height: 14),
           if (_applicationFilter != 'accepted') ...[
-            _buildApplicationsExportButton(),
+            _buildApplicationsActionBar(),
             const SizedBox(height: 14),
           ],
           if (_applicationFilter == 'accepted') ...[
@@ -5959,6 +6874,10 @@ class _OrganizationApplicationsTabState
                   Text(
                     _applicationFilter == 'shortlisted'
                         ? 'No shortlisted students yet.'
+                        : _applicationFilter == 'pending'
+                        ? 'No pending students yet.'
+                        : _applicationFilter == 'assigned'
+                        ? 'No assigned students yet.'
                         : _applicationFilter == 'accepted'
                         ? 'No accepted students yet.'
                         : _showAllApplications
@@ -6449,7 +7368,7 @@ class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
                                     second: buildInput(
                                       controller: _registrationNumberController,
                                       label: 'Student Registration Number',
-                                      hint: 'Example: UDOM/2023/12345',
+                                      hint: 'Example: UDOM/20253/12345',
                                       validator: (value) {
                                         if (value == null ||
                                             value.trim().isEmpty) {

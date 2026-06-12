@@ -5,6 +5,7 @@ const skillController = require('../controllers/skill.controller');
 const { authMiddleware } = require('../middleware/auth.middleware');
 
 // Public routes
+router.get('/', skillController.getAllSkills);
 router.get('/trending', skillController.getTrendingSkills);
 router.get('/all', skillController.getAllSkills);
 

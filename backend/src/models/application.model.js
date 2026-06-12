@@ -103,12 +103,39 @@ class ApplicationModel {
                 aw.award_status AS award_status,
                 aw.announce_on_homepage AS award_announce_on_homepage,
                 aw.is_student_of_month AS award_is_student_of_month,
-                aw.certificate_name AS award_certificate_name
+                aw.certificate_name AS award_certificate_name,
+                test_invite.attempt_id AS online_test_attempt_id,
+                test_invite.test_id AS online_test_id,
+                test_invite.test_title AS online_test_title,
+                test_invite.unique_link AS online_test_token,
+                test_invite.attempt_status AS online_test_status,
+                test_invite.deadline AS online_test_deadline,
+                test_invite.submitted_at AS online_test_submitted_at
              FROM applications a
              JOIN training j ON a.job_id = j.job_id
              JOIN students s ON a.student_id = s.student_id
              JOIN companies c ON j.company_id = c.company_id
              LEFT JOIN awards aw ON aw.application_id = a.application_id
+             LEFT JOIN LATERAL (
+                SELECT
+                    ta.id AS attempt_id,
+                    ta.test_id,
+                    t.title AS test_title,
+                    ta.unique_link,
+                    ta.status AS attempt_status,
+                    t.deadline,
+                    ta.submitted_at
+                FROM test_attempts ta
+                JOIN tests t ON t.id = ta.test_id
+                WHERE ta.student_id = a.student_id
+                  AND t.job_id = a.job_id
+                  AND (
+                    t.company_id IS NULL
+                    OR t.company_id = j.company_id
+                  )
+                ORDER BY ta.created_at DESC, ta.id DESC
+                LIMIT 1
+             ) test_invite ON true
              WHERE a.student_id = $1
              ORDER BY a.applied_date DESC`,
             [student_id]
@@ -291,7 +318,18 @@ class ApplicationModel {
     }
 
     // Get all applications for a company across all training
-    static async getByCompany(company_id) {
+    static async getByCompanyIds(company_ids) {
+        const normalizedCompanyIds = (Array.isArray(company_ids)
+            ? company_ids
+            : [company_ids]
+        )
+            .map((companyId) => `${companyId || ''}`.trim())
+            .filter((companyId) => companyId !== '');
+
+        if (normalizedCompanyIds.length === 0) {
+            return [];
+        }
+
         const result = await query(
             `SELECT
                     a.*,
@@ -361,11 +399,16 @@ class ApplicationModel {
                 LIMIT 1
              ) up_match ON true
              LEFT JOIN awards aw ON aw.application_id = a.application_id
-             WHERE j.company_id = $1
+             WHERE j.company_id::text = ANY($1::text[])
              ORDER BY a.applied_date DESC`,
-            [company_id]
+            [normalizedCompanyIds]
         );
         return result.rows;
+    }
+
+    // Get all applications for a company across all training
+    static async getByCompany(company_id) {
+        return this.getByCompanyIds([company_id]);
     }
 }
 

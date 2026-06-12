@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'providers/auth_provider.dart';
 import 'providers/language_provider.dart';
+import 'screens/student/test_attempt_screen.dart';
 import 'screens/splash_screen.dart';
 import 'utils/theme.dart';
 
@@ -16,6 +17,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final testToken = Uri.base.queryParameters['test_token']?.trim();
+
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
@@ -171,7 +174,9 @@ class MyApp extends StatelessWidget {
                 ),
               ),
             ),
-            home: const SplashScreen(),
+            home: testToken != null && testToken.isNotEmpty
+                ? TestAttemptScreen(token: testToken)
+                : const SplashScreen(),
           );
         },
       ),

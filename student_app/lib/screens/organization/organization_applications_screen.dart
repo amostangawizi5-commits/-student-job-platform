@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
+import '../admin/admin_test_management_screen.dart';
 
 class CompanyApplicationsScreen extends StatefulWidget {
   final String jobId;
@@ -157,6 +158,8 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     switch (status) {
       case 'pending':
         return 'Pending Review';
+      case 'assigned':
+        return 'Assigned';
       case 'shortlisted':
         return 'Shortlisted';
       case '':
@@ -174,6 +177,8 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     switch (status) {
       case 'pending':
         return const Color(0xFFB38A45);
+      case 'assigned':
+        return const Color(0xFF2563EB);
       case 'shortlisted':
         return const Color(0xFF5C7FA3);
       case '':
@@ -191,6 +196,8 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     switch (status) {
       case 'pending':
         return const Color(0xFFF8F1E3);
+      case 'assigned':
+        return const Color(0xFFEFF6FF);
       case 'shortlisted':
         return const Color(0xFFEAF1F7);
       case '':
@@ -210,8 +217,12 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
         .length;
   }
 
+  List<dynamic> get _shortlistedApplications => _applications
+      .where((app) => '${app['status'] ?? 'pending'}' == 'shortlisted')
+      .toList(growable: false);
+
   bool _hasReachedStatus(String currentStatus, String targetStatus) {
-    const order = ['pending', 'shortlisted', '', 'accepted'];
+    const order = ['pending', 'assigned', 'shortlisted', '', 'accepted'];
     final currentIndex = order.indexOf(currentStatus);
     final targetIndex = order.indexOf(targetStatus);
     if (currentStatus == 'rejected') return false;
@@ -258,6 +269,127 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTestSelection() async {
+    final shortlisted = _shortlistedApplications;
+    if (shortlisted.isEmpty) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text(
+            'Shortlist at least one student before assigning a test.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AdminTestManagementScreen(
+          organizationMode: true,
+          jobId: widget.jobId,
+          jobTitle: widget.jobTitle,
+          applicants: shortlisted,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    await _loadApplications();
+  }
+
+  Widget _buildShortlistedTestAction() {
+    final shortlistedCount = _shortlistedApplications.length;
+    final hasShortlisted = shortlistedCount > 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD8E6F5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE9F2FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.quiz_outlined,
+                  color: Color(0xFF2563EB),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Shortlisted Students Action',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1F2937),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasShortlisted
+                      ? '$shortlistedCount student(s) shortlisted and ready for test'
+                      : 'No shortlisted students yet',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: hasShortlisted ? _openTestSelection : null,
+                    icon: const Icon(Icons.science_outlined),
+                    label: Text(
+                      hasShortlisted
+                          ? 'Assign Test to Shortlisted Students'
+                          : 'Shortlist Students First',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.grey.shade300,
+                      disabledForegroundColor: Colors.grey.shade600,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -550,6 +682,18 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                         color: const Color(0xFF2C3E50),
                       ),
                       _buildSummaryCard(
+                        label: 'Pending',
+                        value: '${_countByStatus('pending')}',
+                        icon: Icons.hourglass_empty_rounded,
+                        color: const Color(0xFFB38A45),
+                      ),
+                      _buildSummaryCard(
+                        label: 'Assigned',
+                        value: '${_countByStatus('assigned')}',
+                        icon: Icons.assignment_ind_outlined,
+                        color: const Color(0xFF2563EB),
+                      ),
+                      _buildSummaryCard(
                         label: 'Shortlisted',
                         value: '${_countByStatus('shortlisted')}',
                         icon: Icons.playlist_add_check_circle_outlined,
@@ -585,6 +729,8 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                   },
                 ),
                 const SizedBox(height: 12),
+                _buildShortlistedTestAction(),
+                const SizedBox(height: 12),
                 _buildTopNavigationBar(),
                 const SizedBox(height: 10),
                 Row(
@@ -615,10 +761,15 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                     builder: (context) {
                       final status = app['status'] ?? 'pending';
                       final statusColor = _getStatusColor(status);
-                      final canShortlist = status == 'pending';
-                      final canAccept = status == 'shortlisted' || status == '';
+                      final canShortlist =
+                          status == 'pending' || status == 'assigned';
+                      final canAccept =
+                          status == 'assigned' ||
+                          status == 'shortlisted' ||
+                          status == '';
                       final canReject =
                           status == 'pending' ||
+                          status == 'assigned' ||
                           status == 'shortlisted' ||
                           status == '';
 

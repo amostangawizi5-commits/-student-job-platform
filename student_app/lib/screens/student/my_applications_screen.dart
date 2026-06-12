@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -13,6 +14,7 @@ import '../../services/api_service.dart';
 import '../../services/browser_pdf_opener.dart';
 import '../../services/coordinator_workspace_service.dart';
 import '../../services/local_file_service.dart';
+import 'test_attempt_screen.dart';
 
 class MyApplicationsScreen extends StatefulWidget {
   final String initialFilter;
@@ -76,9 +78,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     switch (filter.toLowerCase()) {
       case '':
       case 'pending':
+      case 'assigned':
+      case 'shortlisted':
       case 'review':
       case 'accepted':
       case 'confirmed':
+      case 'expired':
       case 'rejected':
         return filter.toLowerCase();
       default:
@@ -89,11 +94,14 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   bool _matchesSelectedFilter(Map<String, dynamic> app) {
     if (_selectedFilter == 'all') return true;
 
-    final status = '${app['status'] ?? ''}'.toLowerCase();
+    final status = _effectiveStudentStatus(app);
     if (_selectedFilter == 'review') {
       return status == 'shortlisted' ||
           status == 'review' ||
           status == 'under_review';
+    }
+    if (_selectedFilter == 'shortlisted') {
+      return status == 'shortlisted';
     }
     return status == _selectedFilter;
   }
@@ -106,13 +114,30 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     Map<String, dynamic> placement,
   ) {
     final placementId = '${placement['id'] ?? ''}'.trim();
-    final assignmentId = placementId.isEmpty
+    final applicationId = '${placement['application_id'] ?? ''}'.trim();
+    final assignmentId = applicationId.isNotEmpty
+        ? applicationId
+        : placementId.isEmpty
         ? 'manual-placement'
         : 'manual-placement:$placementId';
+    final placementStatus = '${placement['status'] ?? 'assigned'}'
+        .trim()
+        .toLowerCase();
+    final companyResponseStatus =
+        '${placement['company_response_status'] ?? placementStatus}'
+            .trim()
+            .toLowerCase();
+    final studentStatus = companyResponseStatus == 'accepted'
+        ? 'confirmed'
+        : placementStatus.isEmpty
+        ? 'assigned'
+        : placementStatus;
 
     return {
       'application_id': assignmentId,
-      'status': 'confirmed',
+      'status': studentStatus,
+      'company_response_status': companyResponseStatus,
+      'raw_manual_status': placementStatus,
       'title': '${placement['training_title'] ?? 'Placement'}',
       'job_title': '${placement['training_title'] ?? 'Placement'}',
       'company_name': '${placement['company_name'] ?? 'Organization'}',
@@ -121,9 +146,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           '${placement['assigned_at'] ?? placement['updated_at'] ?? placement['created_at'] ?? ''}',
       'assigned_at':
           '${placement['assigned_at'] ?? placement['updated_at'] ?? placement['created_at'] ?? ''}',
-      'company_feedback': '${placement['coordinator_notes'] ?? ''}',
-      'reporting_start_date': '${placement['start_date'] ?? ''}',
-      'reporting_end_date': '${placement['end_date'] ?? ''}',
+      'company_feedback':
+          '${placement['company_response_notes'] ?? placement['coordinator_notes'] ?? ''}',
+      'reporting_start_date':
+          '${placement['reporting_start_date'] ?? placement['start_date'] ?? ''}',
+      'reporting_end_date':
+          '${placement['reporting_end_date'] ?? placement['end_date'] ?? ''}',
       'university_name': '${placement['university_name'] ?? ''}',
       'is_manual_assignment': true,
       'coordinator_name': '${placement['coordinator_name'] ?? ''}',
@@ -138,15 +166,27 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   Map<String, dynamic>? _buildConfirmedSelectionFromPlacement(
     List<Map<String, dynamic>> placements,
   ) {
-    if (placements.isEmpty) return null;
-    final latest = placements.first;
+    final confirmedPlacements = placements
+        .where((placement) {
+          final status = '${placement['status'] ?? ''}'.trim().toLowerCase();
+          final companyResponseStatus =
+              '${placement['company_response_status'] ?? status}'
+                  .trim()
+                  .toLowerCase();
+          return status == 'confirmed' || companyResponseStatus == 'accepted';
+        })
+        .toList(growable: false);
+    if (confirmedPlacements.isEmpty) return null;
+    final latest = confirmedPlacements.first;
+    final applicationId = '${latest['application_id'] ?? ''}'.trim();
     return {
-      'selected_application_id':
-          'manual-placement:${latest['id'] ?? 'placement'}',
+      'selected_application_id': applicationId.isNotEmpty
+          ? applicationId
+          : 'manual-placement:${latest['id'] ?? 'placement'}',
       'selected_company_name': '${latest['company_name'] ?? 'Organization'}',
       'selected_training_title': '${latest['training_title'] ?? 'Placement'}',
       'confirmed_at':
-          '${latest['assigned_at'] ?? latest['updated_at'] ?? latest['created_at'] ?? ''}',
+          '${latest['company_accepted_at'] ?? latest['updated_at'] ?? latest['assigned_at'] ?? latest['created_at'] ?? ''}',
     };
   }
 
@@ -154,10 +194,23 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     required List<dynamic> apiApplications,
     required List<Map<String, dynamic>> manualPlacements,
   }) {
-    final merged = <dynamic>[
-      ...apiApplications,
-      ...manualPlacements.map(_mapManualPlacementToApplication),
-    ];
+    final merged = <Map<String, dynamic>>[];
+    final seenApplicationIds = <String>{};
+
+    void addApplication(Map<String, dynamic> app) {
+      final applicationId = '${app['application_id'] ?? ''}'.trim();
+      if (applicationId.isNotEmpty && !seenApplicationIds.add(applicationId)) {
+        return;
+      }
+      merged.add(app);
+    }
+
+    for (final app in apiApplications.whereType<Map>()) {
+      addApplication(app.map((key, value) => MapEntry('$key', value)));
+    }
+    for (final placement in manualPlacements) {
+      addApplication(_mapManualPlacementToApplication(placement));
+    }
 
     DateTime parseSortDate(dynamic item) {
       if (item is Map<String, dynamic>) {
@@ -181,6 +234,51 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     return merged;
   }
 
+  List<dynamic> _attachOnlineTestAttempts({
+    required List<dynamic> applications,
+    required List<dynamic> attempts,
+  }) {
+    final attemptByJobId = <String, Map<String, dynamic>>{};
+    for (final attempt in attempts.whereType<Map>()) {
+      final normalizedAttempt = attempt.map(
+        (key, value) => MapEntry('$key', value),
+      );
+      final jobId = '${normalizedAttempt['job_id'] ?? ''}'.trim();
+      final token = '${normalizedAttempt['online_test_token'] ?? ''}'.trim();
+      if (jobId.isEmpty || token.isEmpty || attemptByJobId.containsKey(jobId)) {
+        continue;
+      }
+      attemptByJobId[jobId] = normalizedAttempt;
+    }
+
+    return applications
+        .map((item) {
+          if (item is! Map) return item;
+          final app = item.map((key, value) => MapEntry('$key', value));
+          if (_onlineTestToken(app).isNotEmpty) {
+            return app;
+          }
+
+          final jobId = '${app['job_id'] ?? ''}'.trim();
+          final attempt = attemptByJobId[jobId];
+          if (attempt == null) {
+            return app;
+          }
+
+          return {
+            ...app,
+            'online_test_attempt_id': attempt['online_test_attempt_id'],
+            'online_test_id': attempt['online_test_id'],
+            'online_test_title': attempt['online_test_title'],
+            'online_test_token': attempt['online_test_token'],
+            'online_test_status': attempt['online_test_status'],
+            'online_test_deadline': attempt['online_test_deadline'],
+            'online_test_submitted_at': attempt['online_test_submitted_at'],
+          };
+        })
+        .toList(growable: false);
+  }
+
   List<dynamic> _getFilteredApplications() {
     return _applications.where((app) {
       if (app is! Map<String, dynamic>) return false;
@@ -194,17 +292,49 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return '';
       case 'pending':
         return 'Pending';
+      case 'assigned':
+        return 'Assigned';
+      case 'shortlisted':
+        return 'Shortlisted';
       case 'review':
         return 'Review';
       case 'accepted':
         return 'Accepted';
       case 'confirmed':
         return 'Confirmed';
+      case 'expired':
+        return 'Expired';
       case 'rejected':
         return 'Rejected';
       default:
         return 'All';
     }
+  }
+
+  List<Widget> _buildAppBarActions() {
+    return [
+      PopupMenuButton<String>(
+        tooltip: 'Filter',
+        initialValue: _selectedFilter,
+        icon: const Icon(Icons.filter_list),
+        onSelected: (value) {
+          setState(() {
+            _selectedFilter = value;
+          });
+        },
+        itemBuilder: (context) => const [
+          PopupMenuItem(value: 'all', child: Text('All')),
+          PopupMenuItem(value: 'pending', child: Text('Pending')),
+          PopupMenuItem(value: 'assigned', child: Text('Assigned')),
+          PopupMenuItem(value: 'shortlisted', child: Text('Shortlisted')),
+          PopupMenuItem(value: 'accepted', child: Text('Accepted')),
+          PopupMenuItem(value: 'confirmed', child: Text('Confirmed')),
+          PopupMenuItem(value: 'expired', child: Text('Expired')),
+          PopupMenuItem(value: 'rejected', child: Text('Rejected')),
+        ],
+      ),
+      IconButton(icon: const Icon(Icons.refresh), onPressed: _loadApplications),
+    ];
   }
 
   Future<void> _loadApplications() async {
@@ -213,6 +343,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     final studentEmail = currentUser?['email']?.toString() ?? '';
     try {
       final response = await _apiService.getMyApplications();
+      final testAttemptsResponse = await _apiService.getMyTestAttempts();
+      final testAttempts =
+          testAttemptsResponse['success'] == true &&
+              testAttemptsResponse['data'] is List
+          ? testAttemptsResponse['data'] as List<dynamic>
+          : const <dynamic>[];
       final approvalRecords = await _workspaceService.getApprovalRecords();
       final manualPlacements = (await _workspaceService.getManualPlacements())
           .where(
@@ -239,9 +375,13 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           apiApplications: apiApplications,
           manualPlacements: manualPlacements,
         );
+        final applicationsWithTests = _attachOnlineTestAttempts(
+          applications: applications,
+          attempts: testAttempts,
+        );
         if (!mounted) return;
         setState(() {
-          _applications = applications;
+          _applications = applicationsWithTests;
           _confirmedSelection =
               selection ??
               _buildConfirmedSelectionFromPlacement(manualPlacements);
@@ -318,6 +458,34 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   bool _isConfirmedApplication(String applicationId) {
     return '${_confirmedSelection?['selected_application_id'] ?? ''}' ==
         applicationId;
+  }
+
+  bool _isBackendConfirmedApplication(Map<String, dynamic> app) {
+    return '${app['status'] ?? ''}'.trim().toLowerCase() == 'accepted' &&
+        '${app['student_confirmation_status'] ?? ''}'.trim().toLowerCase() ==
+            'confirmed';
+  }
+
+  bool _isConfirmedPlacement(Map<String, dynamic> app) {
+    return _isBackendConfirmedApplication(app) ||
+        _isConfirmedApplication('${app['application_id'] ?? ''}');
+  }
+
+  String _effectiveStudentStatus(Map<String, dynamic> app) {
+    if (_isOfferConfirmationExpired('${app['application_id'] ?? ''}')) {
+      return 'expired';
+    }
+
+    final status = '${app['status'] ?? ''}'.trim().toLowerCase();
+    if (app['is_manual_assignment'] == true &&
+        '${app['company_response_status'] ?? ''}'.trim().toLowerCase() ==
+            'accepted') {
+      return 'confirmed';
+    }
+    if (status == 'accepted' && _isConfirmedPlacement(app)) {
+      return 'confirmed';
+    }
+    return status;
   }
 
   Future<void> _confirmCompanySelection(Map<String, dynamic> app) async {
@@ -398,6 +566,21 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
 
     setState(() => _confirmingApplicationId = applicationId);
     try {
+      final isManualAssignment =
+          app['is_manual_assignment'] == true ||
+          applicationId.startsWith('manual-placement');
+
+      if (!isManualAssignment) {
+        final response = await _apiService.confirmApplicationSelection(
+          applicationId,
+        );
+        if (response['success'] != true) {
+          throw StateError(
+            response['message']?.toString() ?? 'Failed to confirm placement.',
+          );
+        }
+      }
+
       await _workspaceService.confirmStudentCompanySelection(
         studentName: studentName,
         studentEmail: studentEmail,
@@ -414,6 +597,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       );
       if (!mounted) return;
       setState(() => _confirmedSelection = selection);
+      await _loadApplications();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text('Confirmed successfully.'),
@@ -440,10 +625,102 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     }
   }
 
+  String _onlineTestToken(Map<String, dynamic> app) {
+    for (final key in const [
+      'online_test_token',
+      'test_token',
+      'test_unique_link',
+      'unique_link',
+    ]) {
+      final value = '${app[key] ?? ''}'.trim();
+      if (value.isNotEmpty && value.toLowerCase() != 'null') {
+        return value;
+      }
+    }
+    return '';
+  }
+
+  String _onlineTestStatus(Map<String, dynamic> app) {
+    final status = '${app['online_test_status'] ?? app['test_status'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    return status;
+  }
+
+  bool _hasOnlineTestInvitation(Map<String, dynamic> app) {
+    return _onlineTestToken(app).isNotEmpty;
+  }
+
+  bool _isOnlineTestCompleted(Map<String, dynamic> app) {
+    final status = _onlineTestStatus(app);
+    return status == 'completed' || status == 'submitted';
+  }
+
+  Future<void> _openOnlineTest(Map<String, dynamic> app) async {
+    var token = _onlineTestToken(app);
+    if (token.isEmpty) {
+      final attemptsResponse = await _apiService.getMyTestAttempts();
+      if (!mounted) return;
+      final attempts =
+          attemptsResponse['success'] == true &&
+              attemptsResponse['data'] is List
+          ? attemptsResponse['data'] as List<dynamic>
+          : const <dynamic>[];
+      final refreshed = _attachOnlineTestAttempts(
+        applications: [app],
+        attempts: attempts,
+      );
+      if (refreshed.isNotEmpty && refreshed.first is Map) {
+        final refreshedApp = Map<String, dynamic>.from(refreshed.first as Map);
+        token = _onlineTestToken(refreshedApp);
+        if (token.isNotEmpty && mounted) {
+          setState(() {
+            _applications = _attachOnlineTestAttempts(
+              applications: _applications,
+              attempts: attempts,
+            );
+          });
+        }
+      }
+    }
+
+    if (token.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text('Test link is not ready yet. Please refresh.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (_isOnlineTestCompleted(app)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text('This test has already been submitted.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => TestAttemptScreen(token: token)));
+    if (mounted) {
+      await _loadApplications();
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status) {
       case 'pending':
         return Colors.orange;
+      case 'assigned':
+        return const Color(0xFF2563EB);
       case 'shortlisted':
         return Colors.blue;
       case '':
@@ -452,6 +729,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return Colors.green;
       case 'confirmed':
         return const Color(0xFF0F766E);
+      case 'expired':
+        return const Color(0xFFD97706);
       case 'rejected':
         return Colors.red;
       default:
@@ -463,6 +742,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     switch (status) {
       case 'pending':
         return 'Pending Review';
+      case 'assigned':
+        return 'Assigned';
       case 'shortlisted':
         return 'Shortlisted';
       case '':
@@ -471,6 +752,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return 'Accepted';
       case 'confirmed':
         return 'Confirmed';
+      case 'expired':
+        return 'Expired';
       case 'rejected':
         return 'Rejected';
       default:
@@ -482,6 +765,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     switch (status) {
       case 'pending':
         return Icons.hourglass_empty;
+      case 'assigned':
+        return Icons.assignment_turned_in_rounded;
       case 'shortlisted':
         return Icons.star;
       case '':
@@ -490,6 +775,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         return Icons.check_circle;
       case 'confirmed':
         return Icons.verified_rounded;
+      case 'expired':
+        return Icons.hourglass_disabled_rounded;
       case 'rejected':
         return Icons.cancel;
       default:
@@ -535,6 +822,119 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 
+  String _pdfSafeText(Object? value) {
+    return '${value ?? ''}'
+        .replaceAll('\\', r'\\')
+        .replaceAll('(', r'\(')
+        .replaceAll(')', r'\)')
+        .replaceAll(RegExp(r'[^\x20-\x7E]'), '?')
+        .trim();
+  }
+
+  List<String> _wrapPdfText(String value, {int maxLength = 82}) {
+    final words = value.trim().split(RegExp(r'\s+'));
+    final lines = <String>[];
+    var current = '';
+
+    for (final word in words) {
+      if (word.isEmpty) continue;
+      final next = current.isEmpty ? word : '$current $word';
+      if (next.length > maxLength && current.isNotEmpty) {
+        lines.add(current);
+        current = word;
+      } else {
+        current = next;
+      }
+    }
+
+    if (current.isNotEmpty) lines.add(current);
+    return lines.isEmpty ? [''] : lines;
+  }
+
+  Uint8List _buildManualResponseLetterPdf(Map<String, dynamic> app) {
+    final studentName = _pdfSafeText(
+      app['student_name'] ?? app['full_name'] ?? 'Student',
+    );
+    final companyName = _pdfSafeText(app['company_name'] ?? 'Company');
+    final trainingTitle = _pdfSafeText(app['job_title'] ?? app['title']);
+    final universityName = _pdfSafeText(app['university_name'] ?? 'University');
+    final registrationNumber = _pdfSafeText(app['registration_number']);
+    final location = _pdfSafeText(app['placement_location'] ?? app['location']);
+    final department = _pdfSafeText(app['placement_department']);
+    final startDate = _formatDate('${app['reporting_start_date'] ?? ''}');
+    final endDate = _formatDate('${app['reporting_end_date'] ?? ''}');
+    final feedback = _pdfSafeText(app['company_feedback']);
+    final generatedDate = _formatDate(DateTime.now().toIso8601String());
+
+    final lines = <String>[
+      'FIELD PLACEMENT RESPONSE LETTER',
+      '',
+      'Date: $generatedDate',
+      'Student: $studentName',
+      if (registrationNumber.isNotEmpty)
+        'Registration Number: $registrationNumber',
+      'University: $universityName',
+      'Company: $companyName',
+      'Placement: $trainingTitle',
+      if (location.isNotEmpty) 'Location: $location',
+      if (department.isNotEmpty) 'Department: $department',
+      if (startDate.trim().isNotEmpty) 'Reporting Start: $startDate',
+      if (endDate.trim().isNotEmpty) 'Reporting End: $endDate',
+      '',
+      'Dear $studentName,',
+      ..._wrapPdfText(
+        '$companyName has accepted the coordinator assigned placement for $trainingTitle. Please report according to the placement details above and follow any additional instructions from the company and university coordinator.',
+      ),
+      if (feedback.isNotEmpty) ...[
+        '',
+        'Company Notes:',
+        ..._wrapPdfText(feedback),
+      ],
+      '',
+      'Prepared for student records.',
+    ];
+
+    final content = StringBuffer();
+    var y = 760;
+    for (var index = 0; index < lines.length; index++) {
+      final line = _pdfSafeText(lines[index]);
+      final fontSize = index == 0 ? 17 : 11;
+      content.writeln('BT /F1 $fontSize Tf 72 $y Td ($line) Tj ET');
+      y -= index == 0 ? 28 : 18;
+    }
+
+    final stream = content.toString();
+    final streamLength = ascii.encode(stream).length;
+    final objects = <String>[
+      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
+      '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+      '5 0 obj\n<< /Length $streamLength >>\nstream\n$stream\nendstream\nendobj\n',
+    ];
+
+    final buffer = StringBuffer('%PDF-1.4\n');
+    final offsets = <int>[0];
+    var byteOffset = ascii.encode(buffer.toString()).length;
+    for (final object in objects) {
+      offsets.add(byteOffset);
+      buffer.write(object);
+      byteOffset += ascii.encode(object).length;
+    }
+
+    final xrefOffset = byteOffset;
+    buffer.write('xref\n0 ${objects.length + 1}\n');
+    buffer.write('0000000000 65535 f \n');
+    for (final offset in offsets.skip(1)) {
+      buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+    }
+    buffer.write(
+      'trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n$xrefOffset\n%%EOF',
+    );
+
+    return Uint8List.fromList(ascii.encode(buffer.toString()));
+  }
+
   Future<String> _downloadToAvailableDirectory(
     String pathOrUrl, {
     required String fileName,
@@ -569,6 +969,36 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       } catch (error) {
         lastError = error;
         _log('Download failed for $savePath: $error');
+      }
+    }
+
+    throw lastError ?? Exception('Unable to save file');
+  }
+
+  Future<String> _saveBytesToAvailableDirectory(
+    Uint8List bytes, {
+    required String fileName,
+  }) async {
+    final directories = <Directory>[];
+    final preferredDirectory = await _getDownloadDirectory();
+    directories.add(preferredDirectory);
+
+    final appDirectory = await getApplicationDocumentsDirectory();
+    if (!directories.any((directory) => directory.path == appDirectory.path)) {
+      directories.add(appDirectory);
+    }
+
+    Object? lastError;
+    for (final directory in directories) {
+      final savePath = '${directory.path}/$fileName';
+      try {
+        if (!await directory.exists()) {
+          await directory.create(recursive: true);
+        }
+        await File(savePath).writeAsBytes(bytes, flush: true);
+        return savePath;
+      } catch (error) {
+        lastError = error;
       }
     }
 
@@ -825,6 +1255,60 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     }
   }
 
+  Future<void> _downloadManualResponseLetter(Map<String, dynamic> app) async {
+    final applicationId = '${app['application_id'] ?? 'manual-placement'}';
+    final fileName = _sanitizeFileName(
+      '${app['student_name'] ?? app['full_name'] ?? 'student'}_response_letter.pdf',
+    );
+    setState(() => _downloadingResponseLetters.add(applicationId));
+
+    try {
+      final bytes = _buildManualResponseLetterPdf(app);
+      if (kIsWeb) {
+        final opened = await openPdfBytesInBrowser(bytes, fileName: fileName);
+        if (!opened) {
+          throw Exception('Unable to open response letter.');
+        }
+        return;
+      }
+
+      final savePath = await _saveBytesToAvailableDirectory(
+        bytes,
+        fileName: fileName,
+      );
+      final finalPath = Platform.isAndroid
+          ? await LocalFileService.copyFileToDownloads(
+              savePath,
+              fileName: fileName,
+            )
+          : savePath;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text('Response letter downloaded to: $finalPath'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      final message = ApiService.normalizeErrorMessage(
+        error,
+        fallback: 'Failed to download response letter',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text('Failed to download response letter: $message'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingResponseLetters.remove(applicationId));
+      }
+    }
+  }
+
   String _documentReviewText(dynamic verifiedValue) {
     if (verifiedValue == true) return 'Authentic';
     if (verifiedValue == false) return 'Not Authentic';
@@ -1015,6 +1499,16 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     final responseLetterUrl = app['response_letter_url']?.toString() ?? '';
     final responseLetterName =
         app['response_letter_name']?.toString() ?? 'response_letter.pdf';
+    final isManualAssignment = app['is_manual_assignment'] == true;
+    final status = '${app['status'] ?? ''}'.trim().toLowerCase();
+    final companyResponseStatus = '${app['company_response_status'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final hasManualResponseLetter =
+        isManualAssignment &&
+        (status == 'accepted' ||
+            status == 'confirmed' ||
+            companyResponseStatus == 'accepted');
     final coverLetterUrl = app['cover_letter']?.toString() ?? '';
     final supportiveDocumentUrl =
         app['supportive_document_url']?.toString() ?? '';
@@ -1252,7 +1746,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             ),
                           ),
                         ),
-                      if (responseLetterUrl.isNotEmpty)
+                      if (responseLetterUrl.isNotEmpty ||
+                          hasManualResponseLetter)
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             minimumSize: const Size(0, 0),
@@ -1262,18 +1757,22 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             ),
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
-                          onPressed: () => _downloadFile(
-                            responseLetterUrl,
-                            authenticatedUrl: app['application_id'] == null
-                                ? null
-                                : '/api/applications/${app['application_id']}/response-letter',
-                            fileName: responseLetterName,
-                            invalidMessage: 'Response letter link is invalid.',
-                            failureMessage:
-                                'Failed to download response letter',
-                            successLabel: 'Response letter downloaded to',
-                            saveToDownloadsOnAndroid: true,
-                          ),
+                          onPressed: hasManualResponseLetter
+                              ? () => _downloadManualResponseLetter(app)
+                              : () => _downloadFile(
+                                  responseLetterUrl,
+                                  authenticatedUrl:
+                                      app['application_id'] == null
+                                      ? null
+                                      : '/api/applications/${app['application_id']}/response-letter',
+                                  fileName: responseLetterName,
+                                  invalidMessage:
+                                      'Response letter link is invalid.',
+                                  failureMessage:
+                                      'Failed to download response letter',
+                                  successLabel: 'Response letter downloaded to',
+                                  saveToDownloadsOnAndroid: true,
+                                ),
                           icon: const Icon(Icons.download_rounded),
                           label: const Flexible(
                             child: Text(
@@ -1312,6 +1811,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
           elevation: 0,
+          actions: _buildAppBarActions(),
         ),
         body: Center(
           child: Column(
@@ -1365,44 +1865,25 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Filter',
-            icon: const Icon(Icons.filter_list),
-            onSelected: (value) {
-              setState(() {
-                _selectedFilter = value;
-              });
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'all', child: Text('All')),
-              PopupMenuItem(value: '', child: Text('')),
-              PopupMenuItem(value: 'pending', child: Text('Pending')),
-              PopupMenuItem(value: 'review', child: Text('Review')),
-              PopupMenuItem(value: 'accepted', child: Text('Accepted')),
-              PopupMenuItem(value: 'confirmed', child: Text('Confirmed')),
-              PopupMenuItem(value: 'rejected', child: Text('Rejected')),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadApplications,
-          ),
-        ],
+        actions: _buildAppBarActions(),
       ),
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: filteredApplications.length,
         itemBuilder: (context, index) {
           final app = filteredApplications[index];
-          final status = app['status'] ?? 'pending';
+          final applicationMap = Map<String, dynamic>.from(app);
+          final rawStatus = '${app['status'] ?? 'pending'}'
+              .trim()
+              .toLowerCase();
+          final status = _effectiveStudentStatus(applicationMap);
           final applicationId = '${app['application_id'] ?? ''}';
           final statusColor = _getStatusColor(status);
           final statusText = _getStatusText(status);
           final statusIcon = _getStatusIcon(status);
           final hasConfirmedSelection = _confirmedSelection != null;
-          final isConfirmedThisApplication = _isConfirmedApplication(
-            applicationId,
+          final isConfirmedThisApplication = _isConfirmedPlacement(
+            applicationMap,
           );
           final isOfferExpired = _isOfferConfirmationExpired(applicationId);
           final offerExpiresAt = _offerConfirmationExpiresAt(applicationId);
@@ -1413,6 +1894,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           final companyName = '${app['company_name'] ?? 'Unknown Company'}';
           final location = '${app['location'] ?? 'Location not specified'}';
           final isManualAssignment = app['is_manual_assignment'] == true;
+          final hasOnlineTestInvitation = _hasOnlineTestInvitation(
+            applicationMap,
+          );
+          final isOnlineTestCompleted = _isOnlineTestCompleted(applicationMap);
+          final onlineTestTitle = '${app['online_test_title'] ?? 'Online Test'}'
+              .trim();
 
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
@@ -1496,14 +1983,49 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                         _buildInlineActionPill(
                           icon: Icons.visibility_outlined,
                           label: 'Preview',
-                          onTap: () => _showApplicationPreview(
-                            Map<String, dynamic>.from(app),
-                          ),
+                          onTap: () => _showApplicationPreview(applicationMap),
                         ),
                       ],
                     ),
                   ),
-                  if (status == 'accepted') ...[
+                  if (hasOnlineTestInvitation || rawStatus == 'assigned') ...[
+                    const SizedBox(height: 12),
+                    _buildApplicationActionTile(
+                      icon: isOnlineTestCompleted
+                          ? Icons.fact_check_rounded
+                          : Icons.quiz_outlined,
+                      label: isOnlineTestCompleted
+                          ? 'Test Submitted'
+                          : 'Open Test',
+                      subtitle: isOnlineTestCompleted
+                          ? '$onlineTestTitle has already been submitted.'
+                          : onlineTestTitle,
+                      backgroundColor: isOnlineTestCompleted
+                          ? const Color(0xFFF1F5F9)
+                          : const Color(0xFFEFF6FF),
+                      borderColor: isOnlineTestCompleted
+                          ? const Color(0xFFCBD5E1)
+                          : const Color(0xFF93C5FD),
+                      iconColor: isOnlineTestCompleted
+                          ? const Color(0xFF64748B)
+                          : const Color(0xFF1D4ED8),
+                      textColor: isOnlineTestCompleted
+                          ? const Color(0xFF475569)
+                          : const Color(0xFF1D4ED8),
+                      onTap: isOnlineTestCompleted
+                          ? null
+                          : () => _openOnlineTest(applicationMap),
+                      showChevron: !isOnlineTestCompleted,
+                      trailing: isOnlineTestCompleted
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              color: Color(0xFF64748B),
+                              size: 22,
+                            )
+                          : null,
+                    ),
+                  ],
+                  if (rawStatus == 'accepted') ...[
                     const SizedBox(height: 12),
                     _buildApplicationActionTile(
                       icon: isOfferExpired
@@ -1514,7 +2036,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           ? Icons.lock_outline_rounded
                           : Icons.check_circle_outline_rounded,
                       label: isOfferExpired
-                          ? 'Confirmation Window Expired'
+                          ? 'Offer Expired'
                           : isConfirmedThisApplication
                           ? 'Confirmed Placement'
                           : hasConfirmedSelection
@@ -1522,8 +2044,8 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           : 'Confirm',
                       subtitle: isOfferExpired
                           ? offerExpiresAt == null
-                                ? 'This accepted offer expired because it was not confirmed within 48 hours while you had multiple accepted companies.'
-                                : 'This accepted offer expired because it was not confirmed within 48 hours while you had multiple accepted companies. Deadline was ${_formatDate(offerExpiresAt.toIso8601String())}.'
+                                ? 'This accepted offer expired because it was not confirmed within 48 hours.'
+                                : 'This accepted offer expired because it was not confirmed within 48 hours. Deadline was ${_formatDate(offerExpiresAt.toIso8601String())}.'
                           : isConfirmedThisApplication
                           ? 'You selected ${app['company_name'] ?? 'this company'}.'
                           : hasConfirmedSelection
@@ -1557,7 +2079,10 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                           : hasConfirmedSelection
                           ? const Color(0xFFB45309)
                           : const Color(0xFF0F766E),
-                      onTap: !hasConfirmedSelection && !isOfferExpired
+                      onTap:
+                          !isConfirmedThisApplication &&
+                              !hasConfirmedSelection &&
+                              !isOfferExpired
                           ? () => _confirmCompanySelection(
                               Map<String, dynamic>.from(app),
                             )
@@ -1582,6 +2107,27 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                               size: 22,
                             )
                           : null,
+                    ),
+                  ] else if (rawStatus == 'assigned' &&
+                      isManualAssignment &&
+                      !hasOnlineTestInvitation) ...[
+                    const SizedBox(height: 12),
+                    _buildApplicationActionTile(
+                      icon: Icons.assignment_turned_in_rounded,
+                      label: 'Assigned Placement',
+                      subtitle:
+                          '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName. Waiting for company acceptance.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
+                      backgroundColor: const Color(0xFFEFF6FF),
+                      borderColor: const Color(0xFFBFDBFE),
+                      iconColor: const Color(0xFF2563EB),
+                      textColor: const Color(0xFF1D4ED8),
+                      onTap: null,
+                      showChevron: false,
+                      trailing: const Icon(
+                        Icons.hourglass_top_rounded,
+                        color: Color(0xFF2563EB),
+                        size: 22,
+                      ),
                     ),
                   ] else if (status == 'confirmed' && isManualAssignment) ...[
                     const SizedBox(height: 12),

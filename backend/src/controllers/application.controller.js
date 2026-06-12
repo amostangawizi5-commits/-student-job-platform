@@ -56,6 +56,73 @@ function cleanTextValue(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+async function getAccessibleCompanyIdsForUser(userId) {
+    const normalizedUserId = cleanTextValue(`${userId || ''}`);
+    if (!normalizedUserId) {
+        return [];
+    }
+
+    const result = await query(
+        `WITH current_company AS (
+            SELECT company_id, company_name
+            FROM companies
+            WHERE company_id::text = $1
+            LIMIT 1
+         )
+         SELECT DISTINCT matched.company_id::text AS company_id
+         FROM current_company current
+         JOIN companies matched
+           ON LOWER(REGEXP_REPLACE(BTRIM(COALESCE(matched.company_name, '')), '\\s+', ' ', 'g')) =
+              LOWER(REGEXP_REPLACE(BTRIM(COALESCE(current.company_name, '')), '\\s+', ' ', 'g'))
+         WHERE BTRIM(COALESCE(current.company_name, '')) <> ''
+         UNION
+         SELECT $1 AS company_id`,
+        [normalizedUserId]
+    );
+
+    const ids = result.rows
+        .map((row) => cleanTextValue(row.company_id))
+        .filter((companyId) => companyId !== '');
+
+    return [...new Set(ids)];
+}
+
+function companyIdIsAccessible(companyId, accessibleCompanyIds) {
+    const normalizedCompanyId = cleanTextValue(`${companyId || ''}`);
+    if (!normalizedCompanyId) {
+        return false;
+    }
+
+    return (Array.isArray(accessibleCompanyIds) ? accessibleCompanyIds : [])
+        .some((accessibleCompanyId) => `${accessibleCompanyId}` === normalizedCompanyId);
+}
+
+function isLocalUploadUrl(value) {
+    return cleanTextValue(value).startsWith('/uploads/');
+}
+
+function hideMissingLocalAssetReferences(application) {
+    if (!application) {
+        return application;
+    }
+
+    const normalized = { ...application };
+    for (const field of ['cover_letter', 'supportive_document_url', 'response_letter_url']) {
+        const fileUrl = cleanTextValue(normalized[field]);
+        if (isLocalUploadUrl(fileUrl) && !resolveAssetDownloadUrl(fileUrl)) {
+            normalized[field] = null;
+        }
+    }
+
+    return normalized;
+}
+
+function hideMissingLocalAssetReferencesForList(applications) {
+    return Array.isArray(applications)
+        ? applications.map(hideMissingLocalAssetReferences)
+        : [];
+}
+
 function parseCompanyLocationParts(locationValue) {
     const location = cleanTextValue(locationValue);
     if (!location) {
@@ -339,11 +406,15 @@ async function getApplicationWithOwnership(applicationId) {
             c.logo_url,
             c.stamp_url,
             c.signature_url,
+            c.department as company_department,
             s.program,
+            s.registration_number as student_registration_number,
             u2.name as university_name,
+            u2.name as college_name,
             u.email as student_email,
             u.full_name as student_name,
             cu.email as company_email,
+            cu.full_name as company_contact_name,
             cu.phone as company_phone
          FROM applications a
          JOIN training j ON a.job_id = j.job_id
@@ -571,7 +642,7 @@ async function syncOfferSelectionStateForStudents(studentIds, db = query) {
     }
 }
 
-function canAccessApplication(user, application) {
+async function canAccessApplication(user, application) {
     if (!user || !application) {
         return false;
     }
@@ -585,7 +656,13 @@ function canAccessApplication(user, application) {
     }
 
     if (user.role === 'company' || user.role === 'university') {
-        return `${application.company_id}` === `${user.user_id}`;
+        const accessibleCompanyIds = await getAccessibleCompanyIdsForUser(
+            user.user_id
+        );
+        return companyIdIsAccessible(
+            application.company_id,
+            accessibleCompanyIds
+        );
     }
 
     return false;
@@ -603,6 +680,15 @@ async function streamPdfAsset(res, { fileUrl, fileName, disposition = 'attachmen
     );
 
     return res.send(fileBuffer);
+}
+
+function logAssetReadError(label, error) {
+    if (error?.code === 'ASSET_NOT_FOUND' || error?.code === 'ENOENT') {
+        console.warn(`${label} file is missing:`, error.path || error.fileUrl || error.message);
+        return;
+    }
+
+    console.error(`${label} file read error:`, error);
 }
 
 function redirectToStoredAsset(res, fileUrl) {
@@ -851,7 +937,10 @@ const reviewSupportiveDocument = async (req, res) => {
             });
         }
 
-        if (`${app.company_id}` !== `${req.user.user_id}`) {
+        const accessibleCompanyIds = await getAccessibleCompanyIdsForUser(
+            req.user.user_id
+        );
+        if (!companyIdIsAccessible(app.company_id, accessibleCompanyIds)) {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to review this application'
@@ -915,7 +1004,7 @@ const getMyApplications = async (req, res) => {
         
         res.json({
             success: true,
-            data: applications
+            data: hideMissingLocalAssetReferencesForList(applications)
         });
     } catch (error) {
         console.error('Get applications error:', error);
@@ -940,7 +1029,10 @@ const getJobApplications = async (req, res) => {
             });
         }
 
-        if (`${training.company_id}` !== `${req.user.user_id}`) {
+        const accessibleCompanyIds = await getAccessibleCompanyIdsForUser(
+            req.user.user_id
+        );
+        if (!companyIdIsAccessible(training.company_id, accessibleCompanyIds)) {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to access applications for this training post'
@@ -955,7 +1047,7 @@ const getJobApplications = async (req, res) => {
         
         res.json({
             success: true,
-            data: applications
+            data: hideMissingLocalAssetReferencesForList(applications)
         });
     } catch (error) {
         console.error('Get job applications error:', error);
@@ -970,15 +1062,22 @@ const getJobApplications = async (req, res) => {
 // Get all company applications
 const getCompanyApplications = async (req, res) => {
     try {
-        let applications = await ApplicationModel.getByCompany(req.user.user_id);
+        const accessibleCompanyIds = await getAccessibleCompanyIdsForUser(
+            req.user.user_id
+        );
+        let applications = await ApplicationModel.getByCompanyIds(
+            accessibleCompanyIds
+        );
         await syncOfferSelectionStateForStudents(
             applications.map((application) => application.student_id)
         );
-        applications = await ApplicationModel.getByCompany(req.user.user_id);
+        applications = await ApplicationModel.getByCompanyIds(
+            accessibleCompanyIds
+        );
 
         res.json({
             success: true,
-            data: applications
+            data: hideMissingLocalAssetReferencesForList(applications)
         });
     } catch (error) {
         console.error('Get company applications error:', error);
@@ -1177,7 +1276,7 @@ const downloadResponseLetter = async (req, res) => {
             });
         }
 
-        if (!canAccessApplication(req.user, application)) {
+        if (!(await canAccessApplication(req.user, application))) {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to access this response letter'
@@ -1198,7 +1297,7 @@ const downloadResponseLetter = async (req, res) => {
                 disposition: 'attachment'
             });
         } catch (fileError) {
-            console.error('Response letter file read error:', fileError);
+            logAssetReadError('Response letter', fileError);
             if (redirectToStoredAsset(res, application.response_letter_url)) {
                 return;
             }
@@ -1230,7 +1329,7 @@ const downloadSupportiveDocument = async (req, res) => {
             });
         }
 
-        if (!canAccessApplication(req.user, application)) {
+        if (!(await canAccessApplication(req.user, application))) {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to access this supportive document'
@@ -1252,7 +1351,7 @@ const downloadSupportiveDocument = async (req, res) => {
                 disposition: 'inline'
             });
         } catch (fileError) {
-            console.error('Supportive document file read error:', fileError);
+            logAssetReadError('Supportive document', fileError);
             if (redirectToStoredAsset(res, application.supportive_document_url)) {
                 return;
             }
@@ -1284,7 +1383,7 @@ const downloadCoverLetter = async (req, res) => {
             });
         }
 
-        if (!canAccessApplication(req.user, application)) {
+        if (!(await canAccessApplication(req.user, application))) {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to access this cover letter'
@@ -1318,7 +1417,7 @@ const downloadCoverLetter = async (req, res) => {
                 disposition: 'inline'
             });
         } catch (fileError) {
-            console.error('Cover letter file read error:', fileError);
+            logAssetReadError('Cover letter', fileError);
             if (redirectToStoredAsset(res, coverLetterUrl)) {
                 return;
             }
@@ -1416,7 +1515,10 @@ const updateApplicationStatus = async (req, res) => {
             });
         }
 
-        if (`${app.company_id}` !== `${req.user.user_id}`) {
+        const accessibleCompanyIds = await getAccessibleCompanyIdsForUser(
+            req.user.user_id
+        );
+        if (!companyIdIsAccessible(app.company_id, accessibleCompanyIds)) {
             return res.status(403).json({
                 success: false,
                 message: 'You are not allowed to update this application'
@@ -1446,41 +1548,43 @@ const updateApplicationStatus = async (req, res) => {
             const organizationName = cleanTextValue(organization_name) || app.company_name;
             const registrationNumber =
                 cleanTextValue(student_registration_number) ||
-                cleanTextValue(app.student_registration_number);
+                cleanTextValue(app.student_registration_number) ||
+                'N/A';
             const collegeName =
                 cleanTextValue(college_name) ||
                 cleanTextValue(app.college_name) ||
                 cleanTextValue(app.university_name) ||
                 'College of Informatics and Virtual Education';
-            const sectionDepartment = cleanTextValue(section_department);
-            const officerName = cleanTextValue(officer_name);
-            const officerDesignation = cleanTextValue(officer_designation);
-            const officerPhone = cleanTextValue(officer_phone);
-            const officerEmail = cleanTextValue(officer_email);
+            const sectionDepartment =
+                cleanTextValue(section_department) ||
+                cleanTextValue(app.company_department) ||
+                cleanTextValue(app.job_title) ||
+                'Administration';
+            const officerName =
+                cleanTextValue(officer_name) ||
+                cleanTextValue(app.company_contact_name) ||
+                cleanTextValue(app.company_name) ||
+                'Authorized Officer';
+            const officerDesignation =
+                cleanTextValue(officer_designation) ||
+                (cleanTextValue(app.company_department)
+                    ? `${cleanTextValue(app.company_department)} Officer`
+                    : 'Authorized Officer');
+            const officerPhone =
+                cleanTextValue(officer_phone) ||
+                cleanTextValue(app.company_phone) ||
+                'N/A';
+            const officerEmail =
+                cleanTextValue(officer_email) ||
+                cleanTextValue(app.company_email) ||
+                'N/A';
             const officerRegion =
-                cleanTextValue(officer_region) || inferredLocation.region;
+                cleanTextValue(officer_region) || inferredLocation.region || 'N/A';
             const officerDistrict =
-                cleanTextValue(officer_district) || inferredLocation.district;
+                cleanTextValue(officer_district) || inferredLocation.district || 'N/A';
             const officerArea =
-                cleanTextValue(officer_area) || inferredLocation.area;
+                cleanTextValue(officer_area) || inferredLocation.area || 'N/A';
             const letterDate = cleanTextValue(letter_date);
-
-            if (
-                !registrationNumber ||
-                !sectionDepartment ||
-                !officerName ||
-                !officerDesignation ||
-                !officerPhone ||
-                !officerEmail ||
-                !officerRegion ||
-                !officerDistrict ||
-                !officerArea
-            ) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Acceptance letter details are required before accepting an applicant'
-                });
-            }
 
             let acceptanceLetterBuffer;
             try {
@@ -1489,7 +1593,7 @@ const updateApplicationStatus = async (req, res) => {
                     studentName: app.student_name,
                     registrationNumber,
                     collegeName,
-                    universityName: app.university_name || 'University of Dodoma',
+                    universityName: app.university_name || '',
                     sectionDepartment,
                     officerName,
                     officerDesignation,

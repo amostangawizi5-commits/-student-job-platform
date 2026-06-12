@@ -166,56 +166,185 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       selectedRole = 'student';
     }
 
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Role management'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${user['full_name'] ?? 'User'}'),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: selectedRole,
-                decoration: const InputDecoration(labelText: 'Select role'),
-                items: const [
-                  DropdownMenuItem(value: 'student', child: Text('User')),
-                  DropdownMenuItem(value: 'company', child: Text('Company')),
-                  DropdownMenuItem(
-                    value: 'university',
-                    child: Text('University'),
+    final studentUniversityController = TextEditingController(
+      text: '${user['university_id'] ?? ''}',
+    );
+    final studentProgramController = TextEditingController(
+      text: '${user['program'] ?? ''}',
+    );
+    final studentRegistrationController = TextEditingController(
+      text: '${user['registration_number'] ?? ''}',
+    );
+    final companyNameController = TextEditingController(
+      text: '${user['company_name'] ?? user['full_name'] ?? ''}',
+    );
+    final companyIndustryController = TextEditingController(
+      text: '${user['industry'] ?? ''}',
+    );
+    final companyLocationController = TextEditingController(
+      text: '${user['location'] ?? ''}',
+    );
+    final universityNameController = TextEditingController(
+      text: '${user['college_name'] ?? user['university_name'] ?? ''}',
+    );
+    final coordinatorNameController = TextEditingController(
+      text: '${user['coordinator_name'] ?? user['full_name'] ?? ''}',
+    );
+    final coordinatorPhoneController = TextEditingController(
+      text: '${user['coordinator_phone'] ?? user['phone'] ?? ''}',
+    );
+    final coordinatorEmailController = TextEditingController(
+      text: '${user['coordinator_email'] ?? user['email'] ?? ''}',
+    );
+
+    Map<String, dynamic>? rolePayload;
+
+    Map<String, dynamic> compactPayload(Map<String, dynamic> values) {
+      return Map<String, dynamic>.fromEntries(
+        values.entries.where((entry) => '${entry.value}'.trim().isNotEmpty),
+      );
+    }
+
+    Widget buildField(
+      TextEditingController controller,
+      String label, {
+      TextInputType keyboardType = TextInputType.text,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      );
+    }
+
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Role management'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${user['full_name'] ?? 'User'}'),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedRole,
+                    decoration: const InputDecoration(labelText: 'Select role'),
+                    items: const [
+                      DropdownMenuItem(value: 'student', child: Text('User')),
+                      DropdownMenuItem(
+                        value: 'company',
+                        child: Text('Company'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'university',
+                        child: Text('University / Coordinator'),
+                      ),
+                      DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setDialogState(() => selectedRole = value);
+                      }
+                    },
                   ),
-                  DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                  if (selectedRole == 'student') ...[
+                    buildField(studentUniversityController, 'University ID'),
+                    buildField(studentProgramController, 'Program'),
+                    buildField(
+                      studentRegistrationController,
+                      'Registration number',
+                    ),
+                  ] else if (selectedRole == 'company') ...[
+                    buildField(companyNameController, 'Company name'),
+                    buildField(companyIndustryController, 'Industry'),
+                    buildField(companyLocationController, 'Location'),
+                  ] else if (selectedRole == 'university') ...[
+                    buildField(
+                      universityNameController,
+                      'University / college name',
+                    ),
+                    buildField(coordinatorNameController, 'Coordinator name'),
+                    buildField(
+                      coordinatorPhoneController,
+                      'Coordinator phone',
+                      keyboardType: TextInputType.phone,
+                    ),
+                    buildField(
+                      coordinatorEmailController,
+                      'Coordinator email',
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                  ],
                 ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setDialogState(() => selectedRole = value);
-                  }
-                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Save'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Save'),
-            ),
-          ],
         ),
-      ),
-    );
+      );
 
-    if (saved != true) return;
+      if (saved != true) return;
+
+      rolePayload = switch (selectedRole) {
+        'student' => compactPayload({
+          'university_id': studentUniversityController.text,
+          'program': studentProgramController.text,
+          'registration_number': studentRegistrationController.text,
+        }),
+        'company' => compactPayload({
+          'company_name': companyNameController.text,
+          'industry': companyIndustryController.text,
+          'location': companyLocationController.text,
+        }),
+        'university' => compactPayload({
+          'college_name': universityNameController.text,
+          'coordinator_name': coordinatorNameController.text,
+          'coordinator_phone': coordinatorPhoneController.text,
+          'coordinator_email': coordinatorEmailController.text,
+          'college_email': coordinatorEmailController.text,
+          'college_phone': coordinatorPhoneController.text,
+        }),
+        _ => null,
+      };
+    } finally {
+      studentUniversityController.dispose();
+      studentProgramController.dispose();
+      studentRegistrationController.dispose();
+      companyNameController.dispose();
+      companyIndustryController.dispose();
+      companyLocationController.dispose();
+      universityNameController.dispose();
+      coordinatorNameController.dispose();
+      coordinatorPhoneController.dispose();
+      coordinatorEmailController.dispose();
+    }
 
     final response = await _apiService.updateUserRole(
       '${user['user_id']}',
       selectedRole,
+      studentData: selectedRole == 'student' ? rolePayload : null,
+      companyData: selectedRole == 'company' ? rolePayload : null,
+      universityData: selectedRole == 'university' ? rolePayload : null,
     );
     if (!mounted) return;
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +7,7 @@ import '../utils/user_role.dart';
 import '../utils/assets.dart';
 import '../utils/theme.dart';
 import 'admin/admin_dashboard.dart';
+import 'home_screen.dart' as public_home;
 import 'auth/login_screen.dart';
 import 'organization/organization_dashboard.dart';
 import 'student/student_dashboard.dart';
@@ -25,6 +27,11 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _logoFadeAnimation;
   late Animation<Offset> _logoSlideAnimation;
   bool _hasStartedAnimation = false;
+
+  bool get _isMobileDevice =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   @override
   void initState() {
@@ -115,7 +122,9 @@ class _SplashScreenState extends State<SplashScreen>
       }
     }
 
-    return const LoginScreen();
+    return _isMobileDevice
+        ? const LoginScreen()
+        : const public_home.HomeScreen();
   }
 
   @override

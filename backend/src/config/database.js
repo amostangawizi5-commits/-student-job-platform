@@ -1,6 +1,5 @@
 // src/config/database.js
 const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
 
 const databaseUrl = `${process.env.DATABASE_URL || ''}`;
 const sslRequestedViaEnv =
@@ -200,6 +199,17 @@ const ensureApplicationWorkflowSchema = async () => {
         ADD COLUMN IF NOT EXISTS student_confirmation_expires_at TIMESTAMP,
         ADD COLUMN IF NOT EXISTS student_confirmation_released_at TIMESTAMP
     `);
+
+    await pool.query(`
+        ALTER TABLE applications
+        DROP CONSTRAINT IF EXISTS applications_status_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE applications
+        ADD CONSTRAINT applications_status_check
+        CHECK (status IN ('pending', 'assigned', 'shortlisted', '', 'accepted', 'rejected'))
+    `);
 };
 
 const ensureApplicationJobForeignKeySchema = async () => {
@@ -366,17 +376,17 @@ const ensureStudentRegistrationSchema = async () => {
     `);
 
     await pool.query(`
-        ALTER TABLE students
-        DROP CONSTRAINT IF EXISTS students_student_type_check
-    `);
-
-    await pool.query(`
         UPDATE students
         SET student_type = CASE
             WHEN student_type IS NULL OR BTRIM(student_type) = '' THEN 'current'
             WHEN LOWER(BTRIM(student_type)) = 'current' THEN 'current'
             ELSE ''
         END
+    `);
+
+    await pool.query(`
+        ALTER TABLE students
+        DROP CONSTRAINT IF EXISTS students_student_type_check
     `);
 
     await pool.query(`
@@ -543,6 +553,17 @@ const ensureJobEligibilitySchema = async () => {
         await pool.query(`
             CREATE INDEX IF NOT EXISTS job_skills_skill_id_idx
             ON job_skills (skill_id)
+        `);
+
+        await pool.query(`
+            ALTER TABLE job_skills
+            DROP CONSTRAINT IF EXISTS job_skills_job_id_fkey
+        `);
+
+        await pool.query(`
+            ALTER TABLE job_skills
+            ADD CONSTRAINT job_skills_job_id_fkey
+            FOREIGN KEY (job_id) REFERENCES training(job_id) ON DELETE CASCADE
         `);
     }
 };
@@ -1041,163 +1062,160 @@ const ensureUserRoleSchema = async () => {
     `);
 };
 
-const normalizeBootstrapValue = (value) => `${value || ''}`.trim();
+const ensureOnlineTestSchema = async () => {
+    await pool.query(`
+        ALTER TABLE students
+        ADD COLUMN IF NOT EXISTS id UUID,
+        ADD COLUMN IF NOT EXISTS name TEXT,
+        ADD COLUMN IF NOT EXISTS email TEXT,
+        ADD COLUMN IF NOT EXISTS university TEXT,
+        ADD COLUMN IF NOT EXISTS training TEXT,
+        ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'pending'
+    `);
 
-const normalizeBootstrapEmail = (value) =>
-    normalizeBootstrapValue(value).toLowerCase();
-
-const DEFAULT_ROLE_SYNC_OVERRIDES = [
-    {
-        email: 'amostangawizi800@gmail.com',
-        role: 'admin'
-    }
-];
-
-const parseBootstrapAdminEmails = () =>
-    `${process.env.BOOTSTRAP_ADMIN_EMAILS || process.env.BOOTSTRAP_ADMIN_EMAIL || ''}`
-        .split(',')
-        .map(normalizeBootstrapEmail)
-        .filter(Boolean);
-
-const parseRoleSyncOverrides = () => {
-    const configuredOverrides = `${process.env.ROLE_SYNC_OVERRIDES || ''}`
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => {
-            const [emailPart, rolePart] = entry.split(':');
-            const email = normalizeBootstrapEmail(emailPart);
-            const role = normalizeBootstrapValue(rolePart).toLowerCase();
-
-            if (!email || !role) {
-                return null;
-            }
-
-            if (!['student', 'company', 'university', 'admin'].includes(role)) {
-                console.warn(`Skipping invalid role override "${entry}"`);
-                return null;
-            }
-
-            return { email, role };
-        })
-        .filter(Boolean);
-
-    if (configuredOverrides.length > 0) {
-        return configuredOverrides;
-    }
-
-    return DEFAULT_ROLE_SYNC_OVERRIDES;
-};
-
-const ensureBootstrapAdminUsers = async () => {
-    const bootstrapEmails = parseBootstrapAdminEmails();
-    const bootstrapPassword = normalizeBootstrapValue(
-        process.env.BOOTSTRAP_ADMIN_PASSWORD
-    );
-    const bootstrapFullName =
-        normalizeBootstrapValue(process.env.BOOTSTRAP_ADMIN_FULL_NAME) ||
-        'System Administrator';
-    const bootstrapPhone =
-        normalizeBootstrapValue(process.env.BOOTSTRAP_ADMIN_PHONE) || null;
-
-    if (bootstrapEmails.length === 0) {
-        return;
-    }
-
-    if (bootstrapPassword.length < 6) {
-        console.warn(
-            'Skipping bootstrap admin sync because BOOTSTRAP_ADMIN_PASSWORD is missing or too short.'
-        );
-        return;
-    }
-
-    const passwordHash = await bcrypt.hash(bootstrapPassword, 10);
-
-    for (const email of bootstrapEmails) {
-        const existingResult = await pool.query(
-            `SELECT user_id
-             FROM users
-             WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
-             LIMIT 1`,
-            [email]
-        );
-
-        if (existingResult.rows.length === 0) {
-            const insertResult = await pool.query(
-                `INSERT INTO users (
-                    email,
-                    password_hash,
-                    role,
-                    full_name,
-                    phone,
-                    is_verified,
-                    is_active
+    await pool.query(`
+        UPDATE students AS s
+        SET id = COALESCE(s.id, s.student_id),
+            name = COALESCE(NULLIF(BTRIM(s.name), ''), u.full_name),
+            email = COALESCE(NULLIF(BTRIM(s.email), ''), u.email),
+            university = COALESCE(
+                NULLIF(BTRIM(s.university), ''),
+                (
+                    SELECT uni.name
+                    FROM universities AS uni
+                    WHERE uni.university_id = s.university_id
+                    LIMIT 1
                 )
-                 VALUES ($1, $2, 'admin', $3, $4, true, true)
-                 RETURNING user_id`,
-                [email, passwordHash, bootstrapFullName, bootstrapPhone]
-            );
+            ),
+            training = COALESCE(NULLIF(BTRIM(s.training), ''), s.program),
+            status = COALESCE(NULLIF(BTRIM(s.status), ''), 'pending')
+        FROM users AS u
+        WHERE u.user_id = s.student_id
+    `);
 
-            console.log(`Bootstrapped admin account for ${email}`);
-            await pool.query(
-                `DELETE FROM students WHERE student_id = $1`,
-                [insertResult.rows[0].user_id]
-            ).catch(() => {});
-            continue;
-        }
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS students_id_compat_idx
+        ON students (id)
+        WHERE id IS NOT NULL
+    `);
 
-        await pool.query(
-            `UPDATE users
-             SET role = 'admin',
-                 password_hash = $2,
-                 full_name = COALESCE(NULLIF(BTRIM(full_name), ''), $3),
-                 phone = COALESCE(NULLIF(BTRIM(phone), ''), $4),
-                 is_verified = true,
-                 is_active = true,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE user_id = $1`,
-            [
-                existingResult.rows[0].user_id,
-                passwordHash,
-                bootstrapFullName,
-                bootstrapPhone
-            ]
-        );
+    await pool.query(`
+        ALTER TABLE students
+        DROP CONSTRAINT IF EXISTS students_selection_status_check
+    `);
 
-        console.log(`Synced existing user ${email} to admin role`);
-    }
-};
+    await pool.query(`
+        ALTER TABLE students
+        ADD CONSTRAINT students_selection_status_check
+        CHECK (status IN ('pending', 'shortlisted', 'accepted', 'rejected'))
+    `);
 
-const ensureRoleSyncOverrides = async () => {
-    const overrides = parseRoleSyncOverrides();
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS tests (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            title VARCHAR(255) NOT NULL,
+            duration INTEGER NOT NULL,
+            pass_mark NUMERIC(5,2) NOT NULL,
+            deadline TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
 
-    if (overrides.length === 0) {
-        return;
-    }
+    await pool.query(`
+        ALTER TABLE tests
+        ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(company_id) ON DELETE CASCADE,
+        ADD COLUMN IF NOT EXISTS job_id UUID REFERENCES training(job_id) ON DELETE SET NULL
+    `);
 
-    for (const override of overrides) {
-        const result = await pool.query(
-            `UPDATE users
-             SET role = $2,
-                 is_active = true,
-                 is_verified = true,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
-             RETURNING user_id, email, role`,
-            [override.email, override.role]
-        );
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS tests_company_job_idx
+        ON tests (company_id, job_id, created_at DESC)
+    `);
 
-        if (result.rows.length === 0) {
-            console.warn(
-                `Role sync override skipped because ${override.email} was not found`
-            );
-            continue;
-        }
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS questions (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            test_id UUID NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+            question_text TEXT NOT NULL,
+            question_type VARCHAR(40) NOT NULL,
+            marks NUMERIC(8,2) NOT NULL,
+            correct_answer TEXT,
+            question_options TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    `);
 
-        console.log(
-            `Role sync override applied: ${result.rows[0].email} -> ${result.rows[0].role}`
-        );
-    }
+    await pool.query(`
+        ALTER TABLE questions
+        DROP CONSTRAINT IF EXISTS questions_question_type_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE questions
+        ADD CONSTRAINT questions_question_type_check
+        CHECK (question_type IN ('short_answer', 'multiple_choice', 'paragraph', 'code'))
+    `);
+
+    await pool.query(`
+        ALTER TABLE questions
+        DROP CONSTRAINT IF EXISTS questions_marks_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE questions
+        ADD CONSTRAINT questions_marks_check
+        CHECK (marks > 0)
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS test_attempts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            student_id UUID NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+            test_id UUID NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+            unique_link TEXT NOT NULL UNIQUE,
+            started_at TIMESTAMPTZ,
+            submitted_at TIMESTAMPTZ,
+            total_score NUMERIC(6,2),
+            status VARCHAR(40) NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (student_id, test_id)
+        )
+    `);
+
+    await pool.query(`
+        ALTER TABLE test_attempts
+        DROP CONSTRAINT IF EXISTS test_attempts_status_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE test_attempts
+        ADD CONSTRAINT test_attempts_status_check
+        CHECK (status IN ('pending', 'in_progress', 'completed'))
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS answers (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            attempt_id UUID NOT NULL REFERENCES test_attempts(id) ON DELETE CASCADE,
+            question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            answer_text TEXT,
+            score_awarded NUMERIC(8,2),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (attempt_id, question_id)
+        )
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS questions_test_id_idx
+        ON questions (test_id)
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS test_attempts_test_status_score_idx
+        ON test_attempts (test_id, status, total_score DESC NULLS LAST)
+    `);
 };
 
 // Test database connection
@@ -1219,8 +1237,7 @@ const connectDB = async () => {
         await ensureUniversityProfileSchema();
         await ensureUniversityOrganizationChatSchema();
         await ensureAwardsSchema();
-        await ensureBootstrapAdminUsers();
-        await ensureRoleSyncOverrides();
+        await ensureOnlineTestSchema();
         return true;
     } catch (error) {
         console.error('❌ PostgreSQL connection error:', error.message);

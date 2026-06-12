@@ -6,14 +6,20 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String _hostedApiBaseUrl =
-      'https://student-job-platform-api.onrender.com';
+  static const Set<String> _singleUniversityNames = {
+    'university of dodoma (udom)',
+    'university of dodoma',
+    'udom',
+  };
+  static const String _localApiBaseUrl = 'http://localhost:5000';
+  static const String _defaultAndroidDeviceApiBaseUrl =
+      'http://10.104.30.219:5000';
   static const String _androidDeviceApiBaseUrl = String.fromEnvironment(
     'ANDROID_LOCAL_API_BASE_URL',
-    defaultValue: _hostedApiBaseUrl,
+    defaultValue: _defaultAndroidDeviceApiBaseUrl,
   );
-  static const String _webBaseUrl = _hostedApiBaseUrl;
-  static const String _defaultBaseUrl = _hostedApiBaseUrl;
+  static const String _webBaseUrl = _localApiBaseUrl;
+  static const String _defaultBaseUrl = _localApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -31,8 +37,6 @@ class ApiService {
   static DateTime? _unreadNotificationsCacheTime;
   static Map<String, dynamic>? _profileCache;
   static DateTime? _profileCacheTime;
-  static DateTime? _hostedBackendWarmupTime;
-  static Future<void>? _hostedBackendWarmupFuture;
   static final Map<String, Map<String, dynamic>> _trainingCache = {};
   static final Map<String, DateTime> _trainingCacheTime = {};
   static Map<String, dynamic>? _organizationtrainingCache;
@@ -53,6 +57,60 @@ class ApiService {
     return withScheme.replaceFirst(RegExp(r'/*$'), '');
   }
 
+  static bool _isValidIpv4Host(String host) {
+    final parts = host.split('.');
+    if (parts.length != 4) return false;
+
+    for (final part in parts) {
+      if (part.isEmpty || !RegExp(r'^\d+$').hasMatch(part)) {
+        return false;
+      }
+
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  static bool _isUsableBaseUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme || uri.host.trim().isEmpty) {
+      return false;
+    }
+
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') {
+      return false;
+    }
+
+    final host = uri.host.trim().toLowerCase();
+    if (RegExp(r'^[\d.]+$').hasMatch(host)) {
+      return _isValidIpv4Host(host);
+    }
+
+    return true;
+  }
+
+  static String _validatedBaseUrlOrFallback({
+    required String candidate,
+    required String fallback,
+    required String sourceName,
+  }) {
+    final normalizedCandidate = _normalizeBaseUrl(candidate);
+    if (_isUsableBaseUrl(normalizedCandidate)) {
+      return normalizedCandidate;
+    }
+
+    final normalizedFallback = _normalizeBaseUrl(fallback);
+    _log(
+      'Ignoring invalid $sourceName="$candidate"; using $normalizedFallback',
+    );
+    return normalizedFallback;
+  }
+
   static bool _isLoopbackHost(String host) {
     final normalized = host.trim().toLowerCase();
     return normalized == 'localhost' ||
@@ -68,7 +126,13 @@ class ApiService {
 
   static String _resolveBaseUrl() {
     if (_apiBaseUrlOverride.trim().isNotEmpty) {
-      return _normalizeBaseUrl(_apiBaseUrlOverride);
+      return _validatedBaseUrlOrFallback(
+        candidate: _apiBaseUrlOverride,
+        fallback: defaultTargetPlatform == TargetPlatform.android
+            ? _defaultAndroidDeviceApiBaseUrl
+            : _defaultBaseUrl,
+        sourceName: 'API_BASE_URL',
+      );
     }
 
     if (kIsWeb) {
@@ -76,7 +140,11 @@ class ApiService {
     }
 
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return _normalizeBaseUrl(_androidDeviceApiBaseUrl);
+      return _validatedBaseUrlOrFallback(
+        candidate: _androidDeviceApiBaseUrl,
+        fallback: _defaultAndroidDeviceApiBaseUrl,
+        sourceName: 'ANDROID_LOCAL_API_BASE_URL',
+      );
     }
 
     return _normalizeBaseUrl(_defaultBaseUrl);
@@ -88,42 +156,17 @@ class ApiService {
   final Dio _dio = _sharedDio;
   final FlutterSecureStorage _storage = _sharedStorage;
 
-  bool get _isRenderHostedApi {
-    final host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
-    return host.contains('onrender.com');
-  }
-
-  Duration get _defaultConnectTimeout {
-    if (_isRenderHostedApi) {
-      return const Duration(seconds: 60);
-    }
-
-    return kIsWeb ? const Duration(seconds: 25) : const Duration(seconds: 20);
-  }
-
-  Duration get _defaultReceiveTimeout {
-    if (_isRenderHostedApi) {
-      return const Duration(seconds: 75);
-    }
-
-    return kIsWeb ? const Duration(seconds: 30) : const Duration(seconds: 45);
-  }
-
-  String get _serverWakeupMessage {
-    if (_isRenderHostedApi) {
-      return 'The server is waking up. Please wait 30-60 seconds and try again.';
-    }
-
-    return 'The server is taking longer than expected. Please try again in a moment.';
-  }
-
   ApiService() {
     if (_isDioConfigured) return;
 
     _log('ApiService baseUrl: $baseUrl');
 
-    _dio.options.connectTimeout = _defaultConnectTimeout;
-    _dio.options.receiveTimeout = _defaultReceiveTimeout;
+    _dio.options.connectTimeout = kIsWeb
+        ? const Duration(seconds: 25)
+        : const Duration(seconds: 20);
+    _dio.options.receiveTimeout = kIsWeb
+        ? const Duration(seconds: 30)
+        : const Duration(seconds: 45);
     _dio.options.headers = {'Content-Type': 'application/json'};
 
     // Add logging interceptor for debugging
@@ -244,68 +287,6 @@ class ApiService {
     _profileCacheTime = null;
   }
 
-  Future<void> warmUpHostedBackend({bool force = false}) async {
-    if (!_isRenderHostedApi) {
-      return;
-    }
-
-    if (!force &&
-        _isFresh(_hostedBackendWarmupTime, const Duration(minutes: 2))) {
-      return;
-    }
-
-    final inFlightWarmup = _hostedBackendWarmupFuture;
-    if (inFlightWarmup != null) {
-      await inFlightWarmup;
-      return;
-    }
-
-    final warmupFuture = _performHostedBackendWarmup();
-    _hostedBackendWarmupFuture = warmupFuture;
-
-    try {
-      await warmupFuture;
-    } finally {
-      if (identical(_hostedBackendWarmupFuture, warmupFuture)) {
-        _hostedBackendWarmupFuture = null;
-      }
-    }
-  }
-
-  Future<void> _performHostedBackendWarmup() async {
-    final healthUrl = '$baseUrl/health';
-    final deadline = DateTime.now().add(const Duration(seconds: 35));
-    Object? lastError;
-
-    while (DateTime.now().isBefore(deadline)) {
-      try {
-        final response = await Dio().get<dynamic>(
-          healthUrl,
-          options: Options(
-            connectTimeout: const Duration(seconds: 12),
-            receiveTimeout: const Duration(seconds: 12),
-            sendTimeout: const Duration(seconds: 12),
-            validateStatus: (status) => status != null && status < 500,
-          ),
-        );
-
-        final statusCode = response.statusCode ?? 0;
-        if (statusCode >= 200 && statusCode < 500) {
-          _hostedBackendWarmupTime = DateTime.now();
-          return;
-        }
-      } on DioException catch (error) {
-        lastError = error;
-      } catch (error) {
-        lastError = error;
-      }
-
-      await Future.delayed(const Duration(seconds: 3));
-    }
-
-    _log('Hosted backend warm-up did not complete: $lastError');
-  }
-
   static void _invalidatetrainingCache() {
     _trainingCache.clear();
     _trainingCacheTime.clear();
@@ -361,11 +342,6 @@ class ApiService {
   static String _normalizeLoginErrorMessage(Object? error) {
     final message = (error?.toString() ?? '').replaceFirst('Exception: ', '');
     final lowerMessage = message.toLowerCase();
-
-    if (lowerMessage.contains('server is waking up') ||
-        lowerMessage.contains('wait 30-60 seconds')) {
-      return 'The server is waking up. Please wait 30-60 seconds and try again.';
-    }
 
     if (lowerMessage.contains('device is locked') ||
         lowerMessage.contains('app locked') ||
@@ -440,11 +416,6 @@ class ApiService {
     }
 
     final lowerMessage = normalized.toLowerCase();
-
-    if (lowerMessage.contains('server is waking up') ||
-        lowerMessage.contains('wait 30-60 seconds')) {
-      return 'The server is waking up. Please wait 30-60 seconds and try again.';
-    }
 
     if (lowerMessage.contains('invalid email or password') ||
         lowerMessage.contains('invalid credentials') ||
@@ -787,9 +758,6 @@ class ApiService {
     dynamic data,
     bool requiresAuth = false,
     Map<String, dynamic>? queryParams,
-    Duration? connectTimeout,
-    Duration? receiveTimeout,
-    Duration? sendTimeout,
   }) async {
     final normalizedMethod = method.toUpperCase();
     final requestUrl = '$baseUrl$path';
@@ -803,9 +771,6 @@ class ApiService {
       final token = requiresAuth ? await getToken() : null;
       final options = Options(
         method: normalizedMethod,
-        connectTimeout: connectTimeout,
-        receiveTimeout: receiveTimeout,
-        sendTimeout: sendTimeout,
         headers: {
           if (requiresAuth && token != null && token.isNotEmpty)
             'Authorization': 'Bearer $token',
@@ -842,11 +807,9 @@ class ApiService {
         }
 
         throw Exception(
-          _isRenderHostedApi
-              ? _serverWakeupMessage
-              : kIsWeb
-              ? 'Connection timeout. Please wait a few seconds and try again.'
-              : 'Connection timeout from $baseUrl. Please wait a moment and try again.',
+          kIsWeb
+              ? 'Connection timeout. The local server may be unavailable. Please wait a few seconds and try again.'
+              : 'Connection timeout from $baseUrl. The local server may be unavailable. Please wait a moment and try again.',
         );
       } else if (e.type == DioExceptionType.receiveTimeout) {
         if (shouldRetryOnWakeup) {
@@ -863,9 +826,7 @@ class ApiService {
         }
 
         throw Exception(
-          _isRenderHostedApi
-              ? _serverWakeupMessage
-              : kIsWeb
+          kIsWeb
               ? 'Server is taking too long to respond. Please try again shortly.'
               : 'Server at $baseUrl is taking too long to respond. Please try again shortly.',
         );
@@ -981,15 +942,10 @@ class ApiService {
   // ==================== AUTH METHODS ====================
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {
-      await warmUpHostedBackend();
-
       final response = await _request(
         'POST',
         '/api/auth/login',
         data: {'email': email, 'password': password},
-        connectTimeout: _isRenderHostedApi ? const Duration(seconds: 60) : null,
-        receiveTimeout: _isRenderHostedApi ? const Duration(seconds: 75) : null,
-        sendTimeout: const Duration(seconds: 30),
       );
 
       _log('Login API response: $response');
@@ -1180,8 +1136,6 @@ class ApiService {
         }
       }
 
-      await warmUpHostedBackend();
-
       final response = await _request(
         'GET',
         '/api/auth/profile',
@@ -1286,6 +1240,7 @@ class ApiService {
     String? search,
     String? view,
     bool forceRefresh = false,
+    bool requiresAuth = true,
   }) async {
     Map<String, dynamic> query = {};
     if (type != null && type != 'all') query['type'] = type;
@@ -1316,7 +1271,7 @@ class ApiService {
       'GET',
       '/api/training',
       queryParams: query,
-      requiresAuth: true,
+      requiresAuth: requiresAuth,
     );
     if (response['success'] == true) {
       _trainingCache[cacheKey] = response;
@@ -1665,11 +1620,11 @@ class ApiService {
 
   // ==================== SKILLS METHODS ====================
   Future<Map<String, dynamic>> getAllSkills() async {
-    return await _request('GET', '/api/skills', requiresAuth: true);
+    return await _request('GET', '/api/skills/all', requiresAuth: true);
   }
 
   Future<Map<String, dynamic>> getSkills() async {
-    return await _request('GET', '/api/skills', requiresAuth: true);
+    return await _request('GET', '/api/skills/all', requiresAuth: true);
   }
 
   Future<Map<String, dynamic>> getStudentSkills() async {
@@ -1764,6 +1719,18 @@ class ApiService {
   }
 
   // ==================== UNIVERSITY METHODS ====================
+  static List<dynamic> _onlySingleUniversityOptions(dynamic data) {
+    if (data is! List) return const [];
+
+    return data
+        .where((item) {
+          if (item is! Map) return false;
+          final name = '${item['name'] ?? ''}'.trim().toLowerCase();
+          return _singleUniversityNames.contains(name);
+        })
+        .toList(growable: false);
+  }
+
   Future<Map<String, dynamic>> getUniversities({
     bool forceRefresh = false,
   }) async {
@@ -1787,7 +1754,9 @@ class ApiService {
 
       final data = response['data'];
       if (response['success'] == true && data is List) {
-        _universitiesCache = List<dynamic>.from(data);
+        final universities = _onlySingleUniversityOptions(data);
+        response['data'] = universities;
+        _universitiesCache = List<dynamic>.from(universities);
         _universitiesCacheTime = DateTime.now();
       }
 
@@ -2325,13 +2294,24 @@ class ApiService {
 
   Future<Map<String, dynamic>> updateUserRole(
     String userId,
-    String role,
-  ) async {
+    String role, {
+    Map<String, dynamic>? studentData,
+    Map<String, dynamic>? companyData,
+    Map<String, dynamic>? universityData,
+  }) async {
     try {
+      final data = <String, dynamic>{
+        'role': role,
+        ...?(studentData == null ? null : {'student_data': studentData}),
+        ...?(companyData == null ? null : {'company_data': companyData}),
+        ...?(universityData == null
+            ? null
+            : {'university_data': universityData}),
+      };
       return await _request(
         'PUT',
         '/api/admin/users/$userId/role',
-        data: {'role': role},
+        data: data,
         requiresAuth: true,
       );
     } catch (e) {
@@ -2518,6 +2498,296 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> getAdminTests() async {
+    try {
+      return await _request('GET', '/api/admin/tests', requiresAuth: true);
+    } catch (e) {
+      _log(' Error getting tests: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getOrganizationTests({String? jobId}) async {
+    try {
+      final query = jobId == null || jobId.trim().isEmpty
+          ? null
+          : {'job_id': jobId.trim()};
+      return await _request(
+        'GET',
+        '/api/organization/tests',
+        queryParams: query,
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting organization tests: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> createAdminTest(
+    Map<String, dynamic> testData,
+  ) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/admin/tests',
+        data: testData,
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error creating test: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> createOrganizationTest(
+    Map<String, dynamic> testData,
+  ) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/organization/tests',
+        data: testData,
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error creating organization test: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> inviteStudentsToTest({
+    required String testId,
+    required List<String> studentIds,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/admin/tests/$testId/invite',
+        data: {'student_ids': studentIds},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error inviting students to test: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> inviteStudentsToOrganizationTest({
+    required String testId,
+    required List<String> studentIds,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/organization/tests/$testId/invite',
+        data: {'student_ids': studentIds},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error inviting students to organization test: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getTestResults(String testId) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/admin/tests/$testId/results',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting test results: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getOrganizationTestResults(String testId) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/organization/tests/$testId/results',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting organization test results: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> getTestAttemptAnswers(String attemptId) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/admin/tests/attempts/$attemptId/answers',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting test attempt answers: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getOrganizationTestAttemptAnswers(
+    String attemptId,
+  ) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/organization/tests/attempts/$attemptId/answers',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting organization test attempt answers: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateTestAnswerScore({
+    required String answerId,
+    required double scoreAwarded,
+  }) async {
+    try {
+      return await _request(
+        'PUT',
+        '/api/admin/tests/answers/$answerId/score',
+        data: {'score_awarded': scoreAwarded},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error updating test answer score: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateOrganizationTestAnswerScore({
+    required String answerId,
+    required double scoreAwarded,
+  }) async {
+    try {
+      return await _request(
+        'PUT',
+        '/api/organization/tests/answers/$answerId/score',
+        data: {'score_awarded': scoreAwarded},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error updating organization test answer score: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> applyAutoSelection({
+    required String testId,
+    required double minimumScore,
+    required int topN,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/admin/tests/$testId/auto-selection',
+        data: {'minimum_score': minimumScore, 'top_n': topN},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error applying auto-selection: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> applyOrganizationAutoSelection({
+    required String testId,
+    required double minimumScore,
+    required int topN,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/organization/tests/$testId/auto-selection',
+        data: {'minimum_score': minimumScore, 'top_n': topN},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error applying organization auto-selection: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getTestAttemptByToken(String token) async {
+    try {
+      return await _request('GET', '/api/tests/attempt/$token');
+    } catch (e) {
+      _log(' Error getting test attempt: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getMyTestAttempts() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/tests/my-attempts',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error getting my test attempts: $e');
+      return {
+        'success': false,
+        'message': normalizeErrorMessage(e),
+        'data': [],
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> saveTestAttempt({
+    required String token,
+    required Map<String, String> answers,
+  }) async {
+    try {
+      return await _request(
+        'PUT',
+        '/api/tests/attempt/$token/save',
+        data: {'answers': answers},
+      );
+    } catch (e) {
+      _log(' Error saving test attempt: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> submitTestAttempt({
+    required String token,
+    required Map<String, String> answers,
+  }) async {
+    try {
+      return await _request(
+        'POST',
+        '/api/tests/attempt/$token/submit',
+        data: {'answers': answers},
+      );
+    } catch (e) {
+      _log(' Error submitting test attempt: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
   Future<Map<String, dynamic>> getUniversityStudentsOverview() async {
     try {
       return await _request(
@@ -2692,6 +2962,23 @@ class ApiService {
       );
     } catch (e) {
       _log(' Error deleting organization university chat message: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateOrganizationUniversityChatMessage({
+    required String universityUserId,
+    required String messageId,
+    required String message,
+  }) async {
+    try {
+      return await put(
+        '/api/company/university-chats/$universityUserId/messages/$messageId',
+        {'message': message},
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log(' Error updating organization university chat message: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
     }
   }

@@ -551,6 +551,82 @@ const sendCompanyChatMessage = async (req, res) => {
     }
 };
 
+const updateCompanyChatMessage = async (req, res) => {
+    try {
+        const { universityUserId, messageId } = req.params;
+        const trimmedMessage = `${req.body?.message || ''}`.trim();
+        if (!trimmedMessage) {
+            return res.status(400).json({
+                success: false,
+                message: 'Message cannot be empty.'
+            });
+        }
+
+        const companyScope = await getCompanyScope(req.user.user_id);
+        if (!companyScope.companyName) {
+            return res.status(404).json({
+                success: false,
+                message: 'Company profile not found for this account.'
+            });
+        }
+
+        const isAllowed = await canCompanyChatWithUniversity({
+            companyUserId: req.user.user_id,
+            universityUserId
+        });
+        if (!isAllowed) {
+            return res.status(403).json({
+                success: false,
+                message: 'This university is not available for chat.'
+            });
+        }
+
+        const updateResult = await query(
+            `UPDATE university_organization_messages
+             SET
+                message = $4,
+                edited_at = CURRENT_TIMESTAMP
+             WHERE chat_message_id = $1
+               AND university_user_id = $2
+               AND company_user_id = $3
+               AND sender_user_id = $3
+             RETURNING
+                chat_message_id AS id,
+                university_user_id,
+                company_user_id,
+                sender_user_id,
+                sender_role,
+                sender_name,
+                sender_phone,
+                message,
+                created_at,
+                edited_at,
+                read_at`,
+            [messageId, universityUserId, req.user.user_id, trimmedMessage]
+        );
+
+        if (!updateResult.rows.length) {
+            return res.status(404).json({
+                success: false,
+                message:
+                    'Message not found, or you can only edit your own messages.'
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: 'Message updated successfully.',
+            data: updateResult.rows[0]
+        });
+    } catch (error) {
+        console.error('Update company chat message error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to update message.'
+        });
+    }
+};
+
 const sendUniversityChatMessage = async (req, res) => {
     try {
         const { companyUserId } = req.params;
@@ -850,6 +926,7 @@ module.exports = {
     getUniversityChatMessages,
     sendCompanyChatMessage,
     sendUniversityChatMessage,
+    updateCompanyChatMessage,
     updateUniversityChatMessage,
     deleteCompanyChatMessage,
     deleteUniversityChatMessage

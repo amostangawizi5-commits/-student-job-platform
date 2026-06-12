@@ -213,7 +213,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				33CC11202044C79F0003C045 /* PBXTargetDependency */,
+				33CC112025044C79F0003C045 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			productName = Runner;
@@ -358,7 +358,7 @@
 			target = 33CC10EC2044A3C60003C045 /* Runner */;
 			targetProxy = 331C80D9294CF71000263BE5 /* PBXContainerItemProxy */;
 		};
-		33CC11202044C79F0003C045 /* PBXTargetDependency */ = {
+		33CC112025044C79F0003C045 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 33CC111A2044C6BA0003C045 /* Flutter Assemble */;
 			targetProxy = 33CC111F2044C79F0003C045 /* PBXContainerItemProxy */;

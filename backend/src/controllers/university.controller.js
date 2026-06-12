@@ -1,10 +1,5 @@
 const { pool, query } = require('../config/database');
 const JobModel = require('../models/job.model');
-const {
-    uploadAsset,
-    deleteAssetByUrl
-} = require('../services/file-storage.service');
-const { buildAcceptanceLetterPdf } = require('../services/acceptance-letter.service');
 const { sendApplicationStatusEmail } = require('../services/email.service');
 const { syncStudentOfferSelectionState } = require('./application.controller');
 
@@ -22,32 +17,6 @@ const getQueryRunner = (db = query) => {
     }
 
     return db.query.bind(db);
-};
-
-const parseCompanyLocationParts = (locationValue) => {
-    const location = cleanTextValue(locationValue);
-    if (!location) {
-        return { area: '', district: '', region: '' };
-    }
-
-    const parts = location
-        .split(',')
-        .map((part) => part.trim())
-        .filter(Boolean);
-
-    if (parts.length === 0) {
-        return { area: location, district: '', region: '' };
-    }
-
-    if (parts.length === 1) {
-        return { area: location, district: '', region: parts[0] };
-    }
-
-    return {
-        area: location,
-        district: parts[0],
-        region: parts[parts.length - 1]
-    };
 };
 
 const getUniversityScope = async (userId) => {
@@ -353,8 +322,6 @@ const reserveCompanyJobSlotForUniversityAssignment = async (req, res) => {
 
 const assignStudentToCompanyJob = async (req, res) => {
     const client = await pool.connect();
-    let uploadedResponseLetter = null;
-    let previousResponseLetterUrl = '';
 
     try {
         const { companyId, jobId } = req.params;
@@ -532,8 +499,7 @@ const assignStudentToCompanyJob = async (req, res) => {
 
         const existingApplicationResult = await client.query(
             `SELECT
-                application_id,
-                response_letter_url
+                application_id
              FROM applications
              WHERE student_id = $1
                AND job_id = $2
@@ -545,9 +511,6 @@ const assignStudentToCompanyJob = async (req, res) => {
 
         let applicationId = cleanTextValue(
             existingApplicationResult.rows[0]?.application_id
-        );
-        previousResponseLetterUrl = cleanTextValue(
-            existingApplicationResult.rows[0]?.response_letter_url
         );
 
         if (!applicationId) {
@@ -561,12 +524,12 @@ const assignStudentToCompanyJob = async (req, res) => {
                     supportive_document_name,
                     supportive_document_verified
                  )
-                 VALUES ($1, $2, $3, 'pending', NULL, NULL, NULL)
+                 VALUES ($1, $2, $3, 'assigned', NULL, NULL, NULL)
                  RETURNING application_id`,
                 [
                     student.user_id,
                     jobId,
-                    'Accepted through university placement assignment.'
+                    'Assigned through university placement coordination.'
                 ]
             );
             applicationId = cleanTextValue(
@@ -574,143 +537,42 @@ const assignStudentToCompanyJob = async (req, res) => {
             );
         }
 
-        const applicationViewResult = await client.query(
-            `SELECT
-                a.application_id,
-                u.full_name AS student_name,
-                u.email AS student_email,
-                COALESCE(NULLIF(c.company_name, ''), 'Organization') AS company_name,
-                COALESCE(NULLIF(c.location, ''), NULLIF(j.location, '')) AS company_location,
-                c.website_url AS company_website_url,
-                c.logo_url,
-                c.stamp_url,
-                c.signature_url,
-                cu.email AS company_email,
-                cu.phone AS company_phone,
-                cu.full_name AS company_contact_name,
-                c.region,
-                c.district,
-                c.department,
-                j.title AS job_title
-             FROM applications a
-             JOIN training j ON a.job_id = j.job_id
-             JOIN companies c ON j.company_id = c.company_id
-             JOIN users u ON a.student_id = u.user_id
-             JOIN users cu ON c.company_id = cu.user_id
-             WHERE a.application_id = $1
-             LIMIT 1`,
-            [applicationId]
-        );
-
-        const applicationView = applicationViewResult.rows[0];
-        const locationParts = parseCompanyLocationParts(
-            placementLocation || applicationView?.company_location
-        );
-        const officerName =
-            cleanTextValue(applicationView?.company_contact_name) ||
-            cleanTextValue(job.company_contact_name) ||
-            cleanTextValue(job.company_name) ||
-            'Authorizing Officer';
-        const officerDesignation =
-            cleanTextValue(applicationView?.department) ||
-            cleanTextValue(job.department) ||
-            'Placement Supervisor';
-        const officerPhone =
-            cleanTextValue(applicationView?.company_phone) ||
-            cleanTextValue(job.company_user_phone) ||
-            companyPhone ||
-            cleanTextValue(coordinatorProfile?.coordinator_phone);
-        const officerEmail =
-            cleanTextValue(applicationView?.company_email) ||
-            cleanTextValue(job.company_email) ||
-            cleanTextValue(coordinatorProfile?.coordinator_email);
-        const officerRegion =
-            cleanTextValue(applicationView?.region) ||
-            cleanTextValue(job.region) ||
-            locationParts.region ||
-            cleanTextValue(coordinatorProfile?.region);
-        const officerDistrict =
-            cleanTextValue(applicationView?.district) ||
-            cleanTextValue(job.district) ||
-            locationParts.district ||
-            cleanTextValue(coordinatorProfile?.district);
-        const officerArea =
-            placementLocation ||
-            cleanTextValue(applicationView?.company_location) ||
-            cleanTextValue(job.company_location) ||
-            cleanTextValue(coordinatorProfile?.address);
-
-        const acceptanceLetterBuffer = await buildAcceptanceLetterPdf({
-            organizationName: cleanTextValue(applicationView?.company_name),
-            studentName: cleanTextValue(student.full_name),
-            registrationNumber: cleanTextValue(student.registration_number),
-            collegeName:
-                cleanTextValue(coordinatorProfile?.college_name) || collegeName,
-            universityName:
-                cleanTextValue(student.university_name) || collegeName,
-            sectionDepartment: placementDepartment,
-            officerName,
-            officerDesignation,
-            officerPhone,
-            officerEmail,
-            officerRegion,
-            officerDistrict,
-            officerArea,
-            startDate,
-            endDate,
-            letterDate: new Date().toISOString(),
-            companyLogoUrl: cleanTextValue(applicationView?.logo_url),
-            footerCompanyName: cleanTextValue(applicationView?.company_name),
-            footerLocation:
-                placementLocation ||
-                cleanTextValue(applicationView?.company_location),
-            footerPhone: companyPhone || officerPhone,
-            footerEmail: officerEmail,
-            footerWebsite: cleanTextValue(applicationView?.company_website_url),
-            stampImageUrl: cleanTextValue(applicationView?.stamp_url),
-            signatureImageUrl: cleanTextValue(applicationView?.signature_url)
-        });
-
-        uploadedResponseLetter = await uploadAsset({
-            buffer: acceptanceLetterBuffer,
-            mimeType: 'application/pdf',
-            originalName: `${cleanTextValue(student.full_name) || 'student'}-acceptance-letter.pdf`,
-            localSubdir: 'response-letters',
-            fileNamePrefix: 'response-letter',
-            cloudinaryFolder: 'student-job-platform/response-letters',
-            cloudinaryResourceType: 'raw'
-        });
-
         const feedbackMessage =
             coordinatorNotes ||
-            `Accepted through university placement coordination by ${cleanTextValue(coordinatorProfile?.coordinator_name) || cleanTextValue(req.user.full_name) || collegeName}.`;
+            `Assigned through university placement coordination by ${cleanTextValue(coordinatorProfile?.coordinator_name) || cleanTextValue(req.user.full_name) || collegeName}.`;
 
         const updatedApplicationResult = await client.query(
             `UPDATE applications
              SET
-                status = 'accepted',
+                status = CASE
+                    WHEN status = 'accepted' THEN status
+                    ELSE 'assigned'
+                END,
                 company_feedback = $2,
-                response_letter_url = $3,
-                response_letter_name = $4,
-                response_letter_sent_at = CURRENT_TIMESTAMP,
-                reporting_start_date = $5::date,
-                reporting_end_date = $6::date,
-                accepted_at = CURRENT_TIMESTAMP,
-                student_confirmation_status = 'confirmed',
-                student_confirmed_at = COALESCE(
-                    student_confirmed_at,
-                    CURRENT_TIMESTAMP
-                ),
-                student_confirmation_expires_at = NULL,
-                student_confirmation_released_at = NULL,
+                reporting_start_date = $3::date,
+                reporting_end_date = $4::date,
+                student_confirmation_status = CASE
+                    WHEN status = 'accepted' THEN student_confirmation_status
+                    ELSE NULL::varchar
+                END,
+                student_confirmed_at = CASE
+                    WHEN status = 'accepted' THEN student_confirmed_at
+                    ELSE NULL::timestamp
+                END,
+                student_confirmation_expires_at = CASE
+                    WHEN status = 'accepted' THEN student_confirmation_expires_at
+                    ELSE NULL::timestamp
+                END,
+                student_confirmation_released_at = CASE
+                    WHEN status = 'accepted' THEN student_confirmation_released_at
+                    ELSE NULL::timestamp
+                END,
                 updated_date = CURRENT_TIMESTAMP
              WHERE application_id = $1
              RETURNING application_id, response_letter_url, status`,
             [
                 applicationId,
                 feedbackMessage,
-                uploadedResponseLetter.secureUrl,
-                `${cleanTextValue(student.full_name) || 'student'}-acceptance-letter.pdf`,
                 startDate,
                 endDate
             ]
@@ -718,13 +580,20 @@ const assignStudentToCompanyJob = async (req, res) => {
 
         await syncStudentOfferSelectionState(student.user_id, client);
 
-        const studentNotificationTitle = 'You have been accepted!';
-        const studentNotificationMessage =
-            `Congratulations! You have been accepted for the position of ${cleanTextValue(job.title)} at ${cleanTextValue(job.company_name)}. ` +
-            'Your acceptance response letter is ready in My Applications for download.';
-        const companyNotificationTitle = 'Student accepted for placement';
-        const companyNotificationMessage =
-            `${cleanTextValue(student.full_name) || cleanTextValue(student.email)} has been accepted for ${cleanTextValue(job.title)} through university placement coordination.`;
+        const updatedApplication = updatedApplicationResult.rows[0] || {};
+        const isAlreadyAccepted = updatedApplication.status === 'accepted';
+        const studentNotificationTitle = isAlreadyAccepted
+            ? 'You have been accepted!'
+            : 'Placement assigned';
+        const studentNotificationMessage = isAlreadyAccepted
+            ? `Congratulations! You have been accepted for the position of ${cleanTextValue(job.title)} at ${cleanTextValue(job.company_name)}. Your acceptance response letter is ready in My Applications for download.`
+            : `${cleanTextValue(coordinatorProfile?.coordinator_name) || cleanTextValue(req.user.full_name) || collegeName} assigned you to ${cleanTextValue(job.company_name)} for ${cleanTextValue(job.title)}. The company must accept the assignment before your response letter is available.`;
+        const companyNotificationTitle = isAlreadyAccepted
+            ? 'Student already accepted for placement'
+            : 'University assigned a student to your organization';
+        const companyNotificationMessage = isAlreadyAccepted
+            ? `${cleanTextValue(student.full_name) || cleanTextValue(student.email)} is already accepted for ${cleanTextValue(job.title)}.`
+            : `${cleanTextValue(coordinatorProfile?.coordinator_name) || collegeName} assigned ${cleanTextValue(student.full_name) || cleanTextValue(student.email)} to your organization for ${cleanTextValue(job.title)}. Review the assigned application and accept it to generate the response letter.`;
 
         await client.query(
             `INSERT INTO notifications (user_id, title, message, type, is_read, created_at)
@@ -733,7 +602,7 @@ const assignStudentToCompanyJob = async (req, res) => {
                 student.user_id,
                 studentNotificationTitle,
                 studentNotificationMessage,
-                'accepted'
+                isAlreadyAccepted ? 'accepted' : 'assigned'
             ]
         );
 
@@ -750,16 +619,6 @@ const assignStudentToCompanyJob = async (req, res) => {
 
         await client.query('COMMIT');
 
-        if (
-            previousResponseLetterUrl &&
-            previousResponseLetterUrl !== uploadedResponseLetter.secureUrl
-        ) {
-            await deleteAssetByUrl({
-                fileUrl: previousResponseLetterUrl,
-                resourceType: 'raw'
-            }).catch(() => false);
-        }
-
         try {
             await sendApplicationStatusEmail({
                 to: cleanTextValue(student.email),
@@ -768,15 +627,15 @@ const assignStudentToCompanyJob = async (req, res) => {
                 message: studentNotificationMessage
             });
         } catch (emailError) {
-            console.error('University assignment acceptance email error:', emailError);
+            console.error('University assignment email error:', emailError);
         }
 
         return res.json({
             success: true,
             message:
-                'Placement assigned successfully. Acceptance letter generated and notifications sent.',
+                'Placement assigned successfully. Company acceptance is required before the response letter is available.',
             data: {
-                ...(updatedApplicationResult.rows[0] || {}),
+                ...updatedApplication,
                 reserved_slot: shouldReserveSlot,
                 available_slots:
                     Number.parseInt(
@@ -795,17 +654,14 @@ const assignStudentToCompanyJob = async (req, res) => {
             );
         }
 
-        if (uploadedResponseLetter?.secureUrl) {
-            await deleteAssetByUrl({
-                fileUrl: uploadedResponseLetter.secureUrl,
-                resourceType: 'raw'
-            }).catch(() => false);
-        }
-
         console.error('Assign student to company job error:', error);
-        return res.status(500).json({
+        const isApplicationStatusConstraintError =
+            error?.constraint === 'applications_status_check';
+        return res.status(isApplicationStatusConstraintError ? 400 : 500).json({
             success: false,
-            message: error.message || 'Failed to save assignment.'
+            message: isApplicationStatusConstraintError
+                ? 'Assignment could not be saved because the application status schema is out of date. Restart the API server to apply the latest database schema update.'
+                : error.message || 'Failed to save assignment.'
         });
     } finally {
         client.release();

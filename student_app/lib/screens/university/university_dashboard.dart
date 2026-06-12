@@ -192,6 +192,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         ),
         'program': _stringValue(trackedStudent?['program'], fallback: ''),
         'student_id': trackedStudent?['student_id'],
+        'application_id': _stringValue(record['application_id'], fallback: ''),
         'company_name': _stringValue(
           record['company_name'],
           fallback: _stringValue(record['selected_company_name']),
@@ -222,6 +223,25 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
 
     for (final record in _manualPlacementRecords) {
+      final placementStatus = _normalizedText(record['status']);
+      final companyResponseStatus = _normalizedText(
+        record['company_response_status'] ?? placementStatus,
+      );
+      final isPendingCompanyResponse =
+          companyResponseStatus.isEmpty ||
+          companyResponseStatus == 'assigned' ||
+          companyResponseStatus == 'pending';
+      final isAwaitingCompanyAcceptance =
+          (placementStatus == 'assigned' || placementStatus == 'pending') &&
+          isPendingCompanyResponse;
+      final isCompanyAccepted =
+          placementStatus == 'confirmed' ||
+          placementStatus == 'accepted' ||
+          companyResponseStatus == 'accepted';
+      if (!isAwaitingCompanyAcceptance && !isCompanyAccepted) {
+        continue;
+      }
+
       final trackedStudent = _findTrackedStudent(
         email: record['student_email'],
         studentName: record['student_name'],
@@ -255,13 +275,20 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
           fallback: '',
         ),
         'student_id': trackedStudent?['student_id'] ?? record['student_id'],
+        'application_id': _stringValue(record['application_id'], fallback: ''),
         'company_name': _stringValue(record['company_name']),
         'title': _stringValue(
           record['training_title'],
           fallback: _stringValue(record['job_title']),
         ),
-        'coordinator_status': 'assigned',
-        'confirmed_at': record['assigned_at'] ?? record['updated_at'],
+        'coordinator_status': 'confirmed',
+        'placement_status': isAwaitingCompanyAcceptance
+            ? 'pending'
+            : 'accepted',
+        'confirmed_at':
+            record['company_accepted_at'] ??
+            record['updated_at'] ??
+            record['assigned_at'],
         'assigned_at': record['assigned_at'],
         'created_at': record['created_at'],
         'updated_at': record['updated_at'],
@@ -349,24 +376,41 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }..remove('');
 
     Map<String, dynamic>? latestReportFor({
+      dynamic applicationId,
       dynamic email,
       dynamic studentName,
       dynamic companyName,
     }) {
       Map<String, dynamic>? latest;
       DateTime? latestDate;
+      final normalizedApplicationId = _normalizedText(applicationId);
+      final studentKey = _studentIdentityKey(
+        email: email,
+        studentName: studentName,
+      );
+      final normalizedCompanyName = _normalizedText(companyName);
       for (final report in _companyReports) {
+        final reportApplicationId = _normalizedText(report['application_id']);
+        final reportStudentKey = _studentIdentityKey(
+          email: report['student_email'],
+          studentName: report['student_name'],
+        );
+        final matchesApplication =
+            normalizedApplicationId.isNotEmpty &&
+            reportApplicationId == normalizedApplicationId;
         final matchesStudent =
-            _studentIdentityKey(
-              email: report['student_email'],
-              studentName: report['student_name'],
-            ) ==
-            _studentIdentityKey(email: email, studentName: studentName);
-        final matchesCompany =
-            _normalizedText(companyName).isNotEmpty &&
-            _normalizedText(report['company_name']) ==
-                _normalizedText(companyName);
-        if (!matchesStudent && !matchesCompany) continue;
+            studentKey.isNotEmpty && reportStudentKey == studentKey;
+        final matchesCompanyWithoutStudent =
+            !matchesApplication &&
+            !matchesStudent &&
+            reportStudentKey.isEmpty &&
+            normalizedCompanyName.isNotEmpty &&
+            _normalizedText(report['company_name']) == normalizedCompanyName;
+        if (!matchesApplication &&
+            !matchesStudent &&
+            !matchesCompanyWithoutStudent) {
+          continue;
+        }
         final reportDate = _parseDate(
           report['updated_at'] ?? report['created_at'],
         );
@@ -381,18 +425,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
 
     _CoordinatorPlacementStatus resolvePlacedStatus(
+      Map<String, dynamic>? placed,
       Map<String, dynamic>? latestReport,
-      DateTime? lastFeedbackDate,
     ) {
-      final issueType = _normalizedText(latestReport?['issue_type']);
-      if (issueType == 'absent' ||
-          issueType == 'left_without_permission' ||
-          issueType == 'other') {
-        return _CoordinatorPlacementStatus.needsAttention;
+      if (_normalizedText(placed?['placement_status']) == 'pending') {
+        return _CoordinatorPlacementStatus.pending;
       }
-      if (lastFeedbackDate == null) return _CoordinatorPlacementStatus.average;
-      if (DateTime.now().difference(lastFeedbackDate).inDays > 14) {
-        return _CoordinatorPlacementStatus.average;
+      if (latestReport != null) {
+        return _CoordinatorPlacementStatus.needsAttention;
       }
       return _CoordinatorPlacementStatus.good;
     }
@@ -407,6 +447,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
 
       final placed = placedByKey[key];
       final latestReport = latestReportFor(
+        applicationId: placed?['application_id'],
         email: student['email'],
         studentName: student['student_name'],
         companyName: placed?['company_name'],
@@ -438,7 +479,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
               : _stringValue(placed['company_name'], fallback: ''),
           status: placed == null
               ? _CoordinatorPlacementStatus.notPlaced
-              : resolvePlacedStatus(latestReport, lastFeedbackDate),
+              : resolvePlacedStatus(placed, latestReport),
           startDate: placed == null
               ? null
               : _formatDashboardDate(
@@ -3067,12 +3108,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     final placementDepartmentController = TextEditingController();
     final phoneController = TextEditingController();
     final notesController = TextEditingController();
+    final dialogScrollController = ScrollController();
     DateTime? startDate;
     DateTime? endDate;
     bool isRegisteredCompany = true;
     String? selectedCompanyId;
     String? selectedJobId;
     bool isSaving = false;
+    String? assignmentError;
 
     void syncCompanyContactDetails({
       Map<String, dynamic>? company,
@@ -3115,6 +3158,30 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         builder: (dialogContext) {
           return StatefulBuilder(
             builder: (context, setModalState) {
+              void scrollAssignmentFormToTop() {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!dialogScrollController.hasClients) return;
+                  dialogScrollController.animateTo(
+                    0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                  );
+                });
+              }
+
+              void showAssignmentFormError(String message) {
+                setModalState(() {
+                  assignmentError = message;
+                  isSaving = false;
+                });
+                scrollAssignmentFormToTop();
+              }
+
+              void clearAssignmentFormError() {
+                if (assignmentError == null) return;
+                setModalState(() => assignmentError = null);
+              }
+
               Future<void> showInvalidDurationAlert(int durationDays) async {
                 await showDialog<void>(
                   context: dialogContext,
@@ -3139,12 +3206,13 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                   initialDate: isStart
                       ? (startDate ?? DateTime.now())
                       : (endDate ?? startDate ?? DateTime.now()),
-                  firstDate: DateTime(2020),
+                  firstDate: DateTime(2025),
                   lastDate: DateTime(2100),
                 );
                 if (picked == null) return;
                 int? invalidDurationDays;
                 setModalState(() {
+                  assignmentError = null;
                   if (isStart) {
                     startDate = picked;
                     if (endDate != null && endDate!.isBefore(picked)) {
@@ -3211,6 +3279,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
               }
 
               final selectedJob = findJobById(availableJobs, selectedJobId);
+              final currentAssignmentError = assignmentError?.trim();
 
               return AlertDialog(
                 shape: RoundedRectangleBorder(
@@ -3220,9 +3289,47 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                 content: SizedBox(
                   width: 460,
                   child: SingleChildScrollView(
+                    controller: dialogScrollController,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (currentAssignmentError != null &&
+                            currentAssignmentError.isNotEmpty) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _coordinatorDanger.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: _coordinatorDanger.withValues(
+                                  alpha: 0.25,
+                                ),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.error_outline_rounded,
+                                  color: _coordinatorDanger,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    currentAssignmentError,
+                                    style: const TextStyle(
+                                      color: _coordinatorDanger,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         DropdownButtonFormField<bool>(
                           key: ValueKey(
                             'company-registration-$isRegisteredCompany',
@@ -3247,6 +3354,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                               : (value) {
                                   if (value == null) return;
                                   setModalState(() {
+                                    assignmentError = null;
                                     isRegisteredCompany = value;
                                     selectedCompanyId = null;
                                     selectedJobId = null;
@@ -3294,6 +3402,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                 ? null
                                 : (value) {
                                     setModalState(() {
+                                      assignmentError = null;
                                       selectedCompanyId = value;
                                       selectedJobId = null;
                                       roleController.clear();
@@ -3368,6 +3477,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                       value,
                                     );
                                     setModalState(() {
+                                      assignmentError = null;
                                       selectedJobId = value;
                                       syncCompanyContactDetails(
                                         company: selectedRegisteredCompany,
@@ -3380,6 +3490,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         ] else ...[
                           TextField(
                             controller: companyController,
+                            onChanged: (_) => clearAssignmentFormError(),
                             decoration: const InputDecoration(
                               labelText: 'Company / Organization',
                             ),
@@ -3388,6 +3499,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: locationController,
+                          onChanged: (_) => clearAssignmentFormError(),
                           decoration: const InputDecoration(
                             labelText: 'Placement Location',
                           ),
@@ -3396,6 +3508,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         TextField(
                           controller: roleController,
                           readOnly: isRegisteredCompany,
+                          onChanged: (_) => clearAssignmentFormError(),
                           decoration: InputDecoration(
                             labelText: isRegisteredCompany
                                 ? 'Selected Job Title'
@@ -3408,6 +3521,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: placementDepartmentController,
+                          onChanged: (_) => clearAssignmentFormError(),
                           decoration: const InputDecoration(
                             labelText: 'Placement Department',
                           ),
@@ -3415,6 +3529,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: phoneController,
+                          onChanged: (_) => clearAssignmentFormError(),
                           keyboardType: TextInputType.phone,
                           decoration: const InputDecoration(
                             labelText: 'Contact Number',
@@ -3477,6 +3592,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: notesController,
+                          onChanged: (_) => clearAssignmentFormError(),
                           maxLines: 3,
                           decoration: const InputDecoration(
                             labelText: 'Coordinator Notes',
@@ -3511,16 +3627,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
 
                             if (isRegisteredCompany) {
                               if (selectedCompany == null) {
-                                _showCoordinatorMessage(
+                                showAssignmentFormError(
                                   'Select a registered company first.',
-                                  backgroundColor: _coordinatorDanger,
                                 );
                                 return;
                               }
                               if (selectedCompanyJob == null) {
-                                _showCoordinatorMessage(
+                                showAssignmentFormError(
                                   'Select a job for the registered company.',
-                                  backgroundColor: _coordinatorDanger,
                                 );
                                 return;
                               }
@@ -3564,16 +3678,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                 location.isEmpty ||
                                 placementDepartment.isEmpty ||
                                 companyPhone.isEmpty) {
-                              _showCoordinatorMessage(
+                              showAssignmentFormError(
                                 'Company, role, placement location, placement department, and telephone number are required.',
-                                backgroundColor: _coordinatorDanger,
                               );
                               return;
                             }
                             if (startDate == null || endDate == null) {
-                              _showCoordinatorMessage(
+                              showAssignmentFormError(
                                 'Start date and end date are required for the 8-week placement.',
-                                backgroundColor: _coordinatorDanger,
                               );
                               return;
                             }
@@ -3581,20 +3693,23 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                 _placementDurationInDays(startDate, endDate);
                             if (placementDurationDays == null ||
                                 placementDurationDays < 56) {
-                              _showCoordinatorMessage(
+                              showAssignmentFormError(
                                 'Start date and end date must be at least 56 days apart.',
-                                backgroundColor: _coordinatorDanger,
                               );
                               return;
                             }
 
-                            setModalState(() => isSaving = true);
+                            setModalState(() {
+                              assignmentError = null;
+                              isSaving = true;
+                            });
 
                             try {
+                              Map<String, dynamic>? assignmentResponse;
                               if (isRegisteredCompany &&
                                   companyId.isNotEmpty &&
                                   jobId.isNotEmpty) {
-                                final assignmentResponse = await _apiService
+                                assignmentResponse = await _apiService
                                     .assignUniversityStudentToCompanyJob(
                                       companyId: companyId,
                                       jobId: jobId,
@@ -3610,16 +3725,18 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                                     );
                                 if (assignmentResponse['success'] != true) {
                                   if (!mounted) return;
-                                  setModalState(() => isSaving = false);
-                                  _showCoordinatorMessage(
+                                  showAssignmentFormError(
                                     '${assignmentResponse['message'] ?? 'Unable to save assignment.'}',
-                                    backgroundColor: _coordinatorDanger,
                                   );
                                   return;
                                 }
                               }
 
                               await _workspaceService.assignManualPlacement(
+                                applicationId:
+                                    assignmentResponse?['data']?['application_id']
+                                        ?.toString(),
+                                jobId: jobId,
                                 studentName: record.studentName,
                                 studentEmail: record.email,
                                 studentPhone: studentPhone,
@@ -3641,13 +3758,11 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                               Navigator.of(dialogContext).pop(true);
                             } catch (e) {
                               if (!mounted) return;
-                              setModalState(() => isSaving = false);
-                              _showCoordinatorMessage(
+                              showAssignmentFormError(
                                 ApiService.normalizeErrorMessage(
                                   e,
                                   fallback: 'Unable to save assignment.',
                                 ),
-                                backgroundColor: _coordinatorDanger,
                               );
                             }
                           },
@@ -3673,7 +3788,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         await _loadUniversityPortal();
         if (!mounted) return;
         _showCoordinatorMessage(
-          'Placement assigned successfully, acceptance letter generated, and notifications sent.',
+          'Placement assigned successfully. Company acceptance is required before the response letter is available.',
           backgroundColor: _coordinatorSuccess,
         );
       }
@@ -3684,6 +3799,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       placementDepartmentController.dispose();
       phoneController.dispose();
       notesController.dispose();
+      dialogScrollController.dispose();
     }
   }
 
@@ -5657,7 +5773,13 @@ class _UniversityLogoImageState extends State<_UniversityLogoImage> {
   }
 }
 
-enum _CoordinatorPlacementStatus { good, average, needsAttention, notPlaced }
+enum _CoordinatorPlacementStatus {
+  pending,
+  good,
+  average,
+  needsAttention,
+  notPlaced,
+}
 
 enum _CoordinatorFeedbackStatus { overdue, received }
 
@@ -5823,6 +5945,8 @@ class _PlacementStatusChip extends StatelessWidget {
 
   Color get _color {
     switch (status) {
+      case _CoordinatorPlacementStatus.pending:
+        return _coordinatorWarning;
       case _CoordinatorPlacementStatus.good:
         return _coordinatorSuccess;
       case _CoordinatorPlacementStatus.average:
@@ -5835,6 +5959,8 @@ class _PlacementStatusChip extends StatelessWidget {
 
   String get _label {
     switch (status) {
+      case _CoordinatorPlacementStatus.pending:
+        return 'Pending';
       case _CoordinatorPlacementStatus.good:
         return 'Good';
       case _CoordinatorPlacementStatus.average:
@@ -5848,6 +5974,8 @@ class _PlacementStatusChip extends StatelessWidget {
 
   IconData get _icon {
     switch (status) {
+      case _CoordinatorPlacementStatus.pending:
+        return Icons.circle;
       case _CoordinatorPlacementStatus.good:
         return Icons.circle;
       case _CoordinatorPlacementStatus.average:
