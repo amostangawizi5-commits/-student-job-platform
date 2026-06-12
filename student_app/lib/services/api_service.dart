@@ -198,6 +198,25 @@ class ApiService {
     }
   }
 
+  Future<void> warmUpHostedBackend() async {
+    final uri = Uri.tryParse(baseUrl);
+    if (uri == null || _isLoopbackHost(uri.host)) {
+      return;
+    }
+
+    try {
+      await _dio.get(
+        '$baseUrl/health',
+        options: Options(
+          sendTimeout: const Duration(seconds: 8),
+          receiveTimeout: const Duration(seconds: 12),
+        ),
+      );
+    } catch (e) {
+      _log('Backend warm-up failed: $e');
+    }
+  }
+
   String? resolveAssetUrl(String? assetPath, {int? cacheBust}) {
     final candidates = resolveAssetUrlCandidates(
       assetPath,

@@ -73,6 +73,9 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const webPublicDir = path.join(__dirname, 'public');
+app.use(express.static(webPublicDir));
+
 // ============ TEST ROUTES ============
 app.get('/', (req, res) => {
     res.json({ 
@@ -137,6 +140,10 @@ console.log('   Registering /api/projects...');  // ADDED
 app.use('/api/projects', projectRoutes);  // ADDED
 
 console.log(' All routes registered successfully!');
+
+app.get(/^\/(?!api\/|health$|uploads\/).*/, (req, res) => {
+    res.sendFile(path.join(webPublicDir, 'index.html'));
+});
 
 // ============ ERROR HANDLING MIDDLEWARE ============
 app.use((err, req, res, next) => {
