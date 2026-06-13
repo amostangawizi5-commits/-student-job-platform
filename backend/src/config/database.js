@@ -236,9 +236,13 @@ const ensureApplicationJobForeignKeySchema = async () => {
     }
 
     if (applicationJobIdType !== trainingJobIdType) {
-        throw new Error(
+        console.warn(
             `applications.job_id type (${applicationJobIdType}) does not match training.job_id type (${trainingJobIdType}).`
         );
+        console.warn(
+            'Skipping applications.job_id foreign key sync until legacy schema is migrated.'
+        );
+        return;
     }
 
     const constraintResult = await pool.query(
@@ -900,10 +904,11 @@ const ensureAwardsSchema = async () => {
     );
 
     if (typeMismatch) {
-        throw new Error(
+        console.warn(
             'Awards table key column types do not match the current database schema. ' +
-            'Please drop and recreate the "awards" table before restarting the server.'
+            'Skipping awards schema sync until the legacy table is migrated.'
         );
+        return;
     }
 
     await pool.query(`
@@ -1218,26 +1223,59 @@ const ensureOnlineTestSchema = async () => {
     `);
 };
 
+const runStartupMigration = async (name, migrate, { required = false } = {}) => {
+    try {
+        await migrate();
+    } catch (error) {
+        const message = error?.message || error;
+        if (required) {
+            console.error(`Required startup migration failed: ${name}:`, message);
+            throw error;
+        }
+
+        console.warn(`Optional startup migration skipped: ${name}:`, message);
+    }
+};
+
 // Test database connection
 const connectDB = async () => {
     try {
         const client = await pool.connect();
         console.log(' PostgreSQL connected successfully');
         client.release();
-        await ensureCoreAuthSchema();
-        await ensureUserRoleSchema();
-        await ensureUserAuthVersionSchema();
-        await ensureUserProfileSchema();
-        await ensureUserLookupSchema();
-        await ensureApplicationWorkflowSchema();
-        await ensureCompanyProfileSchema();
-        await ensureStudentRegistrationSchema();
-        await ensureJobEligibilitySchema();
-        await ensureApplicationJobForeignKeySchema();
-        await ensureUniversityProfileSchema();
-        await ensureUniversityOrganizationChatSchema();
-        await ensureAwardsSchema();
-        await ensureOnlineTestSchema();
+        await runStartupMigration('core auth schema', ensureCoreAuthSchema, {
+            required: true
+        });
+        await runStartupMigration('user role schema', ensureUserRoleSchema, {
+            required: true
+        });
+        await runStartupMigration('user auth version schema', ensureUserAuthVersionSchema);
+        await runStartupMigration('user profile schema', ensureUserProfileSchema);
+        await runStartupMigration('user lookup schema', ensureUserLookupSchema);
+        await runStartupMigration(
+            'application workflow schema',
+            ensureApplicationWorkflowSchema
+        );
+        await runStartupMigration('company profile schema', ensureCompanyProfileSchema);
+        await runStartupMigration(
+            'student registration schema',
+            ensureStudentRegistrationSchema
+        );
+        await runStartupMigration('job eligibility schema', ensureJobEligibilitySchema);
+        await runStartupMigration(
+            'application job foreign key schema',
+            ensureApplicationJobForeignKeySchema
+        );
+        await runStartupMigration(
+            'university profile schema',
+            ensureUniversityProfileSchema
+        );
+        await runStartupMigration(
+            'university organization chat schema',
+            ensureUniversityOrganizationChatSchema
+        );
+        await runStartupMigration('awards schema', ensureAwardsSchema);
+        await runStartupMigration('online test schema', ensureOnlineTestSchema);
         return true;
     } catch (error) {
         console.error('❌ PostgreSQL connection error:', error.message);
