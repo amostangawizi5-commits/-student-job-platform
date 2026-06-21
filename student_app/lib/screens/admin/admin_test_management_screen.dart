@@ -2,12 +2,110 @@ import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/api_service.dart';
-import '../../utils/role_theme.dart';
+import '../../utils/assets.dart';
 
-const Color _brandBlue = AdminRoleTheme.primary;
+const Color _brandBlue = Color(0xFF12366D);
+const Color _brandNavyDeep = Color(0xFF0B2854);
+const Color _brandTeal = Color(0xFF22A7A8);
+const Color _brandOrange = Color(0xFFF58A14);
+const Color _brandMist = Color(0xFFF3FAFC);
+const Color _brandLine = Color(0xFFD7E8F0);
+const Color _brandInk = Color(0xFF111827);
 const Color _acceptedGreen = Color(0xFF16A34A);
 const Color _shortlistedBlue = Color(0xFF2563EB);
 const Color _rejectedRed = Color(0xFFDC2626);
+
+ThemeData _testManagementTheme(BuildContext context) {
+  final base = Theme.of(context);
+  final roundedInputBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(10),
+    borderSide: const BorderSide(color: _brandLine),
+  );
+
+  return base.copyWith(
+    colorScheme: base.colorScheme.copyWith(
+      primary: _brandBlue,
+      secondary: _brandOrange,
+      surface: Colors.white,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: const Color(0xFFF8FBFD),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      labelStyle: const TextStyle(
+        color: Color(0xFF5F7288),
+        fontWeight: FontWeight.w600,
+      ),
+      floatingLabelStyle: const TextStyle(
+        color: _brandBlue,
+        fontWeight: FontWeight.w800,
+      ),
+      border: roundedInputBorder,
+      enabledBorder: roundedInputBorder,
+      focusedBorder: roundedInputBorder.copyWith(
+        borderSide: const BorderSide(color: _brandTeal, width: 1.5),
+      ),
+      errorBorder: roundedInputBorder.copyWith(
+        borderSide: const BorderSide(color: _rejectedRed),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _brandBlue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shadowColor: _brandBlue.withValues(alpha: 0.16),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0,
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _brandBlue,
+        side: const BorderSide(color: _brandLine),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0,
+        ),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: _brandBlue,
+        textStyle: const TextStyle(
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0,
+        ),
+      ),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return _brandBlue;
+        return Colors.white;
+      }),
+      checkColor: const WidgetStatePropertyAll(Colors.white),
+      side: const BorderSide(color: _brandLine, width: 1.4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+    ),
+    dataTableTheme: DataTableThemeData(
+      headingRowColor: WidgetStatePropertyAll(
+        _brandBlue.withValues(alpha: 0.08),
+      ),
+      headingTextStyle: const TextStyle(
+        color: _brandBlue,
+        fontWeight: FontWeight.w900,
+      ),
+      dataTextStyle: const TextStyle(color: _brandInk, fontSize: 13),
+      dividerThickness: 0.6,
+    ),
+  );
+}
 
 class AdminTestManagementScreen extends StatefulWidget {
   const AdminTestManagementScreen({
@@ -16,12 +114,14 @@ class AdminTestManagementScreen extends StatefulWidget {
     this.jobId,
     this.jobTitle,
     this.applicants,
+    this.resultsOnly = false,
   });
 
   final bool organizationMode;
   final String? jobId;
   final String? jobTitle;
   final List<dynamic>? applicants;
+  final bool resultsOnly;
 
   @override
   State<AdminTestManagementScreen> createState() =>
@@ -126,12 +226,33 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
           _students.map(_studentId).where((id) => id.isNotEmpty),
         );
       }
-      _selectedTestId ??= _tests.isNotEmpty ? '${_tests.first['id']}' : null;
+      _selectedTestId = widget.resultsOnly
+          ? null
+          : _selectedTestId ??
+                (_tests.isNotEmpty ? '${_tests.first['id']}' : null);
       _isLoading = false;
     });
-    if (_selectedTestId != null) {
+    if (widget.resultsOnly) {
+      await _loadAllResults();
+    } else if (_selectedTestId != null) {
       await _loadResults(_selectedTestId!);
     }
+  }
+
+  Future<void> _loadAllResults() async {
+    final allResults = <dynamic>[];
+    for (final test in _tests) {
+      final testId = '${test['id'] ?? ''}'.trim();
+      if (testId.isEmpty) continue;
+      final response = widget.organizationMode
+          ? await _apiService.getOrganizationTestResults(testId)
+          : await _apiService.getTestResults(testId);
+      if (response['success'] == true && response['data'] is List) {
+        allResults.addAll(List<dynamic>.from(response['data']));
+      }
+    }
+    if (!mounted) return;
+    setState(() => _results = allResults);
   }
 
   Future<void> _loadResults(String testId) async {
@@ -279,7 +400,9 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
         studentName: '${result['student_name'] ?? 'Student'}',
       ),
     );
-    if (_selectedTestId != null) {
+    if (widget.resultsOnly) {
+      await _loadAllResults();
+    } else if (_selectedTestId != null) {
       await _loadResults(_selectedTestId!);
     }
   }
@@ -322,6 +445,20 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
       default:
         return 'Pending';
     }
+  }
+
+  bool _isCompletedAttempt(dynamic result) {
+    return '${result['attempt_status'] ?? ''}'.trim().toLowerCase() ==
+        'completed';
+  }
+
+  bool _isSelectedResult(dynamic result) {
+    return _selectionLabel('${result['selection_status'] ?? 'pending'}') ==
+        'Selected';
+  }
+
+  List<dynamic> _completedResults() {
+    return _results.where(_isCompletedAttempt).toList(growable: false);
   }
 
   Future<Map<String, String>?> _collectReportingDates() async {
@@ -376,16 +513,19 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
     final reportingDates = await _collectReportingDates();
     if (reportingDates == null) return;
 
-    final response = await _apiService.put('/api/applications/$applicationId', {
-      'status': 'accepted',
-      'reporting_start_date': reportingDates['reporting_start_date'],
-      'reporting_end_date': reportingDates['reporting_end_date'],
-    }, requiresAuth: true);
+    final response = await _apiService.updateApplicationStatusWithLetter(
+      applicationId: applicationId,
+      status: 'accepted',
+      reportingStartDate: reportingDates['reporting_start_date'],
+      reportingEndDate: reportingDates['reporting_end_date'],
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(content: Text(ApiService.responseMessage(response))),
     );
-    if (_selectedTestId != null) {
+    if (widget.resultsOnly) {
+      await _loadAllResults();
+    } else if (_selectedTestId != null) {
       await _loadResults(_selectedTestId!);
     }
   }
@@ -393,53 +533,98 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        backgroundColor: _brandMist,
+        body: Center(child: CircularProgressIndicator(color: _brandBlue)),
+      );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          widget.organizationMode
-              ? 'Test Selection - ${widget.jobTitle ?? 'Applications'}'
-              : 'Test Management System',
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _loadData,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 1000;
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
-                child: isWide
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(flex: 6, child: _buildCreateTestPanel()),
-                          const SizedBox(width: 20),
-                          Expanded(flex: 5, child: _buildResultsPanel()),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          _buildCreateTestPanel(),
-                          const SizedBox(height: 20),
-                          _buildResultsPanel(),
-                        ],
-                      ),
-              ),
+    final pageTitle = widget.organizationMode
+        ? widget.resultsOnly
+              ? 'Tested students'
+              : 'Test Selection - ${widget.jobTitle ?? 'Applications'}'
+        : 'Test Management System';
+
+    return Theme(
+      data: _testManagementTheme(context),
+      child: Scaffold(
+        backgroundColor: _brandMist,
+        appBar: AppBar(
+          title: Text(pageTitle),
+          backgroundColor: Colors.white,
+          foregroundColor: _brandInk,
+          elevation: 0,
+          surfaceTintColor: Colors.white,
+          shape: const Border(bottom: BorderSide(color: _brandLine, width: 1)),
+          actions: [
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh_rounded),
             ),
-          );
-        },
+          ],
+        ),
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 1000;
+            return DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFF3FAFC), Colors.white, Color(0xFFFFF7ED)],
+                  stops: [0, 0.58, 1],
+                ),
+              ),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  isWide ? 28 : 16,
+                  22,
+                  isWide ? 28 : 16,
+                  32,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1280),
+                    child: Column(
+                      children: [
+                        if (!widget.organizationMode) ...[
+                          _TestManagementHeader(
+                            title: pageTitle,
+                            testsCount: _tests.length,
+                            studentsCount: _students.length,
+                            resultsCount: _results.length,
+                            resultsOnly: widget.resultsOnly,
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                        if (widget.resultsOnly)
+                          _buildResultsPanel()
+                        else if (isWide)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 6, child: _buildCreateTestPanel()),
+                              const SizedBox(width: 20),
+                              Expanded(flex: 5, child: _buildResultsPanel()),
+                            ],
+                          )
+                        else
+                          Column(
+                            children: [
+                              _buildCreateTestPanel(),
+                              const SizedBox(height: 20),
+                              _buildResultsPanel(),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -447,6 +632,7 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
   Widget _buildCreateTestPanel() {
     return _SectionShell(
       title: 'Create New Test',
+      icon: Icons.assignment_add,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -540,6 +726,9 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
   }
 
   Widget _buildStudentSelector() {
+    final allSelected =
+        _students.isNotEmpty && _selectedStudentIds.length == _students.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -548,15 +737,36 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
             Expanded(
               child: Text(
                 'Select Students for Test',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: _brandInk,
+                ),
               ),
             ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: _brandOrange.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: _brandOrange.withValues(alpha: 0.24)),
+              ),
+              child: Text(
+                '${_selectedStudentIds.length}/${_students.length}',
+                style: const TextStyle(
+                  color: _brandBlue,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             TextButton(
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
               onPressed: () {
                 setState(() {
-                  if (_selectedStudentIds.length == _students.length) {
+                  if (allSelected) {
                     _selectedStudentIds.clear();
                   } else {
                     _selectedStudentIds
@@ -567,11 +777,7 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
                   }
                 });
               },
-              child: Text(
-                _selectedStudentIds.length == _students.length
-                    ? 'Clear all'
-                    : 'Select all',
-              ),
+              child: Text(allSelected ? 'Clear all' : 'Select all'),
             ),
           ],
         ),
@@ -579,197 +785,480 @@ class _AdminTestManagementScreenState extends State<AdminTestManagementScreen> {
         Container(
           constraints: const BoxConstraints(maxHeight: 260),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
-            borderRadius: BorderRadius.circular(8),
+            color: const Color(0xFFF8FBFD),
+            border: Border.all(color: _brandLine),
+            borderRadius: BorderRadius.circular(10),
           ),
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: _students.length,
-            separatorBuilder: (context, separatorIndex) =>
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-            itemBuilder: (context, index) {
-              final student = _students[index];
-              final studentId = _studentId(student);
-              final selected = _selectedStudentIds.contains(studentId);
-              return CheckboxListTile(
-                value: selected,
-                dense: true,
-                controlAffinity: ListTileControlAffinity.leading,
-                activeColor: _brandBlue,
-                title: Text(_studentName(student)),
-                subtitle: Text(
-                  '${student['email'] ?? ''}  •  ${_studentTraining(student)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          child: _students.isEmpty
+              ? const _EmptyState(
+                  icon: Icons.groups_2_outlined,
+                  title: 'No students available',
+                  message: 'Applicants will appear here when they are loaded.',
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _students.length,
+                  separatorBuilder: (context, separatorIndex) =>
+                      const Divider(height: 1, color: _brandLine),
+                  itemBuilder: (context, index) {
+                    final student = _students[index];
+                    final studentId = _studentId(student);
+                    final selected = _selectedStudentIds.contains(studentId);
+                    return CheckboxListTile(
+                      value: selected,
+                      dense: true,
+                      tileColor: selected
+                          ? _brandTeal.withValues(alpha: 0.08)
+                          : Colors.transparent,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: _brandBlue,
+                      checkboxShape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      title: Text(
+                        _studentName(student),
+                        style: const TextStyle(
+                          color: _brandInk,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${student['email'] ?? ''}  •  ${_studentTraining(student)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            _selectedStudentIds.add(studentId);
+                          } else {
+                            _selectedStudentIds.remove(studentId);
+                          }
+                        });
+                      },
+                    );
+                  },
                 ),
-                onChanged: (checked) {
-                  setState(() {
-                    if (checked == true) {
-                      _selectedStudentIds.add(studentId);
-                    } else {
-                      _selectedStudentIds.remove(studentId);
-                    }
-                  });
-                },
-              );
-            },
-          ),
         ),
       ],
     );
   }
 
   Widget _buildResultsPanel() {
+    final visibleResults = widget.resultsOnly ? _completedResults() : _results;
+    final completedResults = _completedResults();
+    final selectedCount = completedResults.where(_isSelectedResult).length;
+    final notSelectedCount = completedResults
+        .where(
+          (result) =>
+              _selectionLabel('${result['selection_status']}') ==
+              'Not selected',
+        )
+        .length;
+
     return _SectionShell(
-      title: 'Results & Auto-Selection',
+      title: widget.resultsOnly
+          ? 'Tested students'
+          : 'Applicants & Test Results',
+      icon: widget.resultsOnly
+          ? Icons.fact_check_outlined
+          : Icons.leaderboard_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          DropdownButtonFormField<String>(
-            initialValue: _selectedTestId,
-            decoration: const InputDecoration(labelText: 'Select test'),
-            items: _tests
-                .map(
-                  (test) => DropdownMenuItem<String>(
-                    value: '${test['id']}',
-                    child: Text('${test['title']}'),
+          if (!widget.resultsOnly) ...[
+            DropdownButtonFormField<String>(
+              initialValue: _selectedTestId,
+              decoration: const InputDecoration(labelText: 'Select test'),
+              items: _tests
+                  .map(
+                    (test) => DropdownMenuItem<String>(
+                      value: '${test['id']}',
+                      child: Text('${test['title']}'),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) async {
+                if (value == null) return;
+                setState(() => _selectedTestId = value);
+                await _loadResults(value);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (widget.resultsOnly) ...[
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _SelectionMetricCard(
+                  label: 'Selected',
+                  value: '$selectedCount',
+                  icon: Icons.check_circle_outline,
+                  color: _acceptedGreen,
+                ),
+                _SelectionMetricCard(
+                  label: 'Not selected',
+                  value: '$notSelectedCount',
+                  icon: Icons.cancel_outlined,
+                  color: _rejectedRed,
+                ),
+                _SelectionMetricCard(
+                  label: 'Tested',
+                  value: '${completedResults.length}',
+                  icon: Icons.fact_check_outlined,
+                  color: const Color(0xFF0F766E),
+                ),
+              ],
+            ),
+          ] else ...[
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              children: [
+                _SizedField(
+                  width: 220,
+                  child: TextField(
+                    controller: _minimumScoreController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Minimum pass score %',
+                    ),
                   ),
-                )
-                .toList(),
-            onChanged: (value) async {
-              if (value == null) return;
-              setState(() => _selectedTestId = value);
-              await _loadResults(value);
-            },
-          ),
+                ),
+                _SizedField(
+                  width: 160,
+                  child: TextField(
+                    controller: _topNController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Select top N',
+                    ),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _selectedTestId == null || _isApplyingSelection
+                      ? null
+                      : _applyAutoSelection,
+                  icon: const Icon(Icons.auto_awesome_rounded),
+                  label: Text(
+                    _isApplyingSelection
+                        ? 'Applying...'
+                        : 'Apply Auto-Selection',
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.end,
+          if (visibleResults.isEmpty)
+            _EmptyState(
+              icon: Icons.fact_check_outlined,
+              title: widget.resultsOnly
+                  ? 'No completed tests yet'
+                  : 'No test attempts yet',
+              message: widget.resultsOnly
+                  ? 'Completed attempts will appear here after students submit their tests.'
+                  : 'Results will appear here once invited students start submitting.',
+            )
+          else
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: _brandLine),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    headingRowColor: WidgetStatePropertyAll(
+                      _brandBlue.withValues(alpha: 0.08),
+                    ),
+                    columns: const [
+                      DataColumn(label: Text('Student')),
+                      DataColumn(label: Text('Score')),
+                      DataColumn(label: Text('Attempt')),
+                      DataColumn(label: Text('Selection status')),
+                      DataColumn(label: Text('Action')),
+                      DataColumn(label: Text('Answers')),
+                    ],
+                    rows: visibleResults.map((result) {
+                      final selection =
+                          '${result['selection_status'] ?? 'pending'}';
+                      final normalizedSelection = selection
+                          .trim()
+                          .toLowerCase();
+                      final score =
+                          double.tryParse('${result['score_percent']}') ?? 0;
+                      final selectionLabel = _selectionLabel(selection);
+                      final canSendAcceptance =
+                          widget.organizationMode &&
+                          selectionLabel == 'Selected' &&
+                          normalizedSelection != 'accepted' &&
+                          _applicationIdForResult(result).isNotEmpty;
+                      return DataRow(
+                        cells: [
+                          DataCell(
+                            SizedBox(
+                              width: 210,
+                              child: Text(
+                                '${result['student_name'] ?? 'Student'}\n${result['email'] ?? ''}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              '${score.toStringAsFixed(1)}%',
+                              style: const TextStyle(
+                                color: _brandBlue,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text('${result['attempt_status'] ?? 'pending'}'),
+                          ),
+                          DataCell(
+                            Chip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text(selectionLabel.toUpperCase()),
+                              labelStyle: TextStyle(
+                                color: _selectionColor(selection),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12,
+                              ),
+                              backgroundColor: _selectionColor(
+                                selection,
+                              ).withValues(alpha: 0.10),
+                              side: BorderSide(
+                                color: _selectionColor(
+                                  selection,
+                                ).withValues(alpha: 0.22),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            TextButton.icon(
+                              onPressed: canSendAcceptance
+                                  ? () => _acceptSelectedApplicant(result)
+                                  : null,
+                              icon: const Icon(Icons.mark_email_read_outlined),
+                              label: Text(
+                                normalizedSelection == 'accepted'
+                                    ? 'Accepted'
+                                    : 'Accept',
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            TextButton.icon(
+                              onPressed: () => _openAttemptAnswers(result),
+                              icon: const Icon(Icons.rate_review_rounded),
+                              label: const Text('Grade'),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TestManagementHeader extends StatelessWidget {
+  const _TestManagementHeader({
+    required this.title,
+    required this.testsCount,
+    required this.studentsCount,
+    required this.resultsCount,
+    required this.resultsOnly,
+  });
+
+  final String title;
+  final int testsCount;
+  final int studentsCount;
+  final int resultsCount;
+  final bool resultsOnly;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [_brandNavyDeep, _brandBlue],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: _brandBlue.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 720;
+          final titleBlock = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _SizedField(
-                width: 220,
-                child: TextField(
-                  controller: _minimumScoreController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Minimum shortlist score %',
+              Container(
+                height: 56,
+                width: 56,
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _brandOrange.withValues(alpha: 0.5),
                   ),
                 ),
+                child: Image.asset(AppAssets.splashLogo),
               ),
-              _SizedField(
-                width: 160,
-                child: TextField(
-                  controller: _topNController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Auto accept top N',
-                  ),
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _selectedTestId == null || _isApplyingSelection
-                    ? null
-                    : _applyAutoSelection,
-                icon: const Icon(Icons.auto_awesome_rounded),
-                label: Text(
-                  _isApplyingSelection ? 'Applying...' : 'Apply Auto-Selection',
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      resultsOnly
+                          ? 'Review completed attempts and placement decisions.'
+                          : 'Create tests, invite applicants, and select top performers.',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.78),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 16),
-          if (_results.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: Text('No test attempts yet.')),
-            )
-          else
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: WidgetStatePropertyAll(Colors.blue.shade50),
-                columns: const [
-                  DataColumn(label: Text('Student')),
-                  DataColumn(label: Text('Score')),
-                  DataColumn(label: Text('Attempt')),
-                  DataColumn(label: Text('Selection')),
-                  DataColumn(label: Text('Acceptance')),
-                  DataColumn(label: Text('Answers')),
+          );
+
+          return Flex(
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: compact
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.center,
+            children: [
+              if (compact) titleBlock else Expanded(child: titleBlock),
+              SizedBox(width: compact ? 0 : 20, height: compact ? 18 : 0),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _HeaderMetric(
+                    label: 'Tests',
+                    value: '$testsCount',
+                    icon: Icons.quiz_outlined,
+                  ),
+                  _HeaderMetric(
+                    label: 'Students',
+                    value: '$studentsCount',
+                    icon: Icons.groups_2_outlined,
+                  ),
+                  _HeaderMetric(
+                    label: 'Results',
+                    value: '$resultsCount',
+                    icon: Icons.workspace_premium_outlined,
+                  ),
                 ],
-                rows: _results.map((result) {
-                  final selection =
-                      '${result['selection_status'] ?? 'pending'}';
-                  final score =
-                      double.tryParse('${result['score_percent']}') ?? 0;
-                  final selectionLabel = _selectionLabel(selection);
-                  final canSendAcceptance =
-                      widget.organizationMode &&
-                      selectionLabel == 'Selected' &&
-                      selection != 'accepted' &&
-                      _applicationIdForResult(result).isNotEmpty;
-                  return DataRow(
-                    cells: [
-                      DataCell(
-                        SizedBox(
-                          width: 210,
-                          child: Text(
-                            '${result['student_name'] ?? 'Student'}\n${result['email'] ?? ''}',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      DataCell(Text('${score.toStringAsFixed(1)}%')),
-                      DataCell(
-                        Text('${result['attempt_status'] ?? 'pending'}'),
-                      ),
-                      DataCell(
-                        Chip(
-                          visualDensity: VisualDensity.compact,
-                          label: Text(selectionLabel.toUpperCase()),
-                          labelStyle: TextStyle(
-                            color: _selectionColor(selection),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                          ),
-                          backgroundColor: _selectionColor(
-                            selection,
-                          ).withValues(alpha: 0.10),
-                          side: BorderSide(
-                            color: _selectionColor(
-                              selection,
-                            ).withValues(alpha: 0.22),
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        TextButton.icon(
-                          onPressed: canSendAcceptance
-                              ? () => _acceptSelectedApplicant(result)
-                              : null,
-                          icon: const Icon(Icons.mark_email_read_outlined),
-                          label: Text(
-                            selection == 'accepted'
-                                ? 'Letter sent'
-                                : 'Send letter',
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        TextButton.icon(
-                          onPressed: () => _openAttemptAnswers(result),
-                          icon: const Icon(Icons.rate_review_rounded),
-                          label: const Text('Grade'),
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
               ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HeaderMetric extends StatelessWidget {
+  const _HeaderMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 118,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _brandOrange, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.76),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
             ),
+          ),
         ],
       ),
     );
@@ -1033,6 +1522,131 @@ class _QuestionDraft {
   }
 }
 
+class _SelectionMetricCard extends StatelessWidget {
+  const _SelectionMetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 28),
+      decoration: BoxDecoration(
+        color: _brandMist,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _brandLine),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 46,
+            width: 46,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _brandTeal.withValues(alpha: 0.28)),
+            ),
+            child: Icon(icon, color: _brandBlue, size: 24),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _brandInk,
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _QuestionEditor extends StatelessWidget {
   const _QuestionEditor({
     required this.index,
@@ -1178,39 +1792,62 @@ class _QuestionEditor extends StatelessWidget {
 }
 
 class _SectionShell extends StatelessWidget {
-  const _SectionShell({required this.title, required this.child});
+  const _SectionShell({
+    required this.title,
+    required this.child,
+    required this.icon,
+  });
 
   final String title;
   final Widget child;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _brandLine),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
+            color: _brandBlue.withValues(alpha: 0.07),
+            blurRadius: 26,
+            offset: const Offset(0, 14),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF111827),
-            ),
+          Row(
+            children: [
+              Container(
+                height: 38,
+                width: 38,
+                decoration: BoxDecoration(
+                  color: _brandBlue.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _brandTeal.withValues(alpha: 0.28)),
+                ),
+                child: Icon(icon, color: _brandBlue, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: _brandInk,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           child,
         ],
       ),

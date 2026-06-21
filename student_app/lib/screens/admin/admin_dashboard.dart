@@ -141,19 +141,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     if (!mounted || confirmed != true) return;
 
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     await authProvider.logout();
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showAppSnackBar(
+    messenger.showAppSnackBar(
       SnackBar(
         content: Text(language.tr('logout_success')),
         backgroundColor: Colors.green,
       ),
     );
-    await Future.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
+    navigator.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
@@ -412,7 +411,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final isDesktop = _isDesktopWidth(MediaQuery.sizeOf(context).width);
-    final adminEmail = '${auth.user?['email'] ?? 'admin@example.com'}';
+    final adminEmail = '${auth.user?['email'] ?? ''}';
     final navigationItems = _navigationItems();
     final today = _formatToday(context);
 

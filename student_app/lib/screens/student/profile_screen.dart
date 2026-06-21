@@ -994,7 +994,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _user?['email'] ?? 'student@example.com',
+                          '${_user?['email'] ?? ''}',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.grey.shade600,

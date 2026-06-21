@@ -70,6 +70,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
   List<Map<String, dynamic>> _leaderboard = const [];
   List<Map<String, dynamic>> _approvalRecords = const [];
   List<Map<String, dynamic>> _manualPlacementRecords = const [];
+  List<Map<String, dynamic>> _acceptedPlacementRecords = const [];
   List<Map<String, dynamic>> _companyContacts = const [];
   List<Map<String, dynamic>> _companyReports = const [];
   List<Map<String, dynamic>> _chatOrganizations = const [];
@@ -179,46 +180,195 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         trackedStudent?['student_name'] ?? record['student_name'],
         fallback: '',
       );
+      final acceptedPlacement = _findAcceptedPlacement(
+        applicationId: record['application_id'],
+        email: trackedStudent?['email'] ?? record['student_email'],
+        studentName: studentName,
+        companyName: record['company_name'] ?? record['selected_company_name'],
+      );
+      final companyContact = _findCompanyContact(
+        _firstString([
+          record['company_name'],
+          record['selected_company_name'],
+          acceptedPlacement?['company_name'],
+        ]),
+      );
       upsertPlacedStudent({
         'student_name': studentName,
         'email': _stringValue(
-          trackedStudent?['email'] ?? record['student_email'],
+          trackedStudent?['email'] ??
+              record['student_email'] ??
+              acceptedPlacement?['email'] ??
+              acceptedPlacement?['student_email'],
           fallback: '',
         ),
-        'phone': _stringValue(trackedStudent?['phone'], fallback: ''),
+        'phone': _firstString([
+          trackedStudent?['phone'],
+          acceptedPlacement?['phone'],
+          acceptedPlacement?['student_phone'],
+        ]),
         'registration_number': _stringValue(
-          trackedStudent?['registration_number'],
+          trackedStudent?['registration_number'] ??
+              acceptedPlacement?['registration_number'],
           fallback: '',
         ),
-        'program': _stringValue(trackedStudent?['program'], fallback: ''),
-        'student_id': trackedStudent?['student_id'],
-        'application_id': _stringValue(record['application_id'], fallback: ''),
-        'company_name': _stringValue(
+        'program': _firstString([
+          trackedStudent?['program'],
+          acceptedPlacement?['program'],
+          acceptedPlacement?['department'],
+        ]),
+        'student_id':
+            trackedStudent?['student_id'] ?? acceptedPlacement?['student_id'],
+        'application_id': _firstString([
+          record['application_id'],
+          acceptedPlacement?['application_id'],
+        ]),
+        'company_name': _firstString([
           record['company_name'],
-          fallback: _stringValue(record['selected_company_name']),
-        ),
-        'title': _stringValue(
+          record['selected_company_name'],
+          acceptedPlacement?['company_name'],
+        ]),
+        'title': _firstString([
           record['job_title'],
-          fallback: _stringValue(record['selected_job_title']),
-        ),
+          record['training_title'],
+          record['selected_job_title'],
+          record['selected_training_title'],
+          acceptedPlacement?['title'],
+          acceptedPlacement?['job_title'],
+        ]),
         'coordinator_status': _stringValue(
           record['coordinator_status'],
           fallback: 'pending',
         ),
-        'confirmed_at': record['confirmed_at'] ?? record['updated_at'],
-        'created_at': record['created_at'],
+        'confirmed_at':
+            record['confirmed_at'] ??
+            acceptedPlacement?['confirmed_at'] ??
+            acceptedPlacement?['accepted_at'] ??
+            acceptedPlacement?['updated_date'] ??
+            record['updated_at'],
+        'created_at':
+            record['created_at'] ?? acceptedPlacement?['applied_date'],
+        'updated_at':
+            record['updated_at'] ?? acceptedPlacement?['updated_date'],
         'university_name': _stringValue(
-          trackedStudent?['university_name'] ?? record['university_name'],
+          trackedStudent?['university_name'] ??
+              record['university_name'] ??
+              acceptedPlacement?['university_name'],
         ),
-        'placement_location': _stringValue(
+        'placement_location': _firstString([
           record['placement_location'],
-          fallback: '',
-        ),
-        'coordinator_notes': _stringValue(
+          acceptedPlacement?['placement_location'],
+          acceptedPlacement?['location'],
+          acceptedPlacement?['company_location'],
+          companyContact?['location'],
+        ]),
+        'placement_department': _firstString([
+          record['placement_department'],
+          acceptedPlacement?['placement_department'],
+          acceptedPlacement?['company_department'],
+          companyContact?['department'],
+        ]),
+        'company_phone': _firstString([
+          record['company_phone'],
+          acceptedPlacement?['company_phone'],
+          companyContact?['phone'],
+        ]),
+        'coordinator_notes': _firstString([
           record['coordinator_notes'],
+          record['company_feedback'],
+          acceptedPlacement?['company_feedback'],
+        ]),
+        'start_date':
+            record['reporting_start_date'] ??
+            record['start_date'] ??
+            acceptedPlacement?['reporting_start_date'] ??
+            acceptedPlacement?['start_date'],
+        'end_date':
+            record['reporting_end_date'] ??
+            record['end_date'] ??
+            acceptedPlacement?['reporting_end_date'] ??
+            acceptedPlacement?['end_date'],
+        'placement_source': 'student_confirmation',
+      });
+    }
+
+    for (final record in _acceptedPlacementRecords) {
+      final trackedStudent = _findTrackedStudent(
+        email: record['email'] ?? record['student_email'],
+        studentName: record['student_name'],
+      );
+
+      if (trackedStudent == null &&
+          !_matchesUniversity(record['university_name'])) {
+        continue;
+      }
+
+      final companyContact = _findCompanyContact(record['company_name']);
+      upsertPlacedStudent({
+        'student_name': _firstString([
+          trackedStudent?['student_name'],
+          record['student_name'],
+        ]),
+        'email': _firstString([
+          trackedStudent?['email'],
+          record['email'],
+          record['student_email'],
+        ]),
+        'phone': _firstString([
+          trackedStudent?['phone'],
+          record['phone'],
+          record['student_phone'],
+        ]),
+        'registration_number': _firstString([
+          trackedStudent?['registration_number'],
+          record['registration_number'],
+        ]),
+        'program': _firstString([
+          trackedStudent?['program'],
+          record['program'],
+          record['department'],
+        ]),
+        'student_id': trackedStudent?['student_id'] ?? record['student_id'],
+        'application_id': _stringValue(record['application_id'], fallback: ''),
+        'company_name': _stringValue(record['company_name'], fallback: ''),
+        'title': _firstString([record['title'], record['job_title']]),
+        'coordinator_status': 'confirmed',
+        'confirmed_at':
+            record['confirmed_at'] ??
+            record['accepted_at'] ??
+            record['updated_date'],
+        'created_at': record['applied_date'],
+        'updated_at': record['updated_date'],
+        'university_name': _firstString([
+          trackedStudent?['university_name'],
+          record['university_name'],
+        ]),
+        'placement_location': _firstString([
+          record['placement_location'],
+          record['location'],
+          record['company_location'],
+          companyContact?['location'],
+        ]),
+        'placement_department': _firstString([
+          record['placement_department'],
+          record['company_department'],
+          companyContact?['department'],
+        ]),
+        'company_phone': _firstString([
+          record['company_phone'],
+          companyContact?['phone'],
+        ]),
+        'coordinator_notes': _stringValue(
+          record['company_feedback'],
           fallback: '',
         ),
-        'placement_source': 'student_confirmation',
+        'start_date': record['reporting_start_date'] ?? record['start_date'],
+        'end_date': record['reporting_end_date'] ?? record['end_date'],
+        'placement_source':
+            _normalizedText(record['student_confirmation_status']) ==
+                'confirmed'
+            ? 'student_confirmation'
+            : 'company_acceptance',
       });
     }
 
@@ -752,6 +902,7 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         _apiService.getAwardsHomeData(),
         _apiService.getWallOfFame(limit: 24),
         _apiService.getUniversityStudentsOverview(),
+        _apiService.getUniversityPlacedStudents(),
         _apiService.getUniversityCompanyContacts(),
         _workspaceService.getApprovalRecords(universityName: _universityName),
         _workspaceService.getManualPlacements(universityName: _universityName),
@@ -764,13 +915,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       final awardsHomeResponse = responses[0] as Map<String, dynamic>;
       final wallResponse = responses[1] as Map<String, dynamic>;
       final studentsResponse = responses[2] as Map<String, dynamic>;
-      final companyContactsResponse = responses[3] as Map<String, dynamic>;
+      final placedStudentsResponse = responses[3] as Map<String, dynamic>;
+      final companyContactsResponse = responses[4] as Map<String, dynamic>;
       final approvalRecordsResponse =
-          responses[4] as List<Map<String, dynamic>>;
-      final manualPlacementRecordsResponse =
           responses[5] as List<Map<String, dynamic>>;
-      final companyReportsResponse = responses[6] as List<Map<String, dynamic>>;
-      final chatOrganizationsResponse = responses[7] as Map<String, dynamic>;
+      final manualPlacementRecordsResponse =
+          responses[6] as List<Map<String, dynamic>>;
+      final companyReportsResponse = responses[7] as List<Map<String, dynamic>>;
+      final chatOrganizationsResponse = responses[8] as Map<String, dynamic>;
 
       final awardsHomeData = awardsHomeResponse['data'] is Map<String, dynamic>
           ? awardsHomeResponse['data'] as Map<String, dynamic>
@@ -778,11 +930,16 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       final studentsData = studentsResponse['data'] is Map<String, dynamic>
           ? studentsResponse['data'] as Map<String, dynamic>
           : const <String, dynamic>{};
+      final placedStudentsData =
+          placedStudentsResponse['data'] is Map<String, dynamic>
+          ? placedStudentsResponse['data'] as Map<String, dynamic>
+          : const <String, dynamic>{};
       final companyContacts = _mapList(companyContactsResponse['data']);
       final chatOrganizations = _mapList(chatOrganizationsResponse['data']);
 
       setState(() {
         _universityStudentsData = _mapList(studentsData['students']);
+        _acceptedPlacementRecords = _mapList(placedStudentsData['placements']);
         _recentAnnouncements = _mapList(awardsHomeData['recent_announcements']);
         _leaderboard = _mapList(awardsHomeData['leaderboard']);
         _wallOfFame = _mapList(wallResponse['data']);
@@ -836,6 +993,14 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     final text = '$value'.trim();
     if (text.isEmpty || text == 'null') return fallback;
     return text;
+  }
+
+  String _firstString(Iterable<dynamic> values, {String fallback = ''}) {
+    for (final value in values) {
+      final text = _stringValue(value, fallback: '');
+      if (text.isNotEmpty) return text;
+    }
+    return fallback;
   }
 
   int _intValue(dynamic value) {
@@ -957,6 +1122,48 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
 
     return null;
+  }
+
+  Map<String, dynamic>? _findAcceptedPlacement({
+    dynamic applicationId,
+    dynamic email,
+    dynamic studentName,
+    dynamic companyName,
+  }) {
+    final normalizedApplicationId = _normalizedText(applicationId);
+    final studentKey = _studentIdentityKey(
+      email: email,
+      studentName: studentName,
+    );
+    final normalizedCompanyName = _normalizedText(companyName);
+
+    Map<String, dynamic>? fallbackByStudent;
+    for (final placement in _acceptedPlacementRecords) {
+      final placementApplicationId = _normalizedText(
+        placement['application_id'],
+      );
+      if (normalizedApplicationId.isNotEmpty &&
+          placementApplicationId == normalizedApplicationId) {
+        return placement;
+      }
+
+      final placementStudentKey = _studentIdentityKey(
+        email: placement['email'] ?? placement['student_email'],
+        studentName: placement['student_name'],
+      );
+      final studentMatches =
+          studentKey.isNotEmpty && placementStudentKey == studentKey;
+      if (!studentMatches) continue;
+
+      final placementCompanyName = _normalizedText(placement['company_name']);
+      if (normalizedCompanyName.isEmpty ||
+          placementCompanyName == normalizedCompanyName) {
+        return placement;
+      }
+      fallbackByStudent ??= placement;
+    }
+
+    return fallbackByStudent;
   }
 
   List<Map<String, dynamic>> get _trackedStudents {
@@ -1346,39 +1553,53 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                   ),
                   infoTile(
                     'Role',
-                    _stringValue(placement?['title'], fallback: ''),
+                    _firstString([
+                      placement?['title'],
+                      placement?['job_title'],
+                      placement?['training_title'],
+                    ]),
                   ),
                   infoTile(
                     'Location',
-                    _stringValue(
+                    _firstString([
                       placement?['placement_location'],
-                      fallback: '',
-                    ),
+                      placement?['location'],
+                      placement?['company_location'],
+                      _findCompanyContact(
+                        placement?['company_name'],
+                      )?['location'],
+                    ]),
                   ),
                   infoTile(
                     'Placement Department',
-                    _stringValue(
+                    _firstString([
                       placement?['placement_department'],
-                      fallback: '',
-                    ),
+                      placement?['company_department'],
+                      _findCompanyContact(
+                        placement?['company_name'],
+                      )?['department'],
+                    ]),
                   ),
                   infoTile(
                     'Placement Phone',
-                    _stringValue(
-                      placement?['company_phone'] ??
-                          _findCompanyContact(
-                            placement?['company_name'],
-                          )?['phone'],
-                      fallback: '',
-                    ),
+                    _firstString([
+                      placement?['company_phone'],
+                      _findCompanyContact(placement?['company_name'])?['phone'],
+                    ]),
                   ),
                   infoTile(
                     'Start Date',
-                    _formatDashboardDate(placement?['start_date']),
+                    _formatDashboardDate(
+                      placement?['start_date'] ??
+                          placement?['reporting_start_date'],
+                    ),
                   ),
                   infoTile(
                     'End Date',
-                    _formatDashboardDate(placement?['end_date']),
+                    _formatDashboardDate(
+                      placement?['end_date'] ??
+                          placement?['reporting_end_date'],
+                    ),
                   ),
                   infoTile(
                     'Assigned By',
@@ -1389,12 +1610,19 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
                           : placement['placement_source'] ==
                                 'student_confirmation'
                           ? 'Student confirmed placement'
+                          : placement['placement_source'] ==
+                                'company_acceptance'
+                          ? 'Company accepted placement'
                           : _coordinatorName,
                     ),
                   ),
                   infoTile(
                     'Notes',
-                    _stringValue(placement?['coordinator_notes'], fallback: ''),
+                    _firstString([
+                      placement?['coordinator_notes'],
+                      placement?['company_feedback'],
+                      placement?['company_response_notes'],
+                    ]),
                   ),
                   const SizedBox(height: 16),
                   Align(
@@ -3977,12 +4205,12 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
       _buildAnnouncementsPage(),
       _buildSettingsPage(),
     ];
+    final selectedIndex = _selectedIndex.clamp(0, pages.length - 1);
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
+    return SizedBox.expand(
       child: KeyedSubtree(
-        key: ValueKey(_selectedIndex),
-        child: pages[_selectedIndex],
+        key: ValueKey(selectedIndex),
+        child: pages[selectedIndex],
       ),
     );
   }
@@ -4295,43 +4523,53 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
         ? 3
         : 2;
     final spacing = screenWidth < 400 ? 8.0 : 12.0;
-    final childAspectRatio = isDesktop
-        ? 2.8
-        : screenWidth < 400
-        ? 1.8
-        : 2.15;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : screenWidth;
+        final itemWidth =
+            (availableWidth - (spacing * (crossAxisCount - 1))) /
+            crossAxisCount;
+        final itemHeight = isDesktop
+            ? 92.0
+            : screenWidth < 400
+            ? 104.0
+            : 96.0;
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: stats.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
-        childAspectRatio: childAspectRatio,
-      ),
-      itemBuilder: (context, index) => _MetricCard(
-        data: stats[index],
-        onTap: () {
-          final metricAction = stats[index].onTap;
-          if (metricAction != null) {
-            metricAction();
-            return;
-          }
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final stat in stats)
+              SizedBox(
+                width: itemWidth,
+                height: itemHeight,
+                child: _MetricCard(
+                  data: stat,
+                  onTap: () {
+                    final metricAction = stat.onTap;
+                    if (metricAction != null) {
+                      metricAction();
+                      return;
+                    }
 
-          final studentView = stats[index].studentView;
-          if (studentView != null) {
-            _openStudentsView(studentView);
-            return;
-          }
+                    final studentView = stat.studentView;
+                    if (studentView != null) {
+                      _openStudentsView(studentView);
+                      return;
+                    }
 
-          final navigationIndex = stats[index].navigationIndex;
-          if (navigationIndex != null) {
-            _openNavigationItem(navigationIndex);
-          }
-        },
-      ),
+                    final navigationIndex = stat.navigationIndex;
+                    if (navigationIndex != null) {
+                      _openNavigationItem(navigationIndex);
+                    }
+                  },
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 

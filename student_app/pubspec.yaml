@@ -33,3 +33,6 @@ flutter:
   
   assets:
     - assets/images/
+    - assets/images/ipt.png
+    - assets/images/pt.png
+    - assets/images/iptimoving_image.png

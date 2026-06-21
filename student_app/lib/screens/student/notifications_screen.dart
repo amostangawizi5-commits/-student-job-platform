@@ -97,7 +97,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  Future<void> _markAsRead(Map<String, dynamic> notification) async {
+  Future<void> _markAsRead(
+    Map<String, dynamic> notification, {
+    bool refresh = true,
+  }) async {
     final id = '${notification['notification_id'] ?? ''}';
     if (id.isEmpty) return;
 
@@ -107,10 +110,110 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       } else {
         await _apiService.markNotificationRead(id);
       }
-      _loadNotifications();
+      if (!mounted) return;
+      setState(() {
+        notification['is_read'] = true;
+        for (final item in _notifications) {
+          if ('${item['notification_id'] ?? ''}' == id) {
+            item['is_read'] = true;
+          }
+        }
+      });
+      if (refresh) {
+        _loadNotifications();
+      }
     } catch (e) {
       debugPrint('Error marking as read: $e');
     }
+  }
+
+  Future<void> _openNotification(Map<String, dynamic> notification) async {
+    await _markAsRead(notification, refresh: false);
+    if (!mounted) return;
+
+    final type = '${notification['type'] ?? ''}';
+    final rawMessage = '${notification['message'] ?? ''}';
+    final scheduledDate = _extractDate(rawMessage);
+    final scheduledVenue = _extractVenue(rawMessage);
+    final message = _cleanNotificationMessage(rawMessage);
+    final iconColor = _getColorForType(type);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(_getIconForType(type), color: iconColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '${notification['title'] ?? 'Notification'}'.trim().isEmpty
+                    ? 'Notification'
+                    : '${notification['title']}',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                message.isEmpty ? rawMessage : message,
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+              if (scheduledDate != null) ...[
+                const SizedBox(height: 14),
+                _NotificationDetailRow(
+                  icon: Icons.event_rounded,
+                  label: 'Date',
+                  value: scheduledDate,
+                ),
+              ],
+              if (scheduledVenue != null) ...[
+                const SizedBox(height: 8),
+                _NotificationDetailRow(
+                  icon: Icons.place_rounded,
+                  label: 'Venue',
+                  value: scheduledVenue,
+                ),
+              ],
+              const SizedBox(height: 14),
+              Text(
+                _formatDate(notification['created_at']?.toString()),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _markAllAsRead() async {
@@ -384,7 +487,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               itemBuilder: (context, index) {
                 final notification = _notifications[index];
                 final isRead = notification['is_read'] ?? false;
-                final type = notification['type'];
+                final type = '${notification['type'] ?? ''}';
                 final iconColor = _getColorForType(type);
                 final rawMessage = '${notification['message'] ?? ''}';
                 final scheduledDate = _extractDate(rawMessage);
@@ -414,7 +517,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     return false;
                   },
                   child: GestureDetector(
-                    onTap: () => _markAsRead(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _openNotification(
                       Map<String, dynamic>.from(notification as Map),
                     ),
                     child: Container(
@@ -452,7 +556,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    notification['title'],
+                                    '${notification['title'] ?? 'Notification'}'
+                                            .trim()
+                                            .isEmpty
+                                        ? 'Notification'
+                                        : '${notification['title']}',
                                     style: TextStyle(
                                       fontSize: 15,
                                       fontWeight: isRead
@@ -563,6 +671,47 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 );
               },
             ),
+    );
+  }
+}
+
+class _NotificationDetailRow extends StatelessWidget {
+  const _NotificationDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: AppTheme.primaryBlue),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: Colors.grey.shade800,
+              ),
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

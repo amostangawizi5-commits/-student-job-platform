@@ -10,7 +10,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/tanzania_locations.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
@@ -21,7 +20,7 @@ import '../../services/local_file_service.dart';
 import '../../utils/role_theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../auth/login_screen.dart';
-import '../admin/admin_test_management_screen.dart';
+import 'company_test_management_screen.dart';
 import 'post_job_screen.dart';
 import 'edit_organization_profile_screen.dart';
 import 'organization_notifications_screen.dart';
@@ -86,17 +85,6 @@ class OrganizationDashboard extends StatefulWidget {
   @override
   State<OrganizationDashboard> createState() => _OrganizationDashboardState();
 }
-
-typedef _AcceptanceInputBuilder =
-    Widget Function({
-      required TextEditingController controller,
-      required String label,
-      String? hint,
-      TextInputType keyboardType,
-      int maxLines,
-      bool readOnly,
-      String? Function(String?)? validator,
-    });
 
 class _OrganizationDashboardState extends State<OrganizationDashboard> {
   final ApiService _apiService = ApiService();
@@ -3645,6 +3633,35 @@ class _OrganizationTrainingMetaActionCard extends StatelessWidget {
   }
 }
 
+class _TestSelectionSummary {
+  const _TestSelectionSummary({
+    required this.testedStudentIds,
+    required this.testedApplicationIds,
+    required this.testedEmails,
+    required this.testedCount,
+    required this.selectedCount,
+    required this.notSelectedCount,
+    required this.pendingCount,
+  });
+
+  const _TestSelectionSummary.empty()
+    : testedStudentIds = const <String>{},
+      testedApplicationIds = const <String>{},
+      testedEmails = const <String>{},
+      testedCount = 0,
+      selectedCount = 0,
+      notSelectedCount = 0,
+      pendingCount = 0;
+
+  final Set<String> testedStudentIds;
+  final Set<String> testedApplicationIds;
+  final Set<String> testedEmails;
+  final int testedCount;
+  final int selectedCount;
+  final int notSelectedCount;
+  final int pendingCount;
+}
+
 class _OrganizationApplicationsTabState
     extends State<OrganizationApplicationsTab> {
   final ApiService _apiService = ApiService();
@@ -3655,6 +3672,8 @@ class _OrganizationApplicationsTabState
   String _applicationFilter = 'all';
   String? _error;
   List<dynamic> _applications = [];
+  _TestSelectionSummary _testSelectionSummary =
+      const _TestSelectionSummary.empty();
   Map<String, Map<String, dynamic>> _studentSelectionsByEmail = const {};
   Map<String, Map<String, dynamic>> _approvalByApplicationId = const {};
   final Set<String> _downloadingResponseLetters = <String>{};
@@ -4132,12 +4151,17 @@ class _OrganizationApplicationsTabState
   bool get _hasSelectedTraining => _normalizedTrainingId.isNotEmpty;
 
   List<dynamic> get _testSelectionApplicants {
+    if (_applicationFilter == 'assigned') {
+      return _assignedApplications;
+    }
     if (_applicationFilter == 'shortlisted') {
       return _shortlistedApplications;
     }
-    return _shortlistedApplications.isNotEmpty
-        ? _shortlistedApplications
-        : _applications;
+    final eligibleApplicants = [
+      ..._assignedApplications,
+      ..._shortlistedApplications,
+    ];
+    return eligibleApplicants.isNotEmpty ? eligibleApplicants : _applications;
   }
 
   String get _testSelectionJobId {
@@ -4293,9 +4317,34 @@ class _OrganizationApplicationsTabState
       return _acceptedApplications.length;
     }
 
+    if (status == 'shortlisted') {
+      return _shortlistedApplications.length;
+    }
+
+    if (status == 'assigned') {
+      return _assignedApplications.length;
+    }
+
     return _applications
         .where((app) => '${app['status'] ?? 'pending'}' == status)
         .length;
+  }
+
+  bool _isTestedApplication(dynamic app) {
+    final applicationId = '${app['application_id'] ?? ''}'.trim();
+    final studentId = '${app['student_id'] ?? app['user_id'] ?? ''}'.trim();
+    final email = '${app['email'] ?? app['student_email'] ?? ''}'
+        .trim()
+        .toLowerCase();
+
+    return (applicationId.isNotEmpty &&
+            _testSelectionSummary.testedApplicationIds.contains(
+              applicationId,
+            )) ||
+        (studentId.isNotEmpty &&
+            _testSelectionSummary.testedStudentIds.contains(studentId)) ||
+        (email.isNotEmpty &&
+            _testSelectionSummary.testedEmails.contains(email));
   }
 
   bool _isStudentConfirmedForApplication(dynamic app) {
@@ -4339,8 +4388,13 @@ class _OrganizationApplicationsTabState
   List<dynamic> get _pendingApplications {
     return _applications
         .where((app) {
-          final status = '${app['status'] ?? 'pending'}'.trim().toLowerCase();
-          return status == 'pending' || _isAwaitingStudentConfirmation(app);
+          if (_acceptedApplications.contains(app) ||
+              _assignedApplications.contains(app) ||
+              _shortlistedApplications.contains(app) ||
+              _isTestedApplication(app)) {
+            return false;
+          }
+          return true;
         })
         .toList(growable: false);
   }
@@ -4358,13 +4412,23 @@ class _OrganizationApplicationsTabState
 
   List<dynamic> get _shortlistedApplications {
     return _applications
-        .where((app) => '${app['status'] ?? 'pending'}' == 'shortlisted')
+        .where(
+          (app) =>
+              '${app['status'] ?? 'pending'}' == 'shortlisted' &&
+              !_isTestedApplication(app) &&
+              !_acceptedApplications.contains(app),
+        )
         .toList(growable: false);
   }
 
   List<dynamic> get _assignedApplications {
     return _applications
-        .where((app) => '${app['status'] ?? 'pending'}' == 'assigned')
+        .where(
+          (app) =>
+              '${app['status'] ?? 'pending'}' == 'assigned' &&
+              !_isTestedApplication(app) &&
+              !_acceptedApplications.contains(app),
+        )
         .toList(growable: false);
   }
 
@@ -4393,6 +4457,86 @@ class _OrganizationApplicationsTabState
       return 'expired';
     }
     return '${app['status'] ?? 'pending'}'.trim().toLowerCase();
+  }
+
+  Future<_TestSelectionSummary> _fetchTestSelectionSummary() async {
+    final response = await _apiService.getOrganizationTests(
+      jobId: _showAllApplications ? null : _normalizedTrainingId,
+    );
+    final tests = response['success'] == true && response['data'] is List
+        ? List<dynamic>.from(response['data'])
+        : <dynamic>[];
+    final seenKeys = <String>{};
+    final studentIds = <String>{};
+    final applicationIds = <String>{};
+    final emails = <String>{};
+    var selectedCount = 0;
+    var notSelectedCount = 0;
+    var pendingCount = 0;
+
+    for (final test in tests) {
+      final testId = '${test['id'] ?? ''}'.trim();
+      if (testId.isEmpty) continue;
+      final resultsResponse = await _apiService.getOrganizationTestResults(
+        testId,
+      );
+      final results =
+          resultsResponse['success'] == true && resultsResponse['data'] is List
+          ? List<dynamic>.from(resultsResponse['data'])
+          : <dynamic>[];
+
+      for (final result in results) {
+        if ('${result['attempt_status'] ?? ''}'.trim().toLowerCase() !=
+            'completed') {
+          continue;
+        }
+        final studentId = '${result['student_id'] ?? ''}'.trim();
+        final applicationId = '${result['application_id'] ?? ''}'.trim();
+        final email = '${result['email'] ?? ''}'.trim().toLowerCase();
+        final key = applicationId.isNotEmpty
+            ? 'application:$applicationId'
+            : studentId.isNotEmpty
+            ? 'student:$studentId'
+            : email.isNotEmpty
+            ? 'email:$email'
+            : 'attempt:${result['attempt_id'] ?? seenKeys.length}';
+        if (!seenKeys.add(key)) continue;
+
+        final selectionStatus = '${result['selection_status'] ?? 'pending'}'
+            .trim()
+            .toLowerCase();
+        if (selectionStatus == 'accepted') continue;
+
+        if (studentId.isNotEmpty) {
+          studentIds.add(studentId);
+        }
+        if (applicationId.isNotEmpty) {
+          applicationIds.add(applicationId);
+        }
+        if (email.isNotEmpty) {
+          emails.add(email);
+        }
+
+        if (selectionStatus == 'selected' || selectionStatus == 'shortlisted') {
+          selectedCount += 1;
+        } else if (selectionStatus == 'not_selected' ||
+            selectionStatus == 'rejected') {
+          notSelectedCount += 1;
+        } else {
+          pendingCount += 1;
+        }
+      }
+    }
+
+    return _TestSelectionSummary(
+      testedStudentIds: studentIds,
+      testedApplicationIds: applicationIds,
+      testedEmails: emails,
+      testedCount: selectedCount + notSelectedCount + pendingCount,
+      selectedCount: selectedCount,
+      notSelectedCount: notSelectedCount,
+      pendingCount: pendingCount,
+    );
   }
 
   Future<void> _loadApplications() async {
@@ -4443,6 +4587,7 @@ class _OrganizationApplicationsTabState
         }
         approvalsByApplicationId[applicationId] = approval;
       }
+      final testSelectionSummary = await _fetchTestSelectionSummary();
 
       if (response['success'] == true) {
         final apiApplications = response['data'] is List
@@ -4455,6 +4600,7 @@ class _OrganizationApplicationsTabState
           );
           _studentSelectionsByEmail = selectionsByEmail;
           _approvalByApplicationId = approvalsByApplicationId;
+          _testSelectionSummary = testSelectionSummary;
           _isLoading = false;
         });
       } else {
@@ -4469,6 +4615,7 @@ class _OrganizationApplicationsTabState
               : null;
           _studentSelectionsByEmail = selectionsByEmail;
           _approvalByApplicationId = approvalsByApplicationId;
+          _testSelectionSummary = testSelectionSummary;
           _isLoading = false;
         });
       }
@@ -4490,6 +4637,7 @@ class _OrganizationApplicationsTabState
       );
       setState(() {
         _applications = fallbackApplications;
+        _testSelectionSummary = const _TestSelectionSummary.empty();
         _error = fallbackApplications.isEmpty ? _formatErrorMessage(e) : null;
         _isLoading = false;
       });
@@ -4529,106 +4677,6 @@ class _OrganizationApplicationsTabState
     };
   }
 
-  Widget _buildAcceptanceLetterInput({
-    required TextEditingController controller,
-    required String label,
-    String? hint,
-    TextInputType keyboardType = TextInputType.text,
-    int maxLines = 1,
-    bool readOnly = false,
-    String? Function(String?)? validator,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        controller: controller,
-        readOnly: readOnly,
-        keyboardType: keyboardType,
-        maxLines: maxLines,
-        scrollPadding: const EdgeInsets.only(bottom: 140),
-        validator:
-            validator ??
-            (value) {
-              if (value == null || value.trim().isEmpty) {
-                return '$label is required';
-              }
-              return null;
-            },
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          suffixIcon: readOnly
-              ? const Icon(Icons.check_circle_outline_rounded, size: 18)
-              : null,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 14,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<Map<String, String>?> _collectAcceptanceLetterData(
-    Map<String, dynamic> application,
-  ) async {
-    final studentName =
-        application['full_name']?.toString() ??
-        application['student_name']?.toString() ??
-        'the student';
-    final trainingTitle =
-        application['training_title']?.toString() ?? 'this position';
-    final organizationAssets =
-        context.read<AuthProvider>().user?['organization_data']
-            as Map<String, dynamic>?;
-    final organizationName =
-        application['organization_name']?.toString() ??
-        organizationAssets?['organization_name']?.toString() ??
-        '';
-    final registrationNumber =
-        application['student_registration_number']?.toString() ??
-        application['registration_number']?.toString() ??
-        '';
-    final collegeName =
-        application['college_name']?.toString() ??
-        application['university_name']?.toString() ??
-        '';
-    final organizationLocation =
-        organizationAssets?['location']?.toString() ??
-        application['organization_location']?.toString() ??
-        '';
-    final inferredLocation = _inferLocationDefaults(organizationLocation);
-    final hasDigitalStamp =
-        '${application['stamp_url'] ?? organizationAssets?['stamp_url'] ?? ''}'
-            .trim()
-            .isNotEmpty;
-    final hasDigitalSignature =
-        '${application['signature_url'] ?? organizationAssets?['signature_url'] ?? ''}'
-            .trim()
-            .isNotEmpty;
-    return showModalBottomSheet<Map<String, String>>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _AcceptanceLetterDialog(
-        initialOrganizationName: organizationName,
-        initialRegistrationNumber: registrationNumber,
-        initialCollegeName: collegeName,
-        initialOfficerRegion: inferredLocation['region'] ?? '',
-        initialOfficerDistrict: inferredLocation['district'] ?? '',
-        initialOfficerArea: inferredLocation['area'] ?? '',
-        initialLetterDate: _formatDateOnly(DateTime.now()),
-        studentName: studentName,
-        trainingTitle: trainingTitle,
-        hasDigitalStamp: hasDigitalStamp,
-        hasDigitalSignature: hasDigitalSignature,
-        buildInput: _buildAcceptanceLetterInput,
-      ),
-    );
-  }
-
   Future<void> _acceptApplicant(Map<String, dynamic> application) async {
     final applicationId = '${application['application_id'] ?? ''}';
     if (applicationId.isEmpty) return;
@@ -4636,17 +4684,12 @@ class _OrganizationApplicationsTabState
 
     final reportingDates = await _collectReportingDates();
     if (reportingDates == null) return;
-    final acceptanceLetterData = isManualAssignment
-        ? null
-        : await _collectAcceptanceLetterData(application);
-    if (!isManualAssignment && acceptanceLetterData == null) return;
 
     final updated = await _updateStatus(
       applicationId,
       'accepted',
       reportingStartDate: reportingDates['reporting_start_date'],
       reportingEndDate: reportingDates['reporting_end_date'],
-      acceptanceLetterData: acceptanceLetterData,
     );
 
     if (!updated) return;
@@ -5739,8 +5782,7 @@ class _OrganizationApplicationsTabState
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AdminTestManagementScreen(
-          organizationMode: true,
+        builder: (_) => CompanyTestManagementScreen(
           jobId: testJobId,
           jobTitle: testJobTitle,
           applicants: testApplicants,
@@ -5895,6 +5937,22 @@ class _OrganizationApplicationsTabState
     setState(() => _applicationFilter = 'all');
   }
 
+  Future<void> _openCompletedTestTakers() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CompanyTestManagementScreen(
+          jobId: _hasSelectedTraining ? _testSelectionJobId : null,
+          jobTitle: _hasSelectedTraining ? _testSelectionJobTitle : null,
+          applicants: _applications,
+          resultsOnly: true,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    await _loadApplications();
+  }
+
   Widget _buildApplicationsExportButton() {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -5936,7 +5994,9 @@ class _OrganizationApplicationsTabState
 
   Widget _buildApplicationsActionBar() {
     final canAssignTest =
-        _hasSelectedTraining || _shortlistedApplications.isNotEmpty;
+        _hasSelectedTraining ||
+        _assignedApplications.isNotEmpty ||
+        _shortlistedApplications.isNotEmpty;
 
     return Wrap(
       spacing: 10,
@@ -5959,6 +6019,21 @@ class _OrganizationApplicationsTabState
             icon: const Icon(Icons.quiz_outlined, size: 18),
             label: const Text('Assign test'),
           ),
+        ElevatedButton.icon(
+          onPressed: _openCompletedTestTakers,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0F766E),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            minimumSize: const Size(0, 40),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: const Icon(Icons.fact_check_outlined, size: 18),
+          label: const Text('Tested'),
+        ),
         _buildApplicationsExportButton(),
       ],
     );
@@ -6816,6 +6891,14 @@ class _OrganizationApplicationsTabState
                   onTap: _showShortlistedApplications,
                 ),
                 _buildSummaryCard(
+                  label: 'Tested',
+                  value: '${_testSelectionSummary.testedCount}',
+                  icon: Icons.fact_check_outlined,
+                  color: const Color(0xFF0F766E),
+                  isSelected: false,
+                  onTap: _openCompletedTestTakers,
+                ),
+                _buildSummaryCard(
                   label: language.tr('accepted'),
                   value: '${_countByStatus('accepted')}',
                   icon: Icons.check_circle_outline,
@@ -6900,570 +6983,6 @@ class _OrganizationApplicationsTabState
       ),
     );
   }
-
-  Map<String, String> _inferLocationDefaults(String rawLocation) {
-    final location = rawLocation.trim();
-    if (location.isEmpty) {
-      return const {'area': '', 'district': '', 'region': ''};
-    }
-
-    final parts = location
-        .split(',')
-        .map((part) => part.trim())
-        .where((part) => part.isNotEmpty)
-        .toList(growable: false);
-
-    String region = '';
-    String district = '';
-
-    String? matchingRegion;
-    for (final part in parts.reversed) {
-      if (tanzaniaRegionDistricts.containsKey(part)) {
-        matchingRegion = part;
-        break;
-      }
-    }
-
-    if (matchingRegion != null) {
-      region = matchingRegion;
-      final districts = tanzaniaRegionDistricts[region] ?? const <String>[];
-      for (final part in parts) {
-        if (districts.contains(part)) {
-          district = part;
-          break;
-        }
-      }
-    } else if (parts.length == 1) {
-      region = parts.first;
-    } else if (parts.length >= 2) {
-      district = parts.first;
-      region = parts.last;
-    }
-
-    return {'area': location, 'district': district, 'region': region};
-  }
-}
-
-class _AcceptanceLetterDialog extends StatefulWidget {
-  final String initialOrganizationName;
-  final String initialRegistrationNumber;
-  final String initialCollegeName;
-  final String initialOfficerRegion;
-  final String initialOfficerDistrict;
-  final String initialOfficerArea;
-  final String initialLetterDate;
-  final String studentName;
-  final String trainingTitle;
-  final bool hasDigitalStamp;
-  final bool hasDigitalSignature;
-  final _AcceptanceInputBuilder buildInput;
-
-  const _AcceptanceLetterDialog({
-    required this.initialOrganizationName,
-    required this.initialRegistrationNumber,
-    required this.initialCollegeName,
-    required this.initialOfficerRegion,
-    required this.initialOfficerDistrict,
-    required this.initialOfficerArea,
-    required this.initialLetterDate,
-    required this.studentName,
-    required this.trainingTitle,
-    required this.hasDigitalStamp,
-    required this.hasDigitalSignature,
-    required this.buildInput,
-  });
-
-  @override
-  State<_AcceptanceLetterDialog> createState() =>
-      _AcceptanceLetterDialogState();
-}
-
-class _AcceptanceLetterDialogState extends State<_AcceptanceLetterDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _organizationNameController;
-  late final TextEditingController _registrationNumberController;
-  late final TextEditingController _collegeNameController;
-  late final TextEditingController _sectionDepartmentController;
-  late final TextEditingController _officerNameController;
-  late final TextEditingController _officerDesignationController;
-  late final TextEditingController _officerPhoneController;
-  late final TextEditingController _officerEmailController;
-  late final TextEditingController _officerRegionController;
-  late final TextEditingController _officerDistrictController;
-  late final TextEditingController _officerAreaController;
-  late final TextEditingController _letterDateController;
-  String? _selectedOfficerRegion;
-  String? _selectedOfficerDistrict;
-
-  DateTime _formatSeedDate(DateTime date) {
-    return DateTime(date.year, date.month, date.day);
-  }
-
-  String _formatDateOnly(DateTime date) {
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '${date.year}-$month-$day';
-  }
-
-  DateTime? _parseDate(String value) {
-    final normalized = value.trim();
-    if (normalized.isEmpty) return null;
-    return DateTime.tryParse(normalized);
-  }
-
-  String? _validateRequired(String? value, String label) {
-    if (value == null || value.trim().isEmpty) {
-      return '$label is required';
-    }
-    return null;
-  }
-
-  String? _validatePhoneNumber(String? value) {
-    final requiredError = _validateRequired(value, 'Officer Phone Number');
-    if (requiredError != null) {
-      return requiredError;
-    }
-
-    final normalized = value!.trim().replaceAll(RegExp(r'[\s\-()]'), '');
-    final phonePattern = RegExp(r'^\+?\d{9,15}$');
-    if (!phonePattern.hasMatch(normalized)) {
-      return 'Enter a valid phone number';
-    }
-
-    return null;
-  }
-
-  String? _validateEmailAddress(String? value) {
-    final requiredError = _validateRequired(value, 'Officer Email Address');
-    if (requiredError != null) {
-      return requiredError;
-    }
-
-    final normalized = value!.trim();
-    final emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-    if (!emailPattern.hasMatch(normalized)) {
-      return 'Enter a valid email address';
-    }
-
-    return null;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _organizationNameController = TextEditingController(
-      text: widget.initialOrganizationName,
-    );
-    _registrationNumberController = TextEditingController(
-      text: widget.initialRegistrationNumber,
-    );
-    _collegeNameController = TextEditingController(
-      text: widget.initialCollegeName,
-    );
-    _sectionDepartmentController = TextEditingController();
-    _officerNameController = TextEditingController();
-    _officerDesignationController = TextEditingController();
-    _officerPhoneController = TextEditingController();
-    _officerEmailController = TextEditingController();
-    _officerRegionController = TextEditingController(
-      text: widget.initialOfficerRegion,
-    );
-    _officerDistrictController = TextEditingController(
-      text: widget.initialOfficerDistrict,
-    );
-    _officerAreaController = TextEditingController(
-      text: widget.initialOfficerArea,
-    );
-    _letterDateController = TextEditingController(
-      text: widget.initialLetterDate,
-    );
-    if (tanzaniaRegionDistricts.containsKey(_officerRegionController.text)) {
-      _selectedOfficerRegion = _officerRegionController.text;
-    }
-    final currentDistricts = _selectedOfficerRegion == null
-        ? const <String>[]
-        : (tanzaniaRegionDistricts[_selectedOfficerRegion] ?? const <String>[]);
-    if (currentDistricts.contains(_officerDistrictController.text)) {
-      _selectedOfficerDistrict = _officerDistrictController.text;
-    }
-  }
-
-  @override
-  void dispose() {
-    _organizationNameController.dispose();
-    _registrationNumberController.dispose();
-    _collegeNameController.dispose();
-    _sectionDepartmentController.dispose();
-    _officerNameController.dispose();
-    _officerDesignationController.dispose();
-    _officerPhoneController.dispose();
-    _officerEmailController.dispose();
-    _officerRegionController.dispose();
-    _officerDistrictController.dispose();
-    _officerAreaController.dispose();
-    _letterDateController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    FocusScope.of(context).unfocus();
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      return;
-    }
-
-    Navigator.of(context).pop({
-      'organization_name': _organizationNameController.text.trim(),
-      'student_registration_number': _registrationNumberController.text.trim(),
-      'college_name': _collegeNameController.text.trim(),
-      'section_department': _sectionDepartmentController.text.trim(),
-      'officer_name': _officerNameController.text.trim(),
-      'officer_designation': _officerDesignationController.text.trim(),
-      'officer_phone': _officerPhoneController.text.trim(),
-      'officer_email': _officerEmailController.text.trim(),
-      'officer_region': _officerRegionController.text.trim(),
-      'officer_district': _officerDistrictController.text.trim(),
-      'officer_area': _officerAreaController.text.trim(),
-      'letter_date': _letterDateController.text.trim(),
-    });
-  }
-
-  Future<void> _pickLetterDate() async {
-    final now = DateTime.now();
-    final initialDate =
-        _parseDate(_letterDateController.text) ?? _formatSeedDate(now);
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(now.year - 5),
-      lastDate: DateTime(now.year + 5),
-      helpText: 'Select letter date',
-    );
-
-    if (pickedDate == null || !mounted) return;
-
-    setState(() {
-      _letterDateController.text = _formatDateOnly(pickedDate);
-    });
-  }
-
-  Widget _buildDateInput({
-    required TextEditingController controller,
-    required String label,
-    String? hint,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        controller: controller,
-        readOnly: true,
-        onTap: _pickLetterDate,
-        scrollPadding: const EdgeInsets.only(bottom: 140),
-        validator: (value) {
-          if (value == null || value.trim().isEmpty) {
-            return '$label is required';
-          }
-          return null;
-        },
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          suffixIcon: const Icon(Icons.calendar_month_outlined),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 14,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildResponsiveRow({
-    required bool compact,
-    required Widget first,
-    Widget? second,
-  }) {
-    if (second == null) {
-      return first;
-    }
-
-    if (compact) {
-      return Column(children: [first, second]);
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: first),
-        const SizedBox(width: 12),
-        Expanded(child: second),
-      ],
-    );
-  }
-
-  Widget _buildRegionDropdown() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: DropdownButtonFormField<String>(
-        initialValue: _selectedOfficerRegion,
-        decoration: InputDecoration(
-          labelText: 'Region',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 14,
-          ),
-        ),
-        items: tanzaniaRegionDistricts.keys
-            .map((region) {
-              return DropdownMenuItem<String>(
-                value: region,
-                child: Text(region),
-              );
-            })
-            .toList(growable: false),
-        onChanged: (value) {
-          setState(() {
-            _selectedOfficerRegion = value;
-            _officerRegionController.text = value ?? '';
-            _selectedOfficerDistrict = null;
-            _officerDistrictController.clear();
-          });
-        },
-        validator: (value) => _validateRequired(value, 'Region'),
-      ),
-    );
-  }
-
-  Widget _buildDistrictDropdown() {
-    final districts = _selectedOfficerRegion == null
-        ? const <String>[]
-        : (tanzaniaRegionDistricts[_selectedOfficerRegion] ?? const <String>[]);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: DropdownButtonFormField<String>(
-        initialValue: _selectedOfficerDistrict,
-        decoration: InputDecoration(
-          labelText: 'District',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 14,
-          ),
-        ),
-        items: districts
-            .map((district) {
-              return DropdownMenuItem<String>(
-                value: district,
-                child: Text(district),
-              );
-            })
-            .toList(growable: false),
-        onChanged: _selectedOfficerRegion == null
-            ? null
-            : (value) {
-                setState(() {
-                  _selectedOfficerDistrict = value;
-                  _officerDistrictController.text = value ?? '';
-                });
-              },
-        validator: (value) => _validateRequired(value, 'District'),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final viewInsets = MediaQuery.of(context).viewInsets;
-    final buildInput = widget.buildInput;
-
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.only(bottom: viewInsets.bottom),
-      child: FractionallySizedBox(
-        heightFactor: 0.94,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 560,
-              maxHeight: screenSize.height * 0.82,
-            ),
-            child: Material(
-              color: Colors.white,
-              elevation: 16,
-              borderRadius: BorderRadius.circular(24),
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final compact = constraints.maxWidth < 560;
-
-                    return Form(
-                      key: _formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.max,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Center(
-                            child: Container(
-                              width: 44,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Acceptance Letter Details',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Expanded(
-                            child: SingleChildScrollView(
-                              keyboardDismissBehavior:
-                                  ScrollViewKeyboardDismissBehavior.onDrag,
-                              padding: EdgeInsets.only(
-                                bottom: viewInsets.bottom > 0 ? 24 : 4,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Fill in the letter details for ${widget.studentName}.',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade700,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    widget.hasDigitalStamp ||
-                                            widget.hasDigitalSignature
-                                        ? 'Saved stamp/signature will be inserted automatically.'
-                                        : 'No digital stamp or signature uploaded yet.',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade600,
-                                      fontSize: 12,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _buildResponsiveRow(
-                                    compact: compact,
-                                    first: buildInput(
-                                      controller: _organizationNameController,
-                                      label: 'Organization / Institution',
-                                      hint: 'Example: ABC Organization Limited',
-                                    ),
-                                    second: buildInput(
-                                      controller: _registrationNumberController,
-                                      label: 'Student Registration Number',
-                                      hint: 'Example: UDOM/20253/12345',
-                                      validator: (value) {
-                                        if (value == null ||
-                                            value.trim().isEmpty) {
-                                          return 'Student registration number is required';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                  _buildResponsiveRow(
-                                    compact: compact,
-                                    first: buildInput(
-                                      controller: _collegeNameController,
-                                      label: 'College Name',
-                                      hint: 'Example: College of Informatics',
-                                    ),
-                                    second: buildInput(
-                                      controller: _sectionDepartmentController,
-                                      label: 'Department',
-                                      hint: 'Example: ICT Department',
-                                    ),
-                                  ),
-                                  _buildResponsiveRow(
-                                    compact: compact,
-                                    first: buildInput(
-                                      controller: _officerNameController,
-                                      label: 'Authorizing Officer Name',
-                                    ),
-                                    second: buildInput(
-                                      controller: _officerDesignationController,
-                                      label: 'Officer Designation',
-                                    ),
-                                  ),
-                                  _buildResponsiveRow(
-                                    compact: compact,
-                                    first: buildInput(
-                                      controller: _officerPhoneController,
-                                      label: 'Officer Phone Number',
-                                      keyboardType: TextInputType.phone,
-                                      validator: _validatePhoneNumber,
-                                    ),
-                                    second: buildInput(
-                                      controller: _officerEmailController,
-                                      label: 'Officer Email Address',
-                                      keyboardType: TextInputType.emailAddress,
-                                      validator: _validateEmailAddress,
-                                    ),
-                                  ),
-                                  _buildResponsiveRow(
-                                    compact: compact,
-                                    first: _buildRegionDropdown(),
-                                    second: _buildDistrictDropdown(),
-                                  ),
-                                  buildInput(
-                                    controller: _officerAreaController,
-                                    label: 'Area / Physical Address',
-                                    hint: 'Example: Mtumba, Dodoma',
-                                  ),
-                                  _buildDateInput(
-                                    controller: _letterDateController,
-                                    label: 'Letter Date',
-                                    hint: 'Tap to choose date',
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Wrap(
-                            alignment: WrapAlignment.end,
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              TextButton(
-                                onPressed: () => Navigator.of(context).pop(),
-                                child: const Text('Cancel'),
-                              ),
-                              ElevatedButton(
-                                onPressed: _submit,
-                                child: const Text('Generate Letter'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class OrganizationProfileScreen extends StatelessWidget {
@@ -7512,13 +7031,27 @@ class OrganizationProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
     final user = Provider.of<AuthProvider>(context).user;
-    final organization = user?['organization_data'] ?? {};
+    final organization = _organizationProfileData(user) ?? {};
     final organizationName =
-        '${organization['organization_name'] ?? language.tr('organization')}';
+        '${organization['company_name'] ?? organization['organization_name'] ?? language.tr('organization')}';
     final rawLogoUrl = organization['logo_url']?.toString();
     final logoUrls = rawLogoUrl == null || rawLogoUrl.isEmpty
         ? const <String>[]
         : ApiService().resolveAssetUrlCandidates(rawLogoUrl);
+    final hasLogo = logoUrls.isNotEmpty;
+
+    Future<void> openEditProfile() async {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const EditOrganizationProfileScreen(),
+        ),
+      );
+      if (!context.mounted) return;
+      final dashboard = context
+          .findAncestorStateOfType<_OrganizationDashboardState>();
+      dashboard?._handleRouteNavigationResult(result);
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -7598,24 +7131,11 @@ class OrganizationProfileScreen extends StatelessWidget {
                     );
 
                     return Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () async {
-                              final result = await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      const EditOrganizationProfileScreen(),
-                                ),
-                              );
-                              if (!context.mounted) return;
-                              final dashboard = context
-                                  .findAncestorStateOfType<
-                                    _OrganizationDashboardState
-                                  >();
-                              dashboard?._handleRouteNavigationResult(result);
-                            },
+                            onPressed: openEditProfile,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _organizationStudentPrimary,
                               padding: const EdgeInsets.symmetric(
@@ -7628,6 +7148,35 @@ class OrganizationProfileScreen extends StatelessWidget {
                               fit: BoxFit.scaleDown,
                               child: Text(
                                 language.tr('edit_profile'),
+                                style: buttonTextStyle,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: openEditProfile,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _organizationStudentPrimary,
+                              side: BorderSide(
+                                color: _organizationStudentPrimary.withValues(
+                                  alpha: 0.35,
+                                ),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            icon: const Icon(Icons.image_outlined, size: 18),
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                hasLogo ? 'Change Logo' : 'Upload Logo',
                                 style: buttonTextStyle,
                               ),
                             ),

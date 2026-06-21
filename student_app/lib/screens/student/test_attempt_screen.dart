@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/api_service.dart';
+import '../../utils/assets.dart';
+import '../../utils/role_theme.dart';
 
 class TestAttemptScreen extends StatefulWidget {
   const TestAttemptScreen({super.key, required this.token});
@@ -186,22 +188,138 @@ class _TestAttemptScreenState extends State<TestAttemptScreen> {
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
   }
 
+  Widget _buildLogoLeading() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6),
+      child: Container(
+        height: 48,
+        width: 48,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withValues(alpha: 0.2),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipOval(
+          child: Image.asset(
+            AppAssets.splashLogo,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return const Icon(
+                Icons.verified,
+                size: 28,
+                color: StudentRoleTheme.primary,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildTestAppBar(String title, {List<Widget>? actions}) {
+    final canPop = Navigator.of(context).canPop();
+
+    return AppBar(
+      backgroundColor: StudentRoleTheme.surface,
+      foregroundColor: StudentRoleTheme.primary,
+      elevation: 0,
+      leadingWidth: 76,
+      leading: canPop
+          ? IconButton(
+              tooltip: 'Back',
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.of(context).maybePop(),
+            )
+          : _buildLogoLeading(),
+      centerTitle: true,
+      title: Text(
+        title,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          color: StudentRoleTheme.primary,
+        ),
+      ),
+      actions: actions,
+    );
+  }
+
+  Widget _buildTimerChip() {
+    final isUrgent = _remaining.inMinutes <= 5;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 16),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isUrgent ? Colors.red.shade50 : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isUrgent ? Colors.red.shade100 : const Color(0xFFD7E5F7),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.timer_outlined,
+                size: 16,
+                color: isUrgent
+                    ? Colors.red.shade700
+                    : StudentRoleTheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _formatDuration(_remaining),
+                style: TextStyle(
+                  color: isUrgent
+                      ? Colors.red.shade700
+                      : StudentRoleTheme.primary,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: _buildTestAppBar('ONLINE TEST'),
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
 
     final attempt = _attempt;
     if (attempt == null) {
-      return const Scaffold(
-        body: Center(child: Text('This test link is invalid or expired.')),
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: _buildTestAppBar('ONLINE TEST'),
+        body: const Center(
+          child: Text('This test link is invalid or expired.'),
+        ),
       );
     }
 
     if (_isSubmitted) {
       return Scaffold(
         backgroundColor: Colors.white,
+        appBar: _buildTestAppBar('${attempt['title'] ?? 'ONLINE TEST'}'),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -239,36 +357,9 @@ class _TestAttemptScreenState extends State<TestAttemptScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text('${attempt['title'] ?? 'Online Test'}'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: _remaining.inMinutes <= 5
-                      ? Colors.red.shade50
-                      : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _formatDuration(_remaining),
-                  style: TextStyle(
-                    color: _remaining.inMinutes <= 5
-                        ? Colors.red.shade700
-                        : Colors.blue.shade700,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+      appBar: _buildTestAppBar(
+        '${attempt['title'] ?? 'Online Test'}',
+        actions: [_buildTimerChip()],
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {

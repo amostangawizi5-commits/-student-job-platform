@@ -243,6 +243,23 @@ class CoordinatorWorkspaceService {
         !(alreadyConfirmedSameSelection &&
             existingApproval != null &&
             _sameValue(existingApproval['student_choice_status'], 'confirmed'));
+
+    Map<String, dynamic> chosenApplication = const {};
+    for (final application in acceptedApplications) {
+      if (_sameValue(application['application_id'], chosenApplicationId)) {
+        chosenApplication = application;
+        break;
+      }
+    }
+
+    String applicationValue(Iterable<String> keys) {
+      for (final key in keys) {
+        final value = '${chosenApplication[key] ?? ''}'.trim();
+        if (value.isNotEmpty && value != 'null') return value;
+      }
+      return '';
+    }
+
     final approvalRecord = {
       'id': existingApprovalIndex == -1
           ? _generateId('approval')
@@ -262,8 +279,28 @@ class CoordinatorWorkspaceService {
       'coordinator_notes': existingApprovalIndex == -1
           ? ''
           : '${approvals[existingApprovalIndex]['coordinator_notes'] ?? ''}',
-      'reporting_start_date': reportingStartDate?.trim() ?? '',
-      'reporting_end_date': reportingEndDate?.trim() ?? '',
+      'company_feedback': applicationValue([
+        'company_feedback',
+        'company_response_notes',
+        'feedback',
+      ]),
+      'placement_location': applicationValue([
+        'placement_location',
+        'location',
+        'company_location',
+      ]),
+      'placement_department': applicationValue([
+        'placement_department',
+        'company_department',
+        'department',
+      ]),
+      'company_phone': applicationValue(['company_phone', 'phone']),
+      'reporting_start_date': reportingStartDate?.trim().isNotEmpty == true
+          ? reportingStartDate!.trim()
+          : applicationValue(['reporting_start_date', 'start_date']),
+      'reporting_end_date': reportingEndDate?.trim().isNotEmpty == true
+          ? reportingEndDate!.trim()
+          : applicationValue(['reporting_end_date', 'end_date']),
       'confirmed_at': alreadyConfirmedSameSelection
           ? (existingApproval?['confirmed_at'] ?? now)
           : now,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 import '../../services/api_service.dart';
-import '../admin/admin_test_management_screen.dart';
+import 'company_test_management_screen.dart';
 
 class CompanyApplicationsScreen extends StatefulWidget {
   final String jobId;
@@ -18,9 +18,40 @@ class CompanyApplicationsScreen extends StatefulWidget {
       _CompanyApplicationsScreenState();
 }
 
+class _TestSelectionSummary {
+  const _TestSelectionSummary({
+    required this.testedStudentIds,
+    required this.testedApplicationIds,
+    required this.testedEmails,
+    required this.testedCount,
+    required this.selectedCount,
+    required this.notSelectedCount,
+    required this.pendingCount,
+  });
+
+  const _TestSelectionSummary.empty()
+    : testedStudentIds = const <String>{},
+      testedApplicationIds = const <String>{},
+      testedEmails = const <String>{},
+      testedCount = 0,
+      selectedCount = 0,
+      notSelectedCount = 0,
+      pendingCount = 0;
+
+  final Set<String> testedStudentIds;
+  final Set<String> testedApplicationIds;
+  final Set<String> testedEmails;
+  final int testedCount;
+  final int selectedCount;
+  final int notSelectedCount;
+  final int pendingCount;
+}
+
 class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
   final ApiService _apiService = ApiService();
   List<dynamic> _applications = [];
+  _TestSelectionSummary _testSelectionSummary =
+      const _TestSelectionSummary.empty();
   bool _isLoading = true;
   String? _error;
 
@@ -52,24 +83,108 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
         '/api/applications/job/${widget.jobId}',
         requiresAuth: true,
       );
+      final testSelectionSummary = await _fetchTestSelectionSummary();
 
       if (response['success']) {
         setState(() {
           _applications = response['data'] ?? [];
+          _testSelectionSummary = testSelectionSummary;
           _isLoading = false;
         });
       } else {
         setState(() {
           _error = response['message'] ?? 'Failed to load applications';
+          _testSelectionSummary = testSelectionSummary;
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
         _error = _formatErrorMessage(e);
+        _testSelectionSummary = const _TestSelectionSummary.empty();
         _isLoading = false;
       });
     }
+  }
+
+  Future<_TestSelectionSummary> _fetchTestSelectionSummary() async {
+    final response = await _apiService.getOrganizationTests(
+      jobId: widget.jobId,
+    );
+    final tests = response['success'] == true && response['data'] is List
+        ? List<dynamic>.from(response['data'])
+        : <dynamic>[];
+    final seenKeys = <String>{};
+    final studentIds = <String>{};
+    final applicationIds = <String>{};
+    final emails = <String>{};
+    var selectedCount = 0;
+    var notSelectedCount = 0;
+    var pendingCount = 0;
+
+    for (final test in tests) {
+      final testId = '${test['id'] ?? ''}'.trim();
+      if (testId.isEmpty) continue;
+      final resultsResponse = await _apiService.getOrganizationTestResults(
+        testId,
+      );
+      final results =
+          resultsResponse['success'] == true && resultsResponse['data'] is List
+          ? List<dynamic>.from(resultsResponse['data'])
+          : <dynamic>[];
+
+      for (final result in results) {
+        if ('${result['attempt_status'] ?? ''}'.trim().toLowerCase() !=
+            'completed') {
+          continue;
+        }
+        final studentId = '${result['student_id'] ?? ''}'.trim();
+        final applicationId = '${result['application_id'] ?? ''}'.trim();
+        final email = '${result['email'] ?? ''}'.trim().toLowerCase();
+        final key = applicationId.isNotEmpty
+            ? 'application:$applicationId'
+            : studentId.isNotEmpty
+            ? 'student:$studentId'
+            : email.isNotEmpty
+            ? 'email:$email'
+            : 'attempt:${result['attempt_id'] ?? seenKeys.length}';
+        if (!seenKeys.add(key)) continue;
+
+        final selectionStatus = '${result['selection_status'] ?? 'pending'}'
+            .trim()
+            .toLowerCase();
+        if (selectionStatus == 'accepted') continue;
+
+        if (studentId.isNotEmpty) {
+          studentIds.add(studentId);
+        }
+        if (applicationId.isNotEmpty) {
+          applicationIds.add(applicationId);
+        }
+        if (email.isNotEmpty) {
+          emails.add(email);
+        }
+
+        if (selectionStatus == 'selected' || selectionStatus == 'shortlisted') {
+          selectedCount += 1;
+        } else if (selectionStatus == 'not_selected' ||
+            selectionStatus == 'rejected') {
+          notSelectedCount += 1;
+        } else {
+          pendingCount += 1;
+        }
+      }
+    }
+
+    return _TestSelectionSummary(
+      testedStudentIds: studentIds,
+      testedApplicationIds: applicationIds,
+      testedEmails: emails,
+      testedCount: selectedCount + notSelectedCount + pendingCount,
+      selectedCount: selectedCount,
+      notSelectedCount: notSelectedCount,
+      pendingCount: pendingCount,
+    );
   }
 
   Future<void> _updateStatus(
@@ -212,13 +327,63 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
   }
 
   int _countByStatus(String status) {
+    if (status == 'pending') return _pendingApplications.length;
+    if (status == 'accepted') return _acceptedApplications.length;
+    if (status == 'shortlisted') return _shortlistedApplications.length;
+    if (status == 'assigned') return _assignedApplications.length;
+
     return _applications
         .where((app) => '${app['status'] ?? 'pending'}' == status)
         .length;
   }
 
+  bool _isTestedApplication(dynamic app) {
+    final applicationId = '${app['application_id'] ?? ''}'.trim();
+    final studentId = '${app['student_id'] ?? app['user_id'] ?? ''}'.trim();
+    final email = '${app['email'] ?? app['student_email'] ?? ''}'
+        .trim()
+        .toLowerCase();
+
+    return (applicationId.isNotEmpty &&
+            _testSelectionSummary.testedApplicationIds.contains(
+              applicationId,
+            )) ||
+        (studentId.isNotEmpty &&
+            _testSelectionSummary.testedStudentIds.contains(studentId)) ||
+        (email.isNotEmpty &&
+            _testSelectionSummary.testedEmails.contains(email));
+  }
+
+  List<dynamic> get _pendingApplications => _applications
+      .where(
+        (app) =>
+            !_acceptedApplications.contains(app) &&
+            !_assignedApplications.contains(app) &&
+            !_shortlistedApplications.contains(app) &&
+            !_isTestedApplication(app),
+      )
+      .toList(growable: false);
+
+  List<dynamic> get _acceptedApplications => _applications
+      .where((app) => '${app['status'] ?? 'pending'}' == 'accepted')
+      .toList(growable: false);
+
   List<dynamic> get _shortlistedApplications => _applications
-      .where((app) => '${app['status'] ?? 'pending'}' == 'shortlisted')
+      .where(
+        (app) =>
+            '${app['status'] ?? 'pending'}' == 'shortlisted' &&
+            !_isTestedApplication(app) &&
+            !_acceptedApplications.contains(app),
+      )
+      .toList(growable: false);
+
+  List<dynamic> get _assignedApplications => _applications
+      .where(
+        (app) =>
+            '${app['status'] ?? 'pending'}' == 'assigned' &&
+            !_isTestedApplication(app) &&
+            !_acceptedApplications.contains(app),
+      )
       .toList(growable: false);
 
   bool _hasReachedStatus(String currentStatus, String targetStatus) {
@@ -235,53 +400,61 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
     required String value,
     required IconData icon,
     required Color color,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 20),
             ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              Text(
-                label,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ],
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Future<void> _openTestSelection() async {
-    final shortlisted = _shortlistedApplications;
-    if (shortlisted.isEmpty) {
+    final eligibleApplicants = [
+      ..._assignedApplications,
+      ..._shortlistedApplications,
+    ];
+    if (eligibleApplicants.isEmpty) {
       ScaffoldMessenger.of(context).showAppSnackBar(
         const SnackBar(
           content: Text(
-            'Shortlist at least one student before assigning a test.',
+            'Assign or shortlist at least one student before assigning a test.',
           ),
         ),
       );
@@ -290,11 +463,26 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AdminTestManagementScreen(
-          organizationMode: true,
+        builder: (_) => CompanyTestManagementScreen(
           jobId: widget.jobId,
           jobTitle: widget.jobTitle,
-          applicants: shortlisted,
+          applicants: eligibleApplicants,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    await _loadApplications();
+  }
+
+  Future<void> _openCompletedTestTakers() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CompanyTestManagementScreen(
+          jobId: widget.jobId,
+          jobTitle: widget.jobTitle,
+          applicants: _applications,
+          resultsOnly: true,
         ),
       ),
     );
@@ -304,8 +492,10 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
   }
 
   Widget _buildShortlistedTestAction() {
+    final assignedCount = _assignedApplications.length;
     final shortlistedCount = _shortlistedApplications.length;
-    final hasShortlisted = shortlistedCount > 0;
+    final eligibleCount = assignedCount + shortlistedCount;
+    final hasEligibleApplicants = eligibleCount > 0;
 
     return Container(
       width: double.infinity,
@@ -357,9 +547,9 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  hasShortlisted
-                      ? '$shortlistedCount student(s) shortlisted and ready for test'
-                      : 'No shortlisted students yet',
+                  hasEligibleApplicants
+                      ? '$eligibleCount student(s) assigned/shortlisted and ready for test'
+                      : 'No assigned or shortlisted students yet',
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF111827),
@@ -369,18 +559,37 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: hasShortlisted ? _openTestSelection : null,
+                    onPressed: hasEligibleApplicants
+                        ? _openTestSelection
+                        : null,
                     icon: const Icon(Icons.science_outlined),
                     label: Text(
-                      hasShortlisted
-                          ? 'Assign Test to Shortlisted Students'
-                          : 'Shortlist Students First',
+                      hasEligibleApplicants
+                          ? 'Assign Test'
+                          : 'Assign or Shortlist Students First',
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
                       foregroundColor: Colors.white,
                       disabledBackgroundColor: Colors.grey.shade300,
                       disabledForegroundColor: Colors.grey.shade600,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _openCompletedTestTakers,
+                    icon: const Icon(Icons.fact_check_outlined),
+                    label: const Text('View tested students'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0F766E),
+                      side: const BorderSide(color: Color(0xFF0F766E)),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -698,6 +907,13 @@ class _CompanyApplicationsScreenState extends State<CompanyApplicationsScreen> {
                         value: '${_countByStatus('shortlisted')}',
                         icon: Icons.playlist_add_check_circle_outlined,
                         color: Colors.blue,
+                      ),
+                      _buildSummaryCard(
+                        label: 'Tested',
+                        value: '${_testSelectionSummary.testedCount}',
+                        icon: Icons.fact_check_outlined,
+                        color: const Color(0xFF0F766E),
+                        onTap: _openCompletedTestTakers,
                       ),
                       _buildSummaryCard(
                         label: 'Accepted',

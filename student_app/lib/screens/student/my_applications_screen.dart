@@ -34,11 +34,13 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   final ApiService _apiService = ApiService();
   final CoordinatorWorkspaceService _workspaceService =
       CoordinatorWorkspaceService();
+  final TextEditingController _searchController = TextEditingController();
   List<dynamic> _applications = [];
   Map<String, dynamic>? _confirmedSelection;
   Map<String, Map<String, dynamic>> _approvalByApplicationId = const {};
   bool _isLoading = true;
   String _selectedFilter = 'all';
+  String _searchQuery = '';
   String? _confirmingApplicationId;
   final Set<String> _downloadingResponseLetters = <String>{};
 
@@ -58,6 +60,12 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     super.initState();
     _selectedFilter = _normalizeFilter(widget.initialFilter);
     _loadApplications();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -104,6 +112,26 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       return status == 'shortlisted';
     }
     return status == _selectedFilter;
+  }
+
+  bool _matchesSearchQuery(Map<String, dynamic> app) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+
+    final searchableValues = [
+      app['title'],
+      app['job_title'],
+      app['company_name'],
+      app['location'],
+      app['status'],
+      app['company_response_status'],
+      app['online_test_title'],
+      app['application_id'],
+    ];
+
+    return searchableValues
+        .map((value) => '${value ?? ''}'.toLowerCase())
+        .any((value) => value.contains(query));
   }
 
   bool _sameEmail(Object? left, Object? right) {
@@ -282,7 +310,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
   List<dynamic> _getFilteredApplications() {
     return _applications.where((app) {
       if (app is! Map<String, dynamic>) return false;
-      return _matchesSelectedFilter(app);
+      return _matchesSelectedFilter(app) && _matchesSearchQuery(app);
     }).toList();
   }
 
@@ -335,6 +363,84 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       ),
       IconButton(icon: const Icon(Icons.refresh), onPressed: _loadApplications),
     ];
+  }
+
+  Widget _buildSearchPanel(int resultCount) {
+    final hasQuery = _searchQuery.trim().isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() => _searchQuery = value),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search application, company, location, or status',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: hasQuery
+                  ? IconButton(
+                      tooltip: 'Clear search',
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: Color(0xFF2563EB),
+                  width: 1.4,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _buildInlineInfoPill(
+                icon: Icons.assignment_outlined,
+                label: '$resultCount result${resultCount == 1 ? '' : 's'}',
+                backgroundColor: const Color(0xFFEFF6FF),
+                borderColor: const Color(0xFFBFDBFE),
+                textColor: const Color(0xFF1D4ED8),
+              ),
+              _buildInlineInfoPill(
+                icon: Icons.filter_list_rounded,
+                label: _selectedFilter == 'all'
+                    ? 'All applications'
+                    : _filterTitle(),
+                backgroundColor: const Color(0xFFF8FAFC),
+                borderColor: const Color(0xFFE2E8F0),
+                textColor: const Color(0xFF475569),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadApplications() async {
@@ -1805,6 +1911,17 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     }
 
     if (filteredApplications.isEmpty) {
+      final emptyTitle = _searchQuery.trim().isEmpty
+          ? (_selectedFilter == 'all'
+                ? 'No applications yet'
+                : 'No ${_filterTitle().toLowerCase()} applications yet')
+          : 'No matching applications';
+      final emptySubtitle = _searchQuery.trim().isEmpty
+          ? (_selectedFilter == 'all'
+                ? 'Start applying for training to see them here'
+                : 'Try another filter or apply to more training')
+          : 'Try a different keyword or clear the search';
+
       return Scaffold(
         appBar: AppBar(
           title: Text(title),
@@ -1813,48 +1930,55 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
           elevation: 0,
           actions: _buildAppBarActions(),
         ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.assignment_turned_in,
-                size: 80,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _selectedFilter == 'all'
-                    ? 'No applications yet'
-                    : 'No ${_filterTitle().toLowerCase()} applications yet',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _selectedFilter == 'all'
-                    ? 'Start applying for training to see them here'
-                    : 'Try another filter or apply to more training',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () {
-                  // Use pop until first to avoid navigation stack issues
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+        body: Column(
+          children: [
+            _buildSearchPanel(filteredApplications.length),
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.assignment_turned_in,
+                      size: 80,
+                      color: Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      emptyTitle,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      emptySubtitle,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () {
+                        // Use pop until first to avoid navigation stack issues
+                        Navigator.popUntil(context, (route) => route.isFirst);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Back to Home'),
+                    ),
+                  ],
                 ),
-                child: const Text('Back to Home'),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -1867,293 +1991,314 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
         elevation: 0,
         actions: _buildAppBarActions(),
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: filteredApplications.length,
-        itemBuilder: (context, index) {
-          final app = filteredApplications[index];
-          final applicationMap = Map<String, dynamic>.from(app);
-          final rawStatus = '${app['status'] ?? 'pending'}'
-              .trim()
-              .toLowerCase();
-          final status = _effectiveStudentStatus(applicationMap);
-          final applicationId = '${app['application_id'] ?? ''}';
-          final statusColor = _getStatusColor(status);
-          final statusText = _getStatusText(status);
-          final statusIcon = _getStatusIcon(status);
-          final hasConfirmedSelection = _confirmedSelection != null;
-          final isConfirmedThisApplication = _isConfirmedPlacement(
-            applicationMap,
-          );
-          final isOfferExpired = _isOfferConfirmationExpired(applicationId);
-          final offerExpiresAt = _offerConfirmationExpiresAt(applicationId);
-          final confirmedCompanyName =
-              '${_confirmedSelection?['selected_company_name'] ?? ''}';
-          final isConfirming = _confirmingApplicationId == applicationId;
-          final title = '${app['title'] ?? app['job_title'] ?? 'Placement'}';
-          final companyName = '${app['company_name'] ?? 'Unknown Company'}';
-          final location = '${app['location'] ?? 'Location not specified'}';
-          final isManualAssignment = app['is_manual_assignment'] == true;
-          final hasOnlineTestInvitation = _hasOnlineTestInvitation(
-            applicationMap,
-          );
-          final isOnlineTestCompleted = _isOnlineTestCompleted(applicationMap);
-          final onlineTestTitle = '${app['online_test_title'] ?? 'Online Test'}'
-              .trim();
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.shade200,
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Padding(
+      body: Column(
+        children: [
+          _buildSearchPanel(filteredApplications.length),
+          Expanded(
+            child: ListView.builder(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.business_outlined,
-                                  size: 15,
-                                  color: Colors.grey.shade600,
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    companyName,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade700,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+              itemCount: filteredApplications.length,
+              itemBuilder: (context, index) {
+                final app = filteredApplications[index];
+                final applicationMap = Map<String, dynamic>.from(app);
+                final rawStatus = '${app['status'] ?? 'pending'}'
+                    .trim()
+                    .toLowerCase();
+                final status = _effectiveStudentStatus(applicationMap);
+                final applicationId = '${app['application_id'] ?? ''}';
+                final statusColor = _getStatusColor(status);
+                final statusText = _getStatusText(status);
+                final statusIcon = _getStatusIcon(status);
+                final hasConfirmedSelection = _confirmedSelection != null;
+                final isConfirmedThisApplication = _isConfirmedPlacement(
+                  applicationMap,
+                );
+                final isOfferExpired = _isOfferConfirmationExpired(
+                  applicationId,
+                );
+                final offerExpiresAt = _offerConfirmationExpiresAt(
+                  applicationId,
+                );
+                final confirmedCompanyName =
+                    '${_confirmedSelection?['selected_company_name'] ?? ''}';
+                final isConfirming = _confirmingApplicationId == applicationId;
+                final title =
+                    '${app['title'] ?? app['job_title'] ?? 'Placement'}';
+                final companyName =
+                    '${app['company_name'] ?? 'Unknown Company'}';
+                final location =
+                    '${app['location'] ?? 'Location not specified'}';
+                final isManualAssignment = app['is_manual_assignment'] == true;
+                final hasOnlineTestInvitation = _hasOnlineTestInvitation(
+                  applicationMap,
+                );
+                final isOnlineTestCompleted = _isOnlineTestCompleted(
+                  applicationMap,
+                );
+                final onlineTestTitle =
+                    '${app['online_test_title'] ?? 'Online Test'}'.trim();
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.shade200,
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildInlineInfoPill(
-                          icon: Icons.location_on_outlined,
-                          label: location,
-                          backgroundColor: const Color(0xFFF8FAFC),
-                          borderColor: const Color(0xFFE2E8F0),
-                          textColor: const Color(0xFF475569),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.business_outlined,
+                                        size: 15,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          companyName,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        _buildInlineInfoPill(
-                          icon: statusIcon,
-                          label: statusText,
-                          backgroundColor: statusColor.withValues(alpha: 0.1),
-                          borderColor: statusColor.withValues(alpha: 0.3),
-                          textColor: statusColor,
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _buildInlineInfoPill(
+                                icon: Icons.location_on_outlined,
+                                label: location,
+                                backgroundColor: const Color(0xFFF8FAFC),
+                                borderColor: const Color(0xFFE2E8F0),
+                                textColor: const Color(0xFF475569),
+                              ),
+                              const SizedBox(width: 8),
+                              _buildInlineInfoPill(
+                                icon: statusIcon,
+                                label: statusText,
+                                backgroundColor: statusColor.withValues(
+                                  alpha: 0.1,
+                                ),
+                                borderColor: statusColor.withValues(alpha: 0.3),
+                                textColor: statusColor,
+                              ),
+                              const SizedBox(width: 8),
+                              _buildInlineActionPill(
+                                icon: Icons.visibility_outlined,
+                                label: 'Preview',
+                                onTap: () =>
+                                    _showApplicationPreview(applicationMap),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        _buildInlineActionPill(
-                          icon: Icons.visibility_outlined,
-                          label: 'Preview',
-                          onTap: () => _showApplicationPreview(applicationMap),
-                        ),
+                        if (hasOnlineTestInvitation ||
+                            rawStatus == 'assigned') ...[
+                          const SizedBox(height: 12),
+                          _buildApplicationActionTile(
+                            icon: isOnlineTestCompleted
+                                ? Icons.fact_check_rounded
+                                : Icons.quiz_outlined,
+                            label: isOnlineTestCompleted
+                                ? 'Test Submitted'
+                                : 'Open Test',
+                            subtitle: isOnlineTestCompleted
+                                ? '$onlineTestTitle has already been submitted.'
+                                : onlineTestTitle,
+                            backgroundColor: isOnlineTestCompleted
+                                ? const Color(0xFFF1F5F9)
+                                : const Color(0xFFEFF6FF),
+                            borderColor: isOnlineTestCompleted
+                                ? const Color(0xFFCBD5E1)
+                                : const Color(0xFF93C5FD),
+                            iconColor: isOnlineTestCompleted
+                                ? const Color(0xFF64748B)
+                                : const Color(0xFF1D4ED8),
+                            textColor: isOnlineTestCompleted
+                                ? const Color(0xFF475569)
+                                : const Color(0xFF1D4ED8),
+                            onTap: isOnlineTestCompleted
+                                ? null
+                                : () => _openOnlineTest(applicationMap),
+                            showChevron: !isOnlineTestCompleted,
+                            trailing: isOnlineTestCompleted
+                                ? const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: Color(0xFF64748B),
+                                    size: 22,
+                                  )
+                                : null,
+                          ),
+                        ],
+                        if (rawStatus == 'accepted') ...[
+                          const SizedBox(height: 12),
+                          _buildApplicationActionTile(
+                            icon: isOfferExpired
+                                ? Icons.hourglass_disabled_rounded
+                                : isConfirmedThisApplication
+                                ? Icons.verified_rounded
+                                : hasConfirmedSelection
+                                ? Icons.lock_outline_rounded
+                                : Icons.check_circle_outline_rounded,
+                            label: isOfferExpired
+                                ? 'Offer Expired'
+                                : isConfirmedThisApplication
+                                ? 'Confirmed Placement'
+                                : hasConfirmedSelection
+                                ? 'Placement Confirmed Elsewhere'
+                                : 'Confirm',
+                            subtitle: isOfferExpired
+                                ? offerExpiresAt == null
+                                      ? 'This accepted offer expired because it was not confirmed within 48 hours.'
+                                      : 'This accepted offer expired because it was not confirmed within 48 hours. Deadline was ${_formatDate(offerExpiresAt.toIso8601String())}.'
+                                : isConfirmedThisApplication
+                                ? 'You selected ${app['company_name'] ?? 'this company'}.'
+                                : hasConfirmedSelection
+                                ? 'You already confirmed $confirmedCompanyName, so this offer is no longer active.'
+                                : '',
+                            backgroundColor: isOfferExpired
+                                ? const Color(0xFFFFF4EC)
+                                : isConfirmedThisApplication
+                                ? const Color(0xFFEAF7F2)
+                                : hasConfirmedSelection
+                                ? const Color(0xFFFFF4EC)
+                                : const Color(0xFFEAF6EE),
+                            borderColor: isOfferExpired
+                                ? const Color(0xFFF2BE8C)
+                                : isConfirmedThisApplication
+                                ? const Color(0xFF7BC9A8)
+                                : hasConfirmedSelection
+                                ? const Color(0xFFF2BE8C)
+                                : const Color(0xFFA7D7BA),
+                            iconColor: isOfferExpired
+                                ? const Color(0xFFD97706)
+                                : isConfirmedThisApplication
+                                ? const Color(0xFF0F766E)
+                                : hasConfirmedSelection
+                                ? const Color(0xFFD97706)
+                                : const Color(0xFF0F766E),
+                            textColor: isOfferExpired
+                                ? const Color(0xFFB45309)
+                                : isConfirmedThisApplication
+                                ? const Color(0xFF0F766E)
+                                : hasConfirmedSelection
+                                ? const Color(0xFFB45309)
+                                : const Color(0xFF0F766E),
+                            onTap:
+                                !isConfirmedThisApplication &&
+                                    !hasConfirmedSelection &&
+                                    !isOfferExpired
+                                ? () => _confirmCompanySelection(
+                                    Map<String, dynamic>.from(app),
+                                  )
+                                : null,
+                            isLoading: isConfirming,
+                            trailing: isOfferExpired
+                                ? const Icon(
+                                    Icons.lock_clock_rounded,
+                                    color: Color(0xFFD97706),
+                                    size: 22,
+                                  )
+                                : isConfirmedThisApplication
+                                ? const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: Color(0xFF0F766E),
+                                    size: 22,
+                                  )
+                                : hasConfirmedSelection
+                                ? const Icon(
+                                    Icons.block_rounded,
+                                    color: Color(0xFFD97706),
+                                    size: 22,
+                                  )
+                                : null,
+                          ),
+                        ] else if (rawStatus == 'assigned' &&
+                            isManualAssignment &&
+                            !hasOnlineTestInvitation) ...[
+                          const SizedBox(height: 12),
+                          _buildApplicationActionTile(
+                            icon: Icons.assignment_turned_in_rounded,
+                            label: 'Assigned Placement',
+                            subtitle:
+                                '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName. Waiting for company acceptance.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
+                            backgroundColor: const Color(0xFFEFF6FF),
+                            borderColor: const Color(0xFFBFDBFE),
+                            iconColor: const Color(0xFF2563EB),
+                            textColor: const Color(0xFF1D4ED8),
+                            onTap: null,
+                            showChevron: false,
+                            trailing: const Icon(
+                              Icons.hourglass_top_rounded,
+                              color: Color(0xFF2563EB),
+                              size: 22,
+                            ),
+                          ),
+                        ] else if (status == 'confirmed' &&
+                            isManualAssignment) ...[
+                          const SizedBox(height: 12),
+                          _buildApplicationActionTile(
+                            icon: Icons.verified_rounded,
+                            label: 'Confirmed Placement',
+                            subtitle:
+                                '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
+                            backgroundColor: const Color(0xFFEAF7F2),
+                            borderColor: const Color(0xFF7BC9A8),
+                            iconColor: const Color(0xFF0F766E),
+                            textColor: const Color(0xFF0F766E),
+                            onTap: null,
+                            showChevron: false,
+                            trailing: const Icon(
+                              Icons.assignment_turned_in_rounded,
+                              color: Color(0xFF0F766E),
+                              size: 22,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                  if (hasOnlineTestInvitation || rawStatus == 'assigned') ...[
-                    const SizedBox(height: 12),
-                    _buildApplicationActionTile(
-                      icon: isOnlineTestCompleted
-                          ? Icons.fact_check_rounded
-                          : Icons.quiz_outlined,
-                      label: isOnlineTestCompleted
-                          ? 'Test Submitted'
-                          : 'Open Test',
-                      subtitle: isOnlineTestCompleted
-                          ? '$onlineTestTitle has already been submitted.'
-                          : onlineTestTitle,
-                      backgroundColor: isOnlineTestCompleted
-                          ? const Color(0xFFF1F5F9)
-                          : const Color(0xFFEFF6FF),
-                      borderColor: isOnlineTestCompleted
-                          ? const Color(0xFFCBD5E1)
-                          : const Color(0xFF93C5FD),
-                      iconColor: isOnlineTestCompleted
-                          ? const Color(0xFF64748B)
-                          : const Color(0xFF1D4ED8),
-                      textColor: isOnlineTestCompleted
-                          ? const Color(0xFF475569)
-                          : const Color(0xFF1D4ED8),
-                      onTap: isOnlineTestCompleted
-                          ? null
-                          : () => _openOnlineTest(applicationMap),
-                      showChevron: !isOnlineTestCompleted,
-                      trailing: isOnlineTestCompleted
-                          ? const Icon(
-                              Icons.check_circle_rounded,
-                              color: Color(0xFF64748B),
-                              size: 22,
-                            )
-                          : null,
-                    ),
-                  ],
-                  if (rawStatus == 'accepted') ...[
-                    const SizedBox(height: 12),
-                    _buildApplicationActionTile(
-                      icon: isOfferExpired
-                          ? Icons.hourglass_disabled_rounded
-                          : isConfirmedThisApplication
-                          ? Icons.verified_rounded
-                          : hasConfirmedSelection
-                          ? Icons.lock_outline_rounded
-                          : Icons.check_circle_outline_rounded,
-                      label: isOfferExpired
-                          ? 'Offer Expired'
-                          : isConfirmedThisApplication
-                          ? 'Confirmed Placement'
-                          : hasConfirmedSelection
-                          ? 'Placement Confirmed Elsewhere'
-                          : 'Confirm',
-                      subtitle: isOfferExpired
-                          ? offerExpiresAt == null
-                                ? 'This accepted offer expired because it was not confirmed within 48 hours.'
-                                : 'This accepted offer expired because it was not confirmed within 48 hours. Deadline was ${_formatDate(offerExpiresAt.toIso8601String())}.'
-                          : isConfirmedThisApplication
-                          ? 'You selected ${app['company_name'] ?? 'this company'}.'
-                          : hasConfirmedSelection
-                          ? 'You already confirmed $confirmedCompanyName, so this offer is no longer active.'
-                          : '',
-                      backgroundColor: isOfferExpired
-                          ? const Color(0xFFFFF4EC)
-                          : isConfirmedThisApplication
-                          ? const Color(0xFFEAF7F2)
-                          : hasConfirmedSelection
-                          ? const Color(0xFFFFF4EC)
-                          : const Color(0xFFEAF6EE),
-                      borderColor: isOfferExpired
-                          ? const Color(0xFFF2BE8C)
-                          : isConfirmedThisApplication
-                          ? const Color(0xFF7BC9A8)
-                          : hasConfirmedSelection
-                          ? const Color(0xFFF2BE8C)
-                          : const Color(0xFFA7D7BA),
-                      iconColor: isOfferExpired
-                          ? const Color(0xFFD97706)
-                          : isConfirmedThisApplication
-                          ? const Color(0xFF0F766E)
-                          : hasConfirmedSelection
-                          ? const Color(0xFFD97706)
-                          : const Color(0xFF0F766E),
-                      textColor: isOfferExpired
-                          ? const Color(0xFFB45309)
-                          : isConfirmedThisApplication
-                          ? const Color(0xFF0F766E)
-                          : hasConfirmedSelection
-                          ? const Color(0xFFB45309)
-                          : const Color(0xFF0F766E),
-                      onTap:
-                          !isConfirmedThisApplication &&
-                              !hasConfirmedSelection &&
-                              !isOfferExpired
-                          ? () => _confirmCompanySelection(
-                              Map<String, dynamic>.from(app),
-                            )
-                          : null,
-                      isLoading: isConfirming,
-                      trailing: isOfferExpired
-                          ? const Icon(
-                              Icons.lock_clock_rounded,
-                              color: Color(0xFFD97706),
-                              size: 22,
-                            )
-                          : isConfirmedThisApplication
-                          ? const Icon(
-                              Icons.check_circle_rounded,
-                              color: Color(0xFF0F766E),
-                              size: 22,
-                            )
-                          : hasConfirmedSelection
-                          ? const Icon(
-                              Icons.block_rounded,
-                              color: Color(0xFFD97706),
-                              size: 22,
-                            )
-                          : null,
-                    ),
-                  ] else if (rawStatus == 'assigned' &&
-                      isManualAssignment &&
-                      !hasOnlineTestInvitation) ...[
-                    const SizedBox(height: 12),
-                    _buildApplicationActionTile(
-                      icon: Icons.assignment_turned_in_rounded,
-                      label: 'Assigned Placement',
-                      subtitle:
-                          '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName. Waiting for company acceptance.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
-                      backgroundColor: const Color(0xFFEFF6FF),
-                      borderColor: const Color(0xFFBFDBFE),
-                      iconColor: const Color(0xFF2563EB),
-                      textColor: const Color(0xFF1D4ED8),
-                      onTap: null,
-                      showChevron: false,
-                      trailing: const Icon(
-                        Icons.hourglass_top_rounded,
-                        color: Color(0xFF2563EB),
-                        size: 22,
-                      ),
-                    ),
-                  ] else if (status == 'confirmed' && isManualAssignment) ...[
-                    const SizedBox(height: 12),
-                    _buildApplicationActionTile(
-                      icon: Icons.verified_rounded,
-                      label: 'Confirmed Placement',
-                      subtitle:
-                          '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
-                      backgroundColor: const Color(0xFFEAF7F2),
-                      borderColor: const Color(0xFF7BC9A8),
-                      iconColor: const Color(0xFF0F766E),
-                      textColor: const Color(0xFF0F766E),
-                      onTap: null,
-                      showChevron: false,
-                      trailing: const Icon(
-                        Icons.assignment_turned_in_rounded,
-                        color: Color(0xFF0F766E),
-                        size: 22,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

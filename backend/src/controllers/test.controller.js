@@ -187,6 +187,124 @@ const mapQuestionForStudent = (question) => ({
     question_options: question.question_options || []
 });
 
+const formatScoreValue = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0';
+    return Number.isInteger(number) ? `${number}` : number.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const getAttemptScoreSummary = async (attemptId, client = pool) => {
+    const result = await client.query(
+        `SELECT ta.id AS attempt_id,
+                ta.student_id,
+                ta.test_id,
+                ta.status AS attempt_status,
+                ta.total_score,
+                ta.submitted_at,
+                t.title,
+                t.pass_mark,
+                t.job_id,
+                t.company_id,
+                COALESCE(SUM(q.marks), 0) AS total_marks,
+                CASE
+                    WHEN COALESCE(SUM(q.marks), 0) = 0 THEN 0
+                    ELSE ROUND((COALESCE(ta.total_score, 0) / SUM(q.marks)) * 100, 2)
+                END AS score_percent,
+                COUNT(a.id) FILTER (
+                    WHERE q.question_type IN ('paragraph', 'code')
+                      AND a.score_awarded IS NULL
+                )::int AS ungraded_count
+         FROM test_attempts ta
+         JOIN tests t ON t.id = ta.test_id
+         LEFT JOIN questions q ON q.test_id = ta.test_id
+         LEFT JOIN answers a
+                ON a.attempt_id = ta.id
+               AND a.question_id = q.id
+         WHERE ta.id = $1
+         GROUP BY ta.id, t.id`,
+        [attemptId]
+    );
+
+    return result.rows[0] || null;
+};
+
+const createNotification = async (client, notificationData) => {
+    const { user_id, title, message, type } = notificationData;
+    await client.query(
+        `INSERT INTO notifications (user_id, title, message, type, is_read, created_at)
+         VALUES ($1, $2, $3, $4, false, CURRENT_TIMESTAMP)`,
+        [user_id, title, message, type]
+    );
+};
+
+const syncAttemptSelectionAndNotify = async ({
+    client,
+    attemptId,
+    notifyStudent = false,
+    notifyPending = true
+}) => {
+    const summary = await getAttemptScoreSummary(attemptId, client);
+    if (!summary || summary.attempt_status !== 'completed') {
+        return summary;
+    }
+
+    const scorePercent = asNumber(summary.score_percent);
+    const passMark = asNumber(summary.pass_mark);
+    const totalScore = asNumber(summary.total_score);
+    const totalMarks = asNumber(summary.total_marks);
+    const hasUngradedAnswers = asNumber(summary.ungraded_count) > 0;
+    const passed = !hasUngradedAnswers && scorePercent >= passMark;
+    const applicationStatus = passed ? 'shortlisted' : 'rejected';
+
+    if (!hasUngradedAnswers) {
+        await client.query(
+            `UPDATE students
+             SET status = $1
+             WHERE student_id = $2`,
+            [applicationStatus, summary.student_id]
+        );
+
+        if (summary.job_id) {
+            await client.query(
+                `UPDATE applications
+                 SET status = $1,
+                     updated_date = CURRENT_TIMESTAMP
+                 WHERE job_id = $2
+                   AND student_id = $3
+                   AND status <> 'accepted'`,
+                [applicationStatus, summary.job_id, summary.student_id]
+            );
+        }
+    }
+
+    if (notifyStudent && (!hasUngradedAnswers || notifyPending)) {
+        const resultLabel = hasUngradedAnswers
+            ? 'Some answers are waiting for manual grading.'
+            : passed
+              ? 'You reached the pass mark and have been  for the next step.'
+              : 'You did not reach the pass mark for this test.';
+
+        await createNotification(client, {
+            user_id: summary.student_id,
+            title: 'Online test score',
+            message:
+                `Your answers for "${summary.title}" were submitted successfully. ` +
+                `You scored ${formatScoreValue(totalScore)}/${formatScoreValue(totalMarks)} ` +
+                `(${formatScoreValue(scorePercent)}%). ${resultLabel}`,
+            type: 'test_score'
+        });
+    }
+
+    return {
+        ...summary,
+        selection_status: hasUngradedAnswers
+            ? 'pending'
+            : passed
+              ? 'selected'
+              : 'not_selected'
+    };
+};
+
 const createTest = async (req, res) => {
     let client;
     try {
@@ -479,36 +597,56 @@ const getResults = async (req, res) => {
     try {
         await ensureOrganizationTestAccess(req, req.params.testId);
         const result = await query(
-            `SELECT ta.id AS attempt_id,
-                    ta.student_id,
-                    ta.test_id,
-                    ta.unique_link,
-                    ta.started_at,
-                    ta.submitted_at,
-                    ta.total_score,
-                    ta.status AS attempt_status,
-                    u.full_name AS student_name,
-                    u.email,
-                    a.application_id,
-                    COALESCE(a.status, s.status, 'pending') AS selection_status,
-                    t.title,
-                    t.pass_mark,
-                    COALESCE(SUM(q.marks), 0) AS total_marks,
+            `WITH attempt_scores AS (
+                SELECT ta.id AS attempt_id,
+                       ta.student_id,
+                       ta.test_id,
+                       ta.unique_link,
+                       ta.started_at,
+                       ta.submitted_at,
+                       ta.total_score,
+                       ta.status AS attempt_status,
+                       u.full_name AS student_name,
+                       u.email,
+                       a.application_id,
+                       a.status AS application_status,
+                       s.status AS student_selection_status,
+                       t.title,
+                       t.pass_mark,
+                       COALESCE(SUM(q.marks), 0) AS total_marks,
+                       CASE
+                           WHEN COALESCE(SUM(q.marks), 0) = 0 THEN 0
+                           ELSE ROUND((COALESCE(ta.total_score, 0) / SUM(q.marks)) * 100, 2)
+                       END AS score_percent,
+                       COUNT(ans.id) FILTER (
+                           WHERE q.question_type IN ('paragraph', 'code')
+                             AND ans.score_awarded IS NULL
+                       )::int AS ungraded_count
+                FROM test_attempts ta
+                JOIN tests t ON t.id = ta.test_id
+                JOIN users u ON u.user_id = ta.student_id
+                JOIN students s ON s.student_id = ta.student_id
+                LEFT JOIN applications a
+                       ON a.student_id = ta.student_id
+                      AND a.job_id = t.job_id
+                LEFT JOIN questions q ON q.test_id = ta.test_id
+                LEFT JOIN answers ans
+                       ON ans.attempt_id = ta.id
+                      AND ans.question_id = q.id
+                WHERE ta.test_id = $1
+                GROUP BY ta.id, u.full_name, u.email, a.application_id, a.status,
+                         s.status, t.title, t.pass_mark, t.job_id, t.company_id
+             )
+             SELECT *,
                     CASE
-                        WHEN COALESCE(SUM(q.marks), 0) = 0 THEN 0
-                        ELSE ROUND((COALESCE(ta.total_score, 0) / SUM(q.marks)) * 100, 2)
-                    END AS score_percent
-             FROM test_attempts ta
-             JOIN tests t ON t.id = ta.test_id
-             JOIN users u ON u.user_id = ta.student_id
-             JOIN students s ON s.student_id = ta.student_id
-             LEFT JOIN applications a
-                    ON a.student_id = ta.student_id
-                   AND a.job_id = t.job_id
-             LEFT JOIN questions q ON q.test_id = ta.test_id
-             WHERE ta.test_id = $1
-             GROUP BY ta.id, u.full_name, u.email, a.application_id, a.status, s.status, t.title, t.pass_mark
-             ORDER BY score_percent DESC, ta.submitted_at ASC NULLS LAST, u.full_name ASC`,
+                        WHEN application_status = 'accepted' THEN 'accepted'
+                        WHEN attempt_status = 'completed' AND ungraded_count > 0 THEN 'pending'
+                        WHEN attempt_status = 'completed' AND score_percent >= pass_mark THEN 'selected'
+                        WHEN attempt_status = 'completed' THEN 'not_selected'
+                        ELSE COALESCE(NULLIF(application_status, ''), student_selection_status, 'pending')
+                    END AS selection_status
+             FROM attempt_scores
+             ORDER BY score_percent DESC, submitted_at ASC NULLS LAST, student_name ASC`,
             [req.params.testId]
         );
 
@@ -823,11 +961,22 @@ const submitAttempt = async (req, res) => {
             [attempt.attempt_id, totalScore]
         );
 
+        const summary = await syncAttemptSelectionAndNotify({
+            client,
+            attemptId: attempt.attempt_id,
+            notifyStudent: true,
+            notifyPending: true
+        });
+
         await client.query('COMMIT');
         return res.json({
             success: true,
             message: 'Test submitted successfully',
-            data: { total_score: Number(totalScore) }
+            data: {
+                total_score: Number(totalScore),
+                score_percent: Number(summary?.score_percent || 0),
+                selection_status: summary?.selection_status || 'pending'
+            }
         });
     } catch (error) {
         if (client) await client.query('ROLLBACK').catch(() => {});
@@ -839,6 +988,7 @@ const submitAttempt = async (req, res) => {
 };
 
 const gradeAnswerManually = async (req, res) => {
+    let client;
     try {
         const score = asNumber(req.body?.score_awarded, -1);
         if (score < 0) {
@@ -848,7 +998,29 @@ const gradeAnswerManually = async (req, res) => {
             });
         }
 
-        const result = await query(
+        client = await pool.connect();
+        await client.query('BEGIN');
+
+        if (isOrganizationRequest(req)) {
+            const accessResult = await client.query(
+                `SELECT ans.id
+                 FROM answers ans
+                 JOIN test_attempts ta ON ta.id = ans.attempt_id
+                 JOIN tests t ON t.id = ta.test_id
+                 WHERE ans.id = $1 AND t.company_id = $2
+                 LIMIT 1`,
+                [req.params.answerId, req.user.user_id]
+            );
+            if (accessResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not allowed to grade this answer.'
+                });
+            }
+        }
+
+        const result = await client.query(
             `UPDATE answers
              SET score_awarded = $1, updated_at = NOW()
              WHERE id = $2
@@ -857,10 +1029,11 @@ const gradeAnswerManually = async (req, res) => {
         );
 
         if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ success: false, message: 'Answer not found.' });
         }
 
-        await query(
+        await client.query(
             `UPDATE test_attempts
              SET total_score = (
                     SELECT COALESCE(SUM(score_awarded), 0)
@@ -872,10 +1045,21 @@ const gradeAnswerManually = async (req, res) => {
             [result.rows[0].attempt_id]
         );
 
+        await syncAttemptSelectionAndNotify({
+            client,
+            attemptId: result.rows[0].attempt_id,
+            notifyStudent: true,
+            notifyPending: false
+        });
+
+        await client.query('COMMIT');
         return res.json({ success: true, message: 'Score updated.' });
     } catch (error) {
+        if (client) await client.query('ROLLBACK').catch(() => {});
         console.error('Manual answer grading error:', error);
         return res.status(500).json({ success: false, message: error.message });
+    } finally {
+        client?.release();
     }
 };
 

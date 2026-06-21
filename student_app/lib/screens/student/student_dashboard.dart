@@ -310,19 +310,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
-  void _showBottomSnackBar(String message, Color backgroundColor) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showAppSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: backgroundColor,
-        behavior: SnackBarBehavior.floating,
-        width: 280,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
   Future<void> _logout() async {
     final language = context.read<LanguageProvider>();
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -349,13 +336,17 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
     if (!mounted) return;
     if (confirmed == true) {
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
       await authProvider.logout();
       if (!mounted) return;
-      _showBottomSnackBar(language.tr('logout_success'), Colors.green);
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
+      messenger.showAppSnackBar(
+        SnackBar(
+          content: Text(language.tr('logout_success')),
+          backgroundColor: Colors.green,
+        ),
+      );
+      navigator.pushAndRemoveUntil(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
         (route) => false,
       );
@@ -626,7 +617,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
     final language = context.watch<LanguageProvider>();
     final user = Provider.of<AuthProvider>(context).user;
     final fullName = user?['full_name'] ?? language.tr('student');
-    final email = user?['email'] ?? 'student@example.com';
+    final email = '${user?['email'] ?? ''}';
     final firstName = fullName.split(' ')[0];
     final today = _formatToday();
     final isDesktop = _isDesktopWidth(MediaQuery.sizeOf(context).width);
@@ -1344,7 +1335,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Color(0xFF1F2937),
             ),
           ),
-          
+
           const SizedBox(height: 14),
           // Stats cards
           LayoutBuilder(
@@ -1418,7 +1409,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     SizedBox(height: 4),
-                    
                   ],
                 ),
               ),
@@ -1911,7 +1901,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: _StudentRecentMetaCard(
                           icon: Icons.schedule_rounded,
                           label: timeLabel,
-                        tint: const Color(0xFF5B6C84),
+                          tint: const Color(0xFF5B6C84),
                         ),
                       ),
                       const Spacer(),

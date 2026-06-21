@@ -2939,31 +2939,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildTrainingPreviewPanel(bool isDesktop) {
-    final slides = const [
+    final slides = const <(IconData, String, String, Color, String?)>[
       (
         Icons.engineering_outlined,
         'Industrial Practical Training',
         'Hands-on workplace learning in companies, government institutions, '
             'industries, and NGOs.',
         Color(0xFF155A99),
+        'assets/images/ipt.png',
       ),
       (
         Icons.terrain_outlined,
         'Field Practical Training',
         'Field visits, surveys, community work, and professional observation.',
         Color(0xFF047545),
+        'assets/images/pt.png',
       ),
       (
         Icons.local_hospital_outlined,
         'Clinical Practice',
         'Supervised practical exposure in hospitals and health facilities.',
         Color(0xFF0F766E),
+        null,
       ),
       (
         Icons.school_outlined,
         'Teaching Practice',
         'Classroom practice and academic mentorship for education students.',
         Color(0xFF7C3AED),
+        null,
       ),
     ];
 
@@ -3022,6 +3026,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         title: slide.$2,
                         body: slide.$3,
                         color: slide.$4,
+                        imageAsset: slide.$5,
                       ),
                     );
                   },
@@ -3240,12 +3245,14 @@ class _TrainingPreviewCard extends StatelessWidget {
     required this.title,
     required this.body,
     required this.color,
+    this.imageAsset,
   });
 
   final IconData icon;
   final String title;
   final String body;
   final Color color;
+  final String? imageAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -3273,33 +3280,61 @@ class _TrainingPreviewCard extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  Positioned(
-                    right: -24,
-                    top: -24,
-                    child: Icon(
-                      icon,
-                      size: 160,
-                      color: color.withValues(alpha: 0.12),
-                    ),
-                  ),
-                  Center(
-                    child: Container(
-                      height: 128,
-                      width: 128,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: color.withValues(alpha: 0.24),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
+                  if (imageAsset != null) ...[
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          imageAsset!,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                        ),
                       ),
-                      child: Icon(icon, size: 64, color: Colors.white),
                     ),
-                  ),
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.18),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    Positioned(
+                      right: -24,
+                      top: -24,
+                      child: Icon(
+                        icon,
+                        size: 160,
+                        color: color.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    Center(
+                      child: Container(
+                        height: 128,
+                        width: 128,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.24),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Icon(icon, size: 64, color: Colors.white),
+                      ),
+                    ),
+                  ],
                   Positioned(
                     left: 18,
                     bottom: 18,

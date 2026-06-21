@@ -693,8 +693,8 @@ class _LoginPortalFooter extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
-        color: Color(0xFF155A99),
-        border: Border(top: BorderSide(color: Color(0xFF10B981), width: 3)),
+        color: Color(0xFF12366D),
+        border: Border(top: BorderSide(color: Color(0xFFF58A14), width: 1)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
       child: const Wrap(

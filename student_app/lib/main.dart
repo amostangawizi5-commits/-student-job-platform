@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/language_provider.dart';
 import 'screens/student/test_attempt_screen.dart';
-import 'screens/splash_screen.dart';
 import 'utils/theme.dart';
+import 'widgets/auth_wrapper.dart';
 
 void main() {
   runApp(const MyApp());
@@ -176,7 +176,7 @@ class MyApp extends StatelessWidget {
             ),
             home: testToken != null && testToken.isNotEmpty
                 ? TestAttemptScreen(token: testToken)
-                : const SplashScreen(),
+                : const AuthWrapper(),
           );
         },
       ),

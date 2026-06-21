@@ -166,8 +166,14 @@ const getUniversityPlacedStudents = async (req, res) => {
                 a.student_id,
                 a.status,
                 a.applied_date,
+                a.accepted_at,
                 a.updated_date,
                 a.response_letter_sent_at,
+                a.student_confirmation_status,
+                a.student_confirmed_at AS confirmed_at,
+                a.company_feedback,
+                a.reporting_start_date,
+                a.reporting_end_date,
                 u.full_name AS student_name,
                 u.email,
                 u.phone,
@@ -177,12 +183,17 @@ const getUniversityPlacedStudents = async (req, res) => {
                 COALESCE(uni.name, $2) AS university_name,
                 c.company_name,
                 j.title,
-                c.location AS placement_location
+                j.type,
+                COALESCE(NULLIF(j.location, ''), NULLIF(c.location, '')) AS placement_location,
+                c.location AS company_location,
+                c.department AS placement_department,
+                cu.phone AS company_phone
              FROM applications a
              JOIN students s ON a.student_id = s.student_id
              JOIN users u ON a.student_id = u.user_id
              JOIN training j ON a.job_id = j.job_id
              JOIN companies c ON j.company_id = c.company_id
+             JOIN users cu ON c.company_id = cu.user_id
              LEFT JOIN universities uni ON s.university_id = uni.university_id
              WHERE u.role IN ('student', '')
                AND a.status = 'accepted'
@@ -195,7 +206,7 @@ const getUniversityPlacedStudents = async (req, res) => {
                )
              ORDER BY
                 a.student_id,
-                COALESCE(a.updated_date, a.response_letter_sent_at, a.applied_date) DESC`,
+                COALESCE(a.student_confirmed_at, a.accepted_at, a.updated_date, a.response_letter_sent_at, a.applied_date) DESC`,
             [scope.universityIdText, collegeName]
         );
 
