@@ -74,7 +74,25 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const webPublicDir = path.join(__dirname, 'public');
-app.use(express.static(webPublicDir));
+const noCacheStaticFiles = new Set([
+    '/index.html',
+    '/flutter_bootstrap.js',
+    '/flutter_service_worker.js',
+    '/main.dart.js',
+    '/manifest.json',
+    '/version.json'
+]);
+
+app.use(express.static(webPublicDir, {
+    setHeaders: (res, filePath) => {
+        const publicPath = `/${path.relative(webPublicDir, filePath).replace(/\\/g, '/')}`;
+        if (noCacheStaticFiles.has(publicPath)) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    }
+}));
 
 // ============ TEST ROUTES ============
 app.get('/', (req, res) => {

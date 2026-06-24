@@ -21,4 +21,4 @@ flutter --version
 
 cd "$ROOT_DIR/student_app"
 flutter pub get
-flutter build web --release --dart-define=API_BASE_URL="$API_BASE_URL"
+flutter build web --release --pwa-strategy=none --dart-define=API_BASE_URL="$API_BASE_URL"
