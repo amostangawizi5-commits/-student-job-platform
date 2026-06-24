@@ -1134,7 +1134,7 @@ class _TestManagementHeader extends StatelessWidget {
                     color: _brandOrange.withValues(alpha: 0.5),
                   ),
                 ),
-                child: Image.asset(AppAssets.splashLogo),
+                child: Image.asset(AppAssets.homeLogo),
               ),
               const SizedBox(width: 14),
               Expanded(

@@ -24,7 +24,7 @@ class _TrainingCategory {
 
 const List<_TrainingCategory> _trainingCategories = [
   _TrainingCategory(
-    title: 'Industrial Practical Training (IPT)',
+    title: 'industrial practical training (IPT)',
     description:
         'Hands-on training in industries, companies, government institutions, '
         'or NGOs to apply theoretical knowledge.',
@@ -778,31 +778,46 @@ class _HeaderBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 46, width: 78, child: _IptKiganjaniLogo()),
-        const SizedBox(width: 10),
-        RichText(
-          text: const TextSpan(
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
-            ),
+    return Semantics(
+      button: true,
+      label: 'Open splash screen',
+      child: InkWell(
+        onTap: () {
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/splash', (route) => false);
+        },
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              TextSpan(
-                text: 'IPT ',
-                style: TextStyle(color: _brandNavy),
-              ),
-              TextSpan(
-                text: 'Kiganjani',
-                style: TextStyle(color: _brandOrange),
+              const SizedBox(height: 46, width: 78, child: _IptKiganjaniLogo()),
+              const SizedBox(width: 10),
+              RichText(
+                text: const TextSpan(
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: 'IPT ',
+                      style: TextStyle(color: _brandNavy),
+                    ),
+                    TextSpan(
+                      text: 'Kiganjani',
+                      style: TextStyle(color: _brandOrange),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -1027,11 +1042,24 @@ class _HeroSection extends StatelessWidget {
                                 ),
                                 children: const [
                                   TextSpan(
-                                    text: 'INDUSTRIAL PRACTICAL Training\n',
+                                    text: 'industrial ',
+                                    style: TextStyle(color: Color(0xFFFFC21A)),
                                   ),
                                   TextSpan(
-                                    text: 'Management System',
-                                    style: TextStyle(color: Color(0xFFFFC21A)),
+                                    text: 'practical ',
+                                    style: TextStyle(color: Color(0xFF22A7A8)),
+                                  ),
+                                  TextSpan(
+                                    text: 'training\n',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  TextSpan(
+                                    text: 'management ',
+                                    style: TextStyle(color: Color(0xFFE97612)),
+                                  ),
+                                  TextSpan(
+                                    text: 'system',
+                                    style: TextStyle(color: Colors.white),
                                   ),
                                 ],
                               ),
@@ -1639,7 +1667,7 @@ class _TrainingListSectionState extends State<_TrainingListSection> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Browse training',
+                        'PLACEMENT OPPORTUNITY',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -1731,7 +1759,7 @@ class _TrainingListSectionState extends State<_TrainingListSection> {
               columnSpacing: widget.isCompact ? 24 : 56,
               columns: const [
                 DataColumn(label: Text('S/N')),
-                DataColumn(label: Text('ADVERT NAME')),
+                DataColumn(label: Text('PLACEMENT OPPORTUNITY')),
                 DataColumn(label: Text('COMPANY NAME')),
                 DataColumn(label: Text('CLOSE DATE')),
                 DataColumn(label: Text('ACTION')),
@@ -1852,7 +1880,7 @@ class _TrainingListSectionState extends State<_TrainingListSection> {
                   children: [
                     const Center(
                       child: Text(
-                        'All Posted Training',
+                        'PLACEMENT OPPORTUNITY',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppTheme.primaryDark,

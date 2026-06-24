@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../utils/assets.dart';
 import '../../utils/role_theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../auth/login_screen.dart';
@@ -41,10 +42,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
   final ApiService _apiService = ApiService();
 
   bool _isDesktopWidth(double width) => width >= 1100;
-
-  String _formatToday(BuildContext context) {
-    return MaterialLocalizations.of(context).formatFullDate(DateTime.now());
-  }
 
   List<Widget> _buildScreens() {
     return [
@@ -409,226 +406,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+    final language = context.watch<LanguageProvider>();
     final isDesktop = _isDesktopWidth(MediaQuery.sizeOf(context).width);
-    final adminEmail = '${auth.user?['email'] ?? ''}';
     final navigationItems = _navigationItems();
-    final today = _formatToday(context);
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        backgroundColor: _adminBrandNavy,
-        surfaceTintColor: _adminBrandNavy,
-        elevation: 0,
-        toolbarHeight: 104,
-        leadingWidth: 84,
-        titleSpacing: 12,
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
-        flexibleSpace: const DecoratedBox(
-          decoration: BoxDecoration(color: _adminBrandNavy),
+      appBar: PreferredSize(
+        preferredSize: Size.fromHeight(isDesktop ? 74 : 108),
+        child: _AdminPortalHeader(
+          isCompact: !isDesktop,
+          unreadNotifications: _unreadNotifications,
+          language: language,
+          onNotificationsPressed: _openNotifications,
+          onMoreSelected: _handleMoreAction,
         ),
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Center(
-            child: Container(
-              height: 56,
-              width: 56,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.16),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/images/splash_logo.png',
-                  height: 64,
-                  width: 64,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Icon(
-                      Icons.admin_panel_settings_rounded,
-                      size: 34,
-                      color: _adminBrandNavy,
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-        title: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Text(
-              'INDUSTRIAL PRACTICAL TRAINING',
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              adminEmail,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.82),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
-                    ),
-                  ),
-                  child: Text(
-                    navigationItems[_currentIndex].label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (isDesktop)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.16),
-                      ),
-                    ),
-                    child: Text(
-                      today,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: _openNotifications,
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                const Icon(
-                  Icons.notifications_outlined,
-                  color: Colors.white,
-                  size: 24,
-                ),
-                if (_unreadNotifications > 0)
-                  Positioned(
-                    right: -2,
-                    top: -2,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _adminBrandOrange,
-                        borderRadius: BorderRadius.circular(99),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.72),
-                        ),
-                      ),
-                      constraints: const BoxConstraints(minWidth: 16),
-                      child: Text(
-                        _unreadNotifications > 99
-                            ? '99+'
-                            : '$_unreadNotifications',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          PopupMenuButton<_AdminMoreAction>(
-            tooltip: 'More actions',
-            onSelected: _handleMoreAction,
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: _AdminMoreAction.settings,
-                child: Row(
-                  children: const [
-                    Icon(Icons.settings_outlined, size: 18),
-                    SizedBox(width: 10),
-                    Expanded(child: Text('Settings')),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: _AdminMoreAction.language,
-                child: Row(
-                  children: const [
-                    Icon(Icons.language_outlined, size: 18),
-                    SizedBox(width: 10),
-                    Expanded(child: Text('Language')),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: _AdminMoreAction.logout,
-                child: Row(
-                  children: const [
-                    Icon(Icons.logout_rounded, size: 18),
-                    SizedBox(width: 10),
-                    Expanded(child: Text('Logout')),
-                  ],
-                ),
-              ),
-            ],
-            icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
-          ),
-          const SizedBox(width: 4),
-        ],
       ),
       body: isDesktop
           ? Row(
@@ -683,4 +475,303 @@ class _AdminNavigationItem {
 
   final String label;
   final IconData icon;
+}
+
+class _AdminPortalHeader extends StatelessWidget {
+  const _AdminPortalHeader({
+    required this.isCompact,
+    required this.unreadNotifications,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final bool isCompact;
+  final int unreadNotifications;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_AdminMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: StudentRoleTheme.surfaceSoft,
+      elevation: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: StudentRoleTheme.surfaceSoft,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 14 : 58,
+            vertical: isCompact ? 6 : 12,
+          ),
+          child: isCompact
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        const _AdminHeaderBrand(),
+                        const Spacer(),
+                        _AdminHeaderActions(
+                          unreadNotifications: unreadNotifications,
+                          language: language,
+                          onNotificationsPressed: onNotificationsPressed,
+                          onMoreSelected: onMoreSelected,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const _AdminHeaderCenterTitle(isCompact: true),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const _AdminHeaderBrand(),
+                    const Expanded(child: _AdminHeaderCenterTitle()),
+                    _AdminHeaderActions(
+                      unreadNotifications: unreadNotifications,
+                      language: language,
+                      onNotificationsPressed: onNotificationsPressed,
+                      onMoreSelected: onMoreSelected,
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminHeaderBrand extends StatelessWidget {
+  const _AdminHeaderBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 46,
+          width: 78,
+          child: Image.asset(
+            AppAssets.homeLogo,
+            fit: BoxFit.contain,
+            alignment: Alignment.center,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) {
+              return const Icon(
+                Icons.admin_panel_settings_rounded,
+                color: StudentRoleTheme.navy,
+                size: 30,
+              );
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        RichText(
+          text: const TextSpan(
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+            children: [
+              TextSpan(
+                text: 'IPT ',
+                style: TextStyle(color: StudentRoleTheme.navy),
+              ),
+              TextSpan(
+                text: 'Kiganjani',
+                style: TextStyle(color: StudentRoleTheme.accentOrange),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AdminHeaderCenterTitle extends StatelessWidget {
+  const _AdminHeaderCenterTitle({this.isCompact = false});
+
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'THE UNITED REPUBLIC OF TANZANIA\nPRACTICAL TRAINING SYSTEM',
+      textAlign: TextAlign.center,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: StudentRoleTheme.navy,
+        fontSize: isCompact ? 12 : 15,
+        height: 1.25,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+    );
+  }
+}
+
+class _AdminHeaderActions extends StatelessWidget {
+  const _AdminHeaderActions({
+    required this.unreadNotifications,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final int unreadNotifications;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_AdminMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _AdminNotificationButton(
+          unreadNotifications: unreadNotifications,
+          tooltip: 'Notifications',
+          onPressed: onNotificationsPressed,
+        ),
+        const SizedBox(width: 8),
+        _AdminHeaderMenuButton(language: language, onSelected: onMoreSelected),
+      ],
+    );
+  }
+}
+
+class _AdminNotificationButton extends StatelessWidget {
+  const _AdminNotificationButton({
+    required this.unreadNotifications,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final int unreadNotifications;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        SizedBox(
+          height: 38,
+          width: 38,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: StudentRoleTheme.accent,
+              backgroundColor: StudentRoleTheme.primary,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: Tooltip(
+              message: tooltip,
+              child: const Icon(Icons.notifications_outlined, size: 21),
+            ),
+          ),
+        ),
+        if (unreadNotifications > 0)
+          Positioned(
+            right: -4,
+            top: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 1.4),
+              ),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              child: Text(
+                unreadNotifications > 99 ? '99+' : '$unreadNotifications',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AdminHeaderMenuButton extends StatelessWidget {
+  const _AdminHeaderMenuButton({
+    required this.language,
+    required this.onSelected,
+  });
+
+  final LanguageProvider language;
+  final PopupMenuItemSelected<_AdminMoreAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_AdminMoreAction>(
+      tooltip: 'More actions',
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _AdminMoreAction.settings,
+          child: Row(
+            children: const [
+              Icon(Icons.settings_outlined, size: 18),
+              SizedBox(width: 10),
+              Expanded(child: Text('Settings')),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: _AdminMoreAction.language,
+          child: Row(
+            children: const [
+              Icon(Icons.language_outlined, size: 18),
+              SizedBox(width: 10),
+              Expanded(child: Text('Language')),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _AdminMoreAction.logout,
+          child: Row(
+            children: [
+              const Icon(Icons.logout_rounded, size: 18),
+              const SizedBox(width: 10),
+              Expanded(child: Text(language.tr('logout'))),
+            ],
+          ),
+        ),
+      ],
+      icon: const Icon(Icons.more_vert_rounded),
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      iconColor: StudentRoleTheme.navy,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    );
+  }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 
 import '../../services/api_service.dart';
+import '../../utils/assets.dart';
 import '../../utils/role_theme.dart';
 import 'admin_application_filter.dart';
 import 'admin_user_filter.dart';
@@ -727,7 +728,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
             ),
             child: Image.asset(
-              'assets/images/splash_logo.png',
+              AppAssets.homeLogo,
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return const Icon(

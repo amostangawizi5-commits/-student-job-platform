@@ -9,14 +9,15 @@ import '../data/tcu_university_institutions.dart';
 
 class ApiService {
   static const String _localApiBaseUrl = 'http://localhost:5000';
-  static const String _defaultAndroidDeviceApiBaseUrl =
-      'http://10.104.30.219:5000';
+  static const String _hostedApiBaseUrl =
+      'https://student-job-platform-api.onrender.com';
+  static const String _defaultAndroidDeviceApiBaseUrl = _hostedApiBaseUrl;
   static const String _androidDeviceApiBaseUrl = String.fromEnvironment(
     'ANDROID_LOCAL_API_BASE_URL',
     defaultValue: _defaultAndroidDeviceApiBaseUrl,
   );
-  static const String _webBaseUrl = _localApiBaseUrl;
-  static const String _defaultBaseUrl = _localApiBaseUrl;
+  static const String _webBaseUrl = _hostedApiBaseUrl;
+  static const String _defaultBaseUrl = _hostedApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -860,7 +861,7 @@ class ApiService {
 
         final overrideHint = kIsWeb
             ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
-            : 'Android now uses $_androidDeviceApiBaseUrl by default, while Chrome/web uses $_webBaseUrl. If your PC IP changes, run with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000 or --dart-define=ANDROID_LOCAL_API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use http://localhost:5000.';
+            : 'Android now uses $_androidDeviceApiBaseUrl by default, while Chrome/web uses $_webBaseUrl. If your PC IP changes, run with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000 or --dart-define=ANDROID_LOCAL_API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use $_localApiBaseUrl.';
         throw Exception(
           kIsWeb
               ? 'Cannot connect to server at $baseUrl. Please wait a few seconds and refresh. $overrideHint'

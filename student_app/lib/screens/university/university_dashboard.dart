@@ -25,7 +25,6 @@ const Color _universityMist = Color(0xFFEAF4FB);
 const Color _universityBorder = Color(0xFFD9E6F2);
 const Color _universityInk = Color(0xFF17324D);
 const Color _universityMuted = Color(0xFF5F7288);
-const Color _universityHeaderNavy = AdminRoleTheme.primary;
 const Color _coordinatorPrimary = Color(0xFF1E3A5F);
 const Color _coordinatorSecondary = Color(0xFFF4A261);
 const Color _coordinatorSuccess = Color(0xFF2E9C6E);
@@ -5585,30 +5584,6 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     );
   }
 
-  Widget _buildDashboardAppBarIcon({
-    required String tooltip,
-    required IconData icon,
-    required VoidCallback onPressed,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: Container(
-        height: 46,
-        width: 46,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-        ),
-        child: IconButton(
-          tooltip: tooltip,
-          onPressed: onPressed,
-          icon: Icon(icon, color: Colors.white),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -5620,177 +5595,16 @@ class _UniversityDashboardState extends State<UniversityDashboard> {
     }
 
     final isDesktop = MediaQuery.sizeOf(context).width >= 1100;
-    final universityLogoUrls = _getUniversityLogoUrls();
-    final today = MaterialLocalizations.of(
-      context,
-    ).formatFullDate(DateTime.now());
-
     return Scaffold(
       backgroundColor: _coordinatorBackground,
-      appBar: AppBar(
-        backgroundColor: _universityHeaderNavy,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        toolbarHeight: 96,
-        flexibleSpace: const DecoratedBox(
-          decoration: BoxDecoration(color: _universityHeaderNavy),
+      appBar: PreferredSize(
+        preferredSize: Size.fromHeight(isDesktop ? 74 : 108),
+        child: _UniversityPortalHeader(
+          isCompact: !isDesktop,
+          language: language,
+          onNotificationsPressed: _openNotifications,
+          onMoreSelected: _handleMoreAction,
         ),
-        leadingWidth: isDesktop ? 90 : 72,
-        leading: Padding(
-          padding: EdgeInsets.only(left: isDesktop ? 12 : 10),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              height: 54,
-              width: 54,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.98),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.16),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ClipOval(
-                child: Padding(
-                  padding: const EdgeInsets.all(3),
-                  child: Image.asset(
-                    AppAssets.splashLogo,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
-                        Icons.account_balance_rounded,
-                        color: _universityHeaderNavy,
-                        size: 24,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'INDUSTRIAL PRACTICAL TRAING SYSTEM',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              today,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.white70,
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Container(
-              height: 52,
-              width: 52,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.16),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(3),
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: ClipOval(
-                    child: _UniversityLogoImage(
-                      imageUrls: universityLogoUrls,
-                      fit: BoxFit.contain,
-                      emptyChild: const Icon(
-                        Icons.account_balance_rounded,
-                        color: _universityHeaderNavy,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          _buildDashboardAppBarIcon(
-            tooltip: language.tr('notifications'),
-            onPressed: _openNotifications,
-            icon: Icons.notifications_outlined,
-          ),
-          PopupMenuButton<_UniversityMoreAction>(
-            tooltip: language.tr('more_actions'),
-            onSelected: _handleMoreAction,
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: _UniversityMoreAction.settings,
-                child: Row(
-                  children: [
-                    const Icon(Icons.settings_outlined, size: 18),
-                    const SizedBox(width: 10),
-                    Text(language.tr('settings')),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: _UniversityMoreAction.language,
-                child: Row(
-                  children: [
-                    const Icon(Icons.language_outlined, size: 18),
-                    const SizedBox(width: 10),
-                    Text(language.tr('change_language')),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: _UniversityMoreAction.logout,
-                child: Row(
-                  children: [
-                    const Icon(Icons.logout_rounded, size: 18),
-                    const SizedBox(width: 10),
-                    Text(language.tr('logout')),
-                  ],
-                ),
-              ),
-            ],
-            icon: Container(
-              height: 46,
-              width: 46,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.14),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-              ),
-              child: const Icon(Icons.more_vert_rounded, color: Colors.white),
-            ),
-          ),
-          const SizedBox(width: 4),
-        ],
       ),
       body: SafeArea(
         child: Row(
@@ -5844,6 +5658,242 @@ class _UniversityNavigationItem {
   final String label;
   final IconData icon;
   final String subtitle;
+}
+
+class _UniversityPortalHeader extends StatelessWidget {
+  const _UniversityPortalHeader({
+    required this.isCompact,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final bool isCompact;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_UniversityMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: StudentRoleTheme.surfaceSoft,
+      elevation: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: StudentRoleTheme.surfaceSoft,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 14 : 58,
+            vertical: isCompact ? 6 : 12,
+          ),
+          child: isCompact
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        const _UniversityHeaderBrand(),
+                        const Spacer(),
+                        _UniversityHeaderActions(
+                          language: language,
+                          onNotificationsPressed: onNotificationsPressed,
+                          onMoreSelected: onMoreSelected,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const _UniversityHeaderCenterTitle(isCompact: true),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const _UniversityHeaderBrand(),
+                    const Expanded(child: _UniversityHeaderCenterTitle()),
+                    _UniversityHeaderActions(
+                      language: language,
+                      onNotificationsPressed: onNotificationsPressed,
+                      onMoreSelected: onMoreSelected,
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UniversityHeaderBrand extends StatelessWidget {
+  const _UniversityHeaderBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 46,
+          width: 78,
+          child: Image.asset(
+            AppAssets.homeLogo,
+            fit: BoxFit.contain,
+            alignment: Alignment.center,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) {
+              return Image.asset(
+                AppAssets.splashLogo,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.account_balance_rounded,
+                    color: StudentRoleTheme.navy,
+                    size: 30,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        RichText(
+          text: const TextSpan(
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+            children: [
+              TextSpan(
+                text: 'IPT ',
+                style: TextStyle(color: StudentRoleTheme.navy),
+              ),
+              TextSpan(
+                text: 'Kiganjani',
+                style: TextStyle(color: StudentRoleTheme.accentOrange),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _UniversityHeaderCenterTitle extends StatelessWidget {
+  const _UniversityHeaderCenterTitle({this.isCompact = false});
+
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'THE UNITED REPUBLIC OF TANZANIA\nPRACTICAL TRAINING SYSTEM',
+      textAlign: TextAlign.center,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: StudentRoleTheme.navy,
+        fontSize: isCompact ? 12 : 15,
+        height: 1.25,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+    );
+  }
+}
+
+class _UniversityHeaderActions extends StatelessWidget {
+  const _UniversityHeaderActions({
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_UniversityMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 38,
+          width: 38,
+          child: TextButton(
+            onPressed: onNotificationsPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: StudentRoleTheme.accent,
+              backgroundColor: StudentRoleTheme.primary,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: Tooltip(
+              message: language.tr('notifications'),
+              child: const Icon(Icons.notifications_outlined, size: 21),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        PopupMenuButton<_UniversityMoreAction>(
+          tooltip: language.tr('more_actions'),
+          onSelected: onMoreSelected,
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: _UniversityMoreAction.settings,
+              child: Row(
+                children: [
+                  const Icon(Icons.settings_outlined, size: 18),
+                  const SizedBox(width: 10),
+                  Text(language.tr('settings')),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: _UniversityMoreAction.language,
+              child: Row(
+                children: [
+                  const Icon(Icons.language_outlined, size: 18),
+                  const SizedBox(width: 10),
+                  Text(language.tr('change_language')),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: _UniversityMoreAction.logout,
+              child: Row(
+                children: [
+                  const Icon(Icons.logout_rounded, size: 18),
+                  const SizedBox(width: 10),
+                  Text(language.tr('logout')),
+                ],
+              ),
+            ),
+          ],
+          icon: const Icon(Icons.more_vert_rounded),
+          color: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          iconColor: StudentRoleTheme.navy,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ],
+    );
+  }
 }
 
 class _SidebarTile extends StatelessWidget {

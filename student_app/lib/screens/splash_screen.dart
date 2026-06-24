@@ -100,10 +100,7 @@ class _SplashScreenState extends State<SplashScreen>
   Future<Widget> _resolveNextScreen() async {
     final authProvider = context.read<AuthProvider>();
 
-    await Future.wait([
-      Future<void>.delayed(const Duration(milliseconds: 2200)),
-      authProvider.checkAuthStatus(),
-    ]);
+    await authProvider.checkAuthStatus();
 
     if (authProvider.isAuthenticated && authProvider.user != null) {
       final role = normalizeUserRole(authProvider.user!['role']);
