@@ -5,12 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/tcu_university_institutions.dart';
+
 class ApiService {
-  static const Set<String> _singleUniversityNames = {
-    'university of dodoma (udom)',
-    'university of dodoma',
-    'udom',
-  };
   static const String _localApiBaseUrl = 'http://localhost:5000';
   static const String _defaultAndroidDeviceApiBaseUrl =
       'http://10.104.30.219:5000';
@@ -1738,15 +1735,51 @@ class ApiService {
   }
 
   // ==================== UNIVERSITY METHODS ====================
-  static List<dynamic> _onlySingleUniversityOptions(dynamic data) {
-    if (data is! List) return const [];
+  static String _universityDedupeKey(Object? value) {
+    final name = value is Map ? '${value['name'] ?? ''}' : '';
+    return name.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+  }
 
-    return data
-        .where((item) {
-          if (item is! Map) return false;
-          final name = '${item['name'] ?? ''}'.trim().toLowerCase();
-          return _singleUniversityNames.contains(name);
-        })
+  static List<dynamic> _mergeWithTcuUniversities(dynamic data) {
+    final byName = <String, Map<String, dynamic>>{};
+    final officialOrder = <String>[];
+    final extraOrder = <String>[];
+
+    for (final official in tcuUniversityInstitutions) {
+      final key = _universityDedupeKey(official);
+      if (key.isEmpty) continue;
+      byName[key] = Map<String, dynamic>.from(official);
+      officialOrder.add(key);
+    }
+
+    if (data is List) {
+      for (final item in data) {
+        if (item is! Map) continue;
+        final candidate = Map<String, dynamic>.from(item);
+        final key = _universityDedupeKey(candidate);
+        if (key.isEmpty) continue;
+
+        final official = byName[key];
+        if (official == null) {
+          byName[key] = candidate;
+          extraOrder.add(key);
+          continue;
+        }
+
+        final merged = <String, dynamic>{...official, ...candidate};
+        if ('${merged['university_id'] ?? ''}'.trim().isEmpty) {
+          merged['university_id'] = official['university_id'];
+        }
+        if ('${merged['name'] ?? ''}'.trim().isEmpty) {
+          merged['name'] = official['name'];
+        }
+        byName[key] = merged;
+      }
+    }
+
+    return [...officialOrder, ...extraOrder]
+        .map((key) => byName[key])
+        .whereType<Map<String, dynamic>>()
         .toList(growable: false);
   }
 
@@ -1772,8 +1805,11 @@ class ApiService {
       );
 
       final data = response['data'];
-      if (response['success'] == true && data is List) {
-        final universities = _onlySingleUniversityOptions(data);
+      final rawUniversities = data is Map && data['universities'] is List
+          ? data['universities']
+          : data;
+      if (response['success'] == true && rawUniversities is List) {
+        final universities = _mergeWithTcuUniversities(rawUniversities);
         response['data'] = universities;
         _universitiesCache = List<dynamic>.from(universities);
         _universitiesCacheTime = DateTime.now();
@@ -1785,13 +1821,16 @@ class ApiService {
       if (_universitiesCache != null) {
         return {'success': true, 'data': _universitiesCache};
       }
+      final fallbackUniversities = _mergeWithTcuUniversities(const []);
+      _universitiesCache = List<dynamic>.from(fallbackUniversities);
+      _universitiesCacheTime = DateTime.now();
       return {
-        'success': false,
+        'success': true,
         'message': normalizeErrorMessage(
           e,
           fallback: 'Failed to load universities right now.',
         ),
-        'data': [],
+        'data': fallbackUniversities,
       };
     }
   }

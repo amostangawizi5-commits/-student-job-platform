@@ -17,7 +17,9 @@ import '../../services/browser_pdf_opener.dart';
 import '../../services/coordinator_workspace_service.dart';
 import '../../services/export_file_saver.dart';
 import '../../services/local_file_service.dart';
+import '../../utils/assets.dart';
 import '../../utils/role_theme.dart';
+import '../../utils/theme.dart';
 import '../../widgets/language_picker_dialog.dart';
 import '../auth/login_screen.dart';
 import 'company_test_management_screen.dart';
@@ -29,6 +31,8 @@ enum _OrganizationMoreAction { settings, language, logout }
 
 const Color _organizationStudentPrimary = OrganizationRoleTheme.primary;
 const Color _organizationStudentPrimaryDark = OrganizationRoleTheme.primaryDark;
+const Color _organizationLoginBlue = AppTheme.primaryBlue;
+const Color _organizationLoginBlueSoft = Color(0xFFF6FAFF);
 const Color _organizationStudentSurface = OrganizationRoleTheme.surface;
 const Color _organizationStudentBorder = OrganizationRoleTheme.border;
 const Color _organizationStudentSurfaceSoft = OrganizationRoleTheme.surfaceSoft;
@@ -94,10 +98,6 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
 
   String? _selectedTrainingId;
   String? _selectedTrainingTitle;
-
-  String _formatToday(BuildContext context) {
-    return MaterialLocalizations.of(context).formatFullDate(DateTime.now());
-  }
 
   @override
   void initState() {
@@ -388,9 +388,6 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
-    final user = context.watch<AuthProvider>().user;
-    final organizationName = _organizationDisplayName(user, language);
-    final today = _formatToday(context);
     final screens = _buildScreens();
 
     return PopScope(
@@ -412,233 +409,20 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
               ? 240.0
               : 220.0;
 
-          Widget buildNotificationButton() {
-            return IconButton(
-              tooltip: language.tr('notifications'),
-              onPressed: _openNotifications,
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(
-                    Icons.notifications_outlined,
-                    color: _organizationStudentPrimary,
-                    size: 24,
-                  ),
-                  if (_unreadNotifications > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 18,
-                          minHeight: 18,
-                        ),
-                        child: Text(
-                          _unreadNotifications > 99
-                              ? '99+'
-                              : '$_unreadNotifications',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          }
-
-          Widget buildMoreMenu() {
-            return PopupMenuButton<_OrganizationMoreAction>(
-              tooltip: language.tr('more_actions'),
-              onSelected: _handleMoreAction,
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _OrganizationMoreAction.settings,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.settings_outlined, size: 18),
-                      const SizedBox(width: 10),
-                      Text(language.tr('settings')),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _OrganizationMoreAction.language,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.language_outlined, size: 18),
-                      const SizedBox(width: 10),
-                      Text(language.tr('change_language')),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: _OrganizationMoreAction.logout,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.logout_rounded, size: 18),
-                      const SizedBox(width: 10),
-                      Text(language.tr('logout')),
-                    ],
-                  ),
-                ),
-              ],
-              icon: const Icon(
-                Icons.more_vert_rounded,
-                color: _organizationStudentPrimary,
-              ),
-            );
-          }
-
-          Widget buildDashboardHeader() {
-            final screenWidth = MediaQuery.sizeOf(context).width;
-            final isCompactMobile = !isDesktop && screenWidth < 420;
-            final isCompactHeader = screenWidth < 980;
-            final logoSize = isCompactHeader ? 48.0 : 64.0;
-            final titleFontSize = isCompactMobile
-                ? 11.5
-                : (isCompactHeader ? 12.5 : 14.0);
-            final titleMaxLines = isCompactHeader ? 2 : 1;
-
-            return Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  bottom: BorderSide(
-                    color: _organizationStudentBorder,
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    height: logoSize,
-                    width: logoSize,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: _organizationStudentBorder),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: ClipOval(
-                      child: Image.asset(
-                        'assets/images/splash_logo.png',
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(
-                            Icons.verified,
-                            size: 28,
-                            color: _organizationStudentPrimary,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: isCompactHeader ? 10 : 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: isCompactHeader
-                          ? CrossAxisAlignment.start
-                          : CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'INDUSTRIAL PREACTICAL TRAINING',
-                          textAlign: isCompactHeader
-                              ? TextAlign.left
-                              : TextAlign.center,
-                          maxLines: titleMaxLines,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: _organizationStudentPrimary,
-                            fontSize: titleFontSize,
-                            fontWeight: FontWeight.w800,
-                            height: isCompactMobile ? 1.15 : 1.05,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          organizationName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: _organizationStudentPrimary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.calendar_today_rounded,
-                              size: 14,
-                              color: _organizationStudentPrimary,
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                today,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: _organizationStudentPrimary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [buildNotificationButton(), buildMoreMenu()],
-                  ),
-                ],
-              ),
-            );
-          }
-
           if (!isDesktop) {
             return Scaffold(
-              body: SafeArea(
-                child: Column(
-                  children: [
-                    buildDashboardHeader(),
-                    Expanded(
-                      child: IndexedStack(
-                        index: _currentIndex,
-                        children: screens,
-                      ),
-                    ),
-                  ],
+              backgroundColor: _organizationLoginBlueSoft,
+              appBar: PreferredSize(
+                preferredSize: const Size.fromHeight(108),
+                child: _OrganizationPortalHeader(
+                  isCompact: true,
+                  unreadNotifications: _unreadNotifications,
+                  language: language,
+                  onNotificationsPressed: _openNotifications,
+                  onMoreSelected: _handleMoreAction,
                 ),
               ),
+              body: IndexedStack(index: _currentIndex, children: screens),
               bottomNavigationBar: BottomNavigationBar(
                 type: BottomNavigationBarType.fixed,
                 currentIndex: _currentIndex,
@@ -646,7 +430,7 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
                   navigateToTab(index);
                   _loadUnreadNotificationCount();
                 },
-                selectedItemColor: _organizationStudentPrimary,
+                selectedItemColor: _organizationLoginBlue,
                 unselectedItemColor: Colors.grey.shade600,
                 items: [
                   BottomNavigationBarItem(
@@ -675,96 +459,103 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
           }
 
           return Scaffold(
-            backgroundColor: const Color(0xFFF5F7F2),
-            body: SafeArea(
-              child: Column(
-                children: [
-                  buildDashboardHeader(),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Container(
-                          width: sidebarWidth,
-                          margin: const EdgeInsets.all(18),
-                          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-                          decoration: BoxDecoration(
-                            color: _organizationSidebarMilk,
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(
-                              color: _organizationStudentBorder.withValues(
-                                alpha: 0.9,
-                              ),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.05),
-                                blurRadius: 22,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (var index = 0; index < 4; index++) ...[
-                                _OrganizationSidebarNavItem(
-                                  label: _tabLabel(language, index),
-                                  icon: _tabIcon(index),
-                                  selected: _currentIndex == index,
-                                  onTap: () {
-                                    navigateToTab(index);
-                                    _loadUnreadNotificationCount();
-                                  },
-                                ),
-                                const SizedBox(height: 10),
-                              ],
-                              const Spacer(),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 18, 18, 18),
-                            child: Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(32),
-                                border: Border.all(
-                                  color: _organizationStudentBorder.withValues(
-                                    alpha: 0.8,
-                                  ),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.04),
-                                    blurRadius: 28,
-                                    offset: const Offset(0, 12),
-                                  ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(32),
-                                child: Center(
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 1320,
-                                    ),
-                                    child: IndexedStack(
-                                      index: _currentIndex,
-                                      children: screens,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            backgroundColor: _organizationLoginBlueSoft,
+            appBar: PreferredSize(
+              preferredSize: const Size.fromHeight(74),
+              child: _OrganizationPortalHeader(
+                isCompact: false,
+                unreadNotifications: _unreadNotifications,
+                language: language,
+                onNotificationsPressed: _openNotifications,
+                onMoreSelected: _handleMoreAction,
               ),
+            ),
+            body: Column(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: sidebarWidth,
+                        margin: const EdgeInsets.all(18),
+                        padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                        decoration: BoxDecoration(
+                          color: _organizationSidebarMilk,
+                          borderRadius: BorderRadius.circular(28),
+                          border: Border.all(
+                            color: _organizationStudentBorder.withValues(
+                              alpha: 0.9,
+                            ),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.05),
+                              blurRadius: 22,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (var index = 0; index < 4; index++) ...[
+                              _OrganizationSidebarNavItem(
+                                label: _tabLabel(language, index),
+                                icon: _tabIcon(index),
+                                selected: _currentIndex == index,
+                                onTap: () {
+                                  navigateToTab(index);
+                                  _loadUnreadNotificationCount();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                            ],
+                            const Spacer(),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 18, 18, 18),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(32),
+                              border: Border.all(
+                                color: _organizationStudentBorder.withValues(
+                                  alpha: 0.8,
+                                ),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 28,
+                                  offset: const Offset(0, 12),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(32),
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 1320,
+                                  ),
+                                  child: IndexedStack(
+                                    index: _currentIndex,
+                                    children: screens,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           );
         },
@@ -910,6 +701,316 @@ String formatDeadlineDateTime(String? deadlineStr, LanguageProvider language) {
     return '$day/$month/${deadline.year} $hour:$minute';
   } catch (e) {
     return language.tr('invalid_date');
+  }
+}
+
+class _OrganizationPortalHeader extends StatelessWidget {
+  const _OrganizationPortalHeader({
+    required this.isCompact,
+    required this.unreadNotifications,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final bool isCompact;
+  final int unreadNotifications;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_OrganizationMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _organizationLoginBlueSoft,
+      elevation: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: _organizationLoginBlueSoft,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 14 : 58,
+            vertical: isCompact ? 6 : 12,
+          ),
+          child: isCompact
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        const _OrganizationHeaderBrand(),
+                        const Spacer(),
+                        _OrganizationHeaderActions(
+                          unreadNotifications: unreadNotifications,
+                          language: language,
+                          onNotificationsPressed: onNotificationsPressed,
+                          onMoreSelected: onMoreSelected,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const _OrganizationHeaderCenterTitle(isCompact: true),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const _OrganizationHeaderBrand(),
+                    const Expanded(child: _OrganizationHeaderCenterTitle()),
+                    _OrganizationHeaderActions(
+                      unreadNotifications: unreadNotifications,
+                      language: language,
+                      onNotificationsPressed: onNotificationsPressed,
+                      onMoreSelected: onMoreSelected,
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizationHeaderBrand extends StatelessWidget {
+  const _OrganizationHeaderBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 46,
+          width: 78,
+          child: Image.asset(
+            AppAssets.homeLogo,
+            fit: BoxFit.contain,
+            alignment: Alignment.center,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) {
+              return Image.asset(
+                AppAssets.splashLogo,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.business_rounded,
+                    color: _organizationLoginBlue,
+                    size: 30,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        RichText(
+          text: const TextSpan(
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+            children: [
+              TextSpan(
+                text: 'IPT ',
+                style: TextStyle(color: _organizationLoginBlue),
+              ),
+              TextSpan(
+                text: 'Kiganjani',
+                style: TextStyle(color: _organizationLoginBlue),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OrganizationHeaderCenterTitle extends StatelessWidget {
+  const _OrganizationHeaderCenterTitle({this.isCompact = false});
+
+  final bool isCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'THE UNITED REPUBLIC OF TANZANIA\nPRACTICAL TRAINING SYSTEM',
+      textAlign: TextAlign.center,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: _organizationLoginBlue,
+        fontSize: isCompact ? 12 : 15,
+        height: 1.25,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+    );
+  }
+}
+
+class _OrganizationHeaderActions extends StatelessWidget {
+  const _OrganizationHeaderActions({
+    required this.unreadNotifications,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final int unreadNotifications;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_OrganizationMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _OrganizationNotificationButton(
+          unreadNotifications: unreadNotifications,
+          tooltip: language.tr('notifications'),
+          onPressed: onNotificationsPressed,
+        ),
+        const SizedBox(width: 8),
+        _OrganizationHeaderMenuButton(
+          language: language,
+          onSelected: onMoreSelected,
+        ),
+      ],
+    );
+  }
+}
+
+class _OrganizationNotificationButton extends StatelessWidget {
+  const _OrganizationNotificationButton({
+    required this.unreadNotifications,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final int unreadNotifications;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        SizedBox(
+          height: 38,
+          width: 38,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: _organizationLoginBlue,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: Tooltip(
+              message: tooltip,
+              child: const Icon(Icons.notifications_outlined, size: 21),
+            ),
+          ),
+        ),
+        if (unreadNotifications > 0)
+          Positioned(
+            right: -4,
+            top: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 1.4),
+              ),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              child: Text(
+                unreadNotifications > 99 ? '99+' : '$unreadNotifications',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _OrganizationHeaderMenuButton extends StatelessWidget {
+  const _OrganizationHeaderMenuButton({
+    required this.language,
+    required this.onSelected,
+  });
+
+  final LanguageProvider language;
+  final PopupMenuItemSelected<_OrganizationMoreAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_OrganizationMoreAction>(
+      tooltip: language.tr('more_actions'),
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _OrganizationMoreAction.settings,
+          child: Row(
+            children: [
+              const Icon(Icons.settings_outlined, size: 18),
+              const SizedBox(width: 10),
+              Text(language.tr('settings')),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: _OrganizationMoreAction.language,
+          child: Row(
+            children: [
+              const Icon(Icons.language_outlined, size: 18),
+              const SizedBox(width: 10),
+              Text(language.tr('change_language')),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _OrganizationMoreAction.logout,
+          child: Row(
+            children: [
+              const Icon(Icons.logout_rounded, size: 18),
+              const SizedBox(width: 10),
+              Text(language.tr('logout')),
+            ],
+          ),
+        ),
+      ],
+      icon: const Icon(Icons.more_vert_rounded),
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      iconColor: _organizationLoginBlue,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    );
   }
 }
 

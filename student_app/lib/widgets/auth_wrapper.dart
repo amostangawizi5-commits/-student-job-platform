@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -8,6 +7,7 @@ import '../screens/student/student_dashboard.dart';
 import '../screens/organization/organization_dashboard.dart';
 import '../screens/admin/admin_dashboard.dart';
 import '../screens/university/university_dashboard.dart';
+import '../utils/platform_helper.dart';
 import '../utils/user_role.dart';
 
 class AuthWrapper extends StatefulWidget {
@@ -20,10 +20,7 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
 
-  bool get _isMobileDevice =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+  bool get _isMobileDevice => PlatformHelper.isMobileApp;
 
   @override
   void initState() {

@@ -1,0 +1,305 @@
+// TCU: University Institutions Approved to operate in Tanzania as of
+// February 22, 2024. Keep this list as a local fallback for registration.
+const List<Map<String, String>> tcuUniversityInstitutions = [
+  {
+    'university_id': 'tcu-udsm',
+    'name': 'University of Dar es Salaam (UDSM)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-sua',
+    'name': 'Sokoine University of Agriculture (SUA)',
+    'location': 'Morogoro',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-out',
+    'name': 'Open University of Tanzania (OUT)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-suza',
+    'name': 'State University of Zanzibar (SUZA)',
+    'location': 'Zanzibar',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-mu',
+    'name': 'Mzumbe University (MU)',
+    'location': 'Morogoro',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-nm-aist',
+    'name':
+        'Nelson Mandela African Institution of Science and Technology (NM-AIST)',
+    'location': 'Arusha',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-muhas',
+    'name': 'Muhimbili University of Health and Allied Sciences (MUHAS)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-aru',
+    'name': 'Ardhi University (ARU)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-udom',
+    'name': 'University of Dodoma (UDOM)',
+    'location': 'Dodoma',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-must',
+    'name': 'Mbeya University of Science and Technology (MUST)',
+    'location': 'Mbeya',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-mocu',
+    'name': 'Moshi Cooperative University (MoCU)',
+    'location': 'Moshi',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-mjnuat',
+    'name':
+        'Mwalimu Julius K. Nyerere University of Agriculture and Technology (MJNUAT)',
+    'location': 'Musoma',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-ku',
+    'name': 'Kairuki University (KU)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-sumait',
+    'name': 'Abdulrahman Al-Sumait University (SUMAIT)',
+    'location': 'Zanzibar',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-saut',
+    'name': 'St. Augustine University of Tanzania (SAUT)',
+    'location': 'Mwanza',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-zu',
+    'name': 'Zanzibar University (ZU)',
+    'location': 'Zanzibar',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-tuma',
+    'name': 'Tumaini University Makumira (TUMA)',
+    'location': 'Arusha',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-aku',
+    'name': 'Aga Khan University (AKU)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-cuhas',
+    'name': 'Catholic University of Health and Allied Sciences (CUHAS)',
+    'location': 'Mwanza',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-uoa',
+    'name': 'University of Arusha (UoA)',
+    'location': 'Arusha',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-sjuit',
+    'name': 'St. Joseph University in Tanzania (SJUIT)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-teku',
+    'name': 'Teofilo Kisanji University (TEKU)',
+    'location': 'Mbeya',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-mwecau',
+    'name': 'Mwenge Catholic University (MWECAU)',
+    'location': 'Moshi',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-mum',
+    'name': 'Muslim University of Morogoro (MUM)',
+    'location': 'Morogoro',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-uoi',
+    'name': 'University of Iringa (UoI)',
+    'location': 'Iringa',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-sjut',
+    'name': "St. John's University of Tanzania (SJUT)",
+    'location': 'Dodoma',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-kiut',
+    'name': 'Kampala International University in Tanzania (KIUT)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-uaut',
+    'name': 'United African University of Tanzania (UAUT)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-rucu',
+    'name': 'Ruaha Catholic University (RUCU)',
+    'location': 'Iringa',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-mzu',
+    'name': 'Mwanza University (MzU)',
+    'location': 'Mwanza',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-cuom',
+    'name': 'Catholic University of Mbeya (CUoM)',
+    'location': 'Mbeya',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-dartu',
+    'name': 'Dar es Salaam Tumaini University (DarTU)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-rmuhas',
+    'name':
+        'Rabininsia Memorial University of Health and Allied Sciences (RMUHAS)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-umst',
+    'name': 'University of Medical Sciences and Technology (UMST)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-duce',
+    'name': 'Dar es Salaam University College of Education (DUCE)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-muce',
+    'name': 'Mkwawa University College of Education (MUCE)',
+    'location': 'Iringa',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-mu-dar-campus',
+    'name': 'Mzumbe University - Dar es Salaam Campus College',
+    'location': 'Dar es Salaam',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-mu-mbeya-campus',
+    'name': 'Mzumbe University - Mbeya Campus College',
+    'location': 'Mbeya',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-mchas',
+    'name': 'Mbeya College of Health and Allied Sciences (MCHAS)',
+    'location': 'Mbeya',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-must-rc',
+    'name':
+        'Mbeya University of Science and Technology - Rukwa Campus College (MUST - RC)',
+    'location': 'Rukwa',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-sua-mpc',
+    'name':
+        'Sokoine University of Agriculture - Mizengo Pinda Campus College (SUA - MPC)',
+    'location': 'Katavi',
+    'ownership': 'Public',
+  },
+  {
+    'university_id': 'tcu-kcmuco',
+    'name': 'Kilimanjaro Christian Medical University College (KCMUCo)',
+    'location': 'Moshi',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-smmuco',
+    'name': 'Stefano Moshi Memorial University College (SMMUCo)',
+    'location': 'Moshi',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-amucta',
+    'name': 'Archbishop Mihayo University College of Tabora (AMUCTA)',
+    'location': 'Tabora',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-juco',
+    'name': 'Jordan University College (JUCo)',
+    'location': 'Morogoro',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-sfuchas',
+    'name':
+        'St. Francis University College of Health and Allied Sciences (SFUCHAS)',
+    'location': 'Morogoro',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-stemmuco',
+    'name': 'Stella Maris Mtwara University College (STeMMUCo)',
+    'location': 'Mtwara',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-maruco',
+    'name': 'Marian University College (MARUCo)',
+    'location': 'Bagamoyo',
+    'ownership': 'Private',
+  },
+  {
+    'university_id': 'tcu-sjchas',
+    'name':
+        'St. Joseph University College of Health and Allied Sciences (SJCHAS)',
+    'location': 'Dar es Salaam',
+    'ownership': 'Private',
+  },
+];

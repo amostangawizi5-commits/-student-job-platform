@@ -4,7 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
-import '../../utils/theme.dart';
+import '../../utils/role_theme.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -380,7 +380,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             child: Text(
               'Save',
               style: TextStyle(
-                color: AppTheme.primaryBlue,
+                color: StudentRoleTheme.primary,
                 fontWeight: FontWeight.w600,
                 fontSize: 16,
               ),
@@ -689,9 +689,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                       : 'Replace Student ID (PDF)',
                                 ),
                                 style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppTheme.primaryBlue,
+                                  foregroundColor: StudentRoleTheme.primary,
                                   side: BorderSide(
-                                    color: AppTheme.primaryBlue.withValues(
+                                    color: StudentRoleTheme.primary.withValues(
                                       alpha: 0.35,
                                     ),
                                   ),
@@ -1019,7 +1019,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: ElevatedButton(
                             onPressed: _isSaving ? null : _saveProfile,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryBlue,
+                              backgroundColor: StudentRoleTheme.primary,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),

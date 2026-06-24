@@ -11,4 +11,6 @@ class PlatformHelper {
 
   static bool get isIOS =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  static bool get isMobileApp => isAndroid || isIOS;
 }

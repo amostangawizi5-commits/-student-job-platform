@@ -283,36 +283,42 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Logo ya Serikali na Header
                               Column(
                                 children: [
-                                  // Logo ya Serikali
                                   Container(
-                                    height: 108,
-                                    width: 108,
+                                    height: 124,
+                                    width: 124,
+                                    padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
                                       color: Colors.white,
                                       shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: AppTheme.primaryBlue.withValues(
+                                          alpha: 0.16,
+                                        ),
+                                      ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.grey.withValues(
-                                            alpha: 0.3,
+                                          color: AppTheme.primaryBlue.withValues(
+                                            alpha: 0.18,
                                           ),
-                                          blurRadius: 10,
-                                          offset: const Offset(0, 4),
+                                          blurRadius: 18,
+                                          offset: const Offset(0, 8),
                                         ),
                                       ],
                                     ),
                                     child: ClipOval(
                                       child: Image.asset(
                                         'assets/images/splash_logo.png',
-                                        height: 108,
-                                        width: 108,
-                                        fit: BoxFit.cover,
+                                        fit: BoxFit.contain,
                                         errorBuilder:
                                             (context, error, stackTrace) {
                                               return Container(
-                                                color: Colors.blue.shade100,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.blue.shade50,
+                                                  shape: BoxShape.circle,
+                                                ),
                                                 child: const Icon(
                                                   Icons.verified,
-                                                  size: 50,
+                                                  size: 44,
                                                   color: Colors.blue,
                                                 ),
                                               );

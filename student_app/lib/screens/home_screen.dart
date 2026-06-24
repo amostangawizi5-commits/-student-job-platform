@@ -1,10 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/job.dart';
 import '../services/api_service.dart';
 import '../utils/assets.dart';
+import '../utils/platform_helper.dart';
 import '../utils/theme.dart';
 import '../widgets/job_card.dart';
 import 'auth/login_screen.dart';
@@ -107,10 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   int _expandedFaqIndex = 0;
 
-  bool get _isMobileDevice =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+  bool get _isMobileDevice => PlatformHelper.isMobileApp;
 
   @override
   void dispose() {

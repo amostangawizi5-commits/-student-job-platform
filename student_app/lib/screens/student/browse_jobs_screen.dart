@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../models/job.dart';
+import '../../utils/role_theme.dart';
 import '../../widgets/job_card.dart';
 import 'job_details_screen.dart';
 
@@ -202,14 +203,14 @@ class _BrowsetrainingScreenState extends State<BrowsetrainingScreen> {
               value: 'open',
               label: 'Open training',
               icon: Icons.bolt_rounded,
-              activeColor: const Color(0xFF2563EB),
+              activeColor: StudentRoleTheme.primary,
             ),
             const SizedBox(width: 6),
             item(
               value: 'history',
               label: 'History',
               icon: Icons.history_rounded,
-              activeColor: const Color(0xFF2563EB),
+              activeColor: StudentRoleTheme.primary,
             ),
           ],
         ),
@@ -282,14 +283,14 @@ class _BrowsetrainingScreenState extends State<BrowsetrainingScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
+                color: StudentRoleTheme.surface,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(
                 _selectedView == 'history'
                     ? Icons.history_rounded
                     : Icons.work_outline_rounded,
-                color: const Color(0xFF2563EB),
+                color: StudentRoleTheme.primary,
               ),
             ),
             const SizedBox(width: 12),
@@ -336,7 +337,7 @@ class _BrowsetrainingScreenState extends State<BrowsetrainingScreen> {
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF1D4ED8),
+                            color: StudentRoleTheme.primaryDark,
                           ),
                         ),
                       ),

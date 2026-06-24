@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../utils/role_theme.dart';
 import '../../utils/theme.dart';
 import 'edit_profile_screen.dart';
 
@@ -656,7 +657,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       IconButton(
                         icon: const Icon(
                           Icons.add,
-                          color: AppTheme.primaryBlue,
+                          color: StudentRoleTheme.primary,
                         ),
                         onPressed: () {
                           if (techController.text.isNotEmpty) {
@@ -823,7 +824,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       height: 104,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+        color: StudentRoleTheme.primary.withValues(alpha: 0.1),
       ),
       clipBehavior: Clip.antiAlias,
       child: _profileImagePreviewBytes != null
@@ -839,7 +840,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: const TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.primaryBlue,
+                  color: StudentRoleTheme.primary,
                 ),
               ),
             )
@@ -853,7 +854,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   style: const TextStyle(
                     fontSize: 40,
                     fontWeight: FontWeight.bold,
-                    color: AppTheme.primaryBlue,
+                    color: StudentRoleTheme.primary,
                   ),
                 ),
               ),
@@ -900,7 +901,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit, color: AppTheme.primaryBlue),
+            icon: const Icon(Icons.edit, color: StudentRoleTheme.primary),
             onPressed: _openEditProfile,
           ),
         ],
@@ -1007,7 +1008,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                            color: StudentRoleTheme.primary.withValues(
+                              alpha: 0.1,
+                            ),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
@@ -1017,7 +1020,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
-                              color: AppTheme.primaryBlue,
+                              color: StudentRoleTheme.primary,
                             ),
                           ),
                         ),
@@ -1045,7 +1048,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: AppTheme.primaryBlue.withValues(
+                                color: StudentRoleTheme.primary.withValues(
                                   alpha: 0.1,
                                 ),
                                 borderRadius: BorderRadius.circular(14),
@@ -1053,7 +1056,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               child: const Icon(
                                 Icons.security_rounded,
                                 size: 24,
-                                color: AppTheme.primaryBlue,
+                                color: StudentRoleTheme.primary,
                               ),
                             ),
                             const SizedBox(width: 14),
@@ -1078,7 +1081,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               icon: const Icon(Icons.edit_outlined),
                               label: const Text('Edit Profile'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primaryBlue,
+                                backgroundColor: StudentRoleTheme.primary,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 18,
                                   vertical: 12,
@@ -1143,7 +1146,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     const Icon(
                                       Icons.badge_outlined,
                                       size: 20,
-                                      color: AppTheme.primaryBlue,
+                                      color: StudentRoleTheme.primary,
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
@@ -1158,7 +1161,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                               : 'Identification card uploaded successfully',
                                           style: const TextStyle(
                                             fontSize: 13,
-                                            color: AppTheme.primaryBlue,
+                                            color: StudentRoleTheme.primary,
                                             fontWeight: FontWeight.w500,
                                           ),
                                         ),
@@ -1171,7 +1174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       ),
                                       icon: const Icon(
                                         Icons.open_in_new,
-                                        color: AppTheme.primaryBlue,
+                                        color: StudentRoleTheme.primary,
                                         size: 20,
                                       ),
                                     ),
@@ -1191,7 +1194,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                 ),
                                             icon: const Icon(
                                               Icons.download,
-                                              color: AppTheme.primaryBlue,
+                                              color: StudentRoleTheme.primary,
                                               size: 20,
                                             ),
                                           ),
@@ -1230,7 +1233,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: AppTheme.primaryBlue.withValues(
+                                color: StudentRoleTheme.primary.withValues(
                                   alpha: 0.1,
                                 ),
                                 borderRadius: BorderRadius.circular(14),
@@ -1238,7 +1241,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               child: const Icon(
                                 Icons.school,
                                 size: 24,
-                                color: AppTheme.primaryBlue,
+                                color: StudentRoleTheme.primary,
                               ),
                             ),
                             const SizedBox(width: 14),
@@ -1405,7 +1408,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                   avatar: const Icon(
                                                     Icons.open_in_new,
                                                     size: 16,
-                                                    color: AppTheme.primaryBlue,
+                                                    color: StudentRoleTheme
+                                                        .primary,
                                                   ),
                                                   label: const Text(
                                                     'Open Hosted Project',

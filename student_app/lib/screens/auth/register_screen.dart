@@ -1,6 +1,7 @@
 // lib/screens/auth/register_screen.dart
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:student_app/utils/app_feedback.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ import '../../data/tanzania_locations.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
+import '../../utils/platform_helper.dart';
 import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
 import '../admin/admin_dashboard.dart';
@@ -26,6 +28,9 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  static const int _trainingPreviewSlideCount = 2;
+  static const Duration _trainingPreviewAutoSlideDelay = Duration(seconds: 60);
+
   final _formKey = GlobalKey<FormState>();
   final _apiService = ApiService();
   final PageController _trainingPreviewController = PageController();
@@ -72,6 +77,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _showStudentIdError = false;
   bool _showCollegeLogoError = false;
   int _trainingPreviewIndex = 0;
+  Timer? _trainingPreviewAutoSlideTimer;
 
   String? _selectedRole;
   String? _selectedUniversityId;
@@ -124,10 +130,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _startTrainingPreviewAutoSlide();
   }
 
   @override
   void dispose() {
+    _trainingPreviewAutoSlideTimer?.cancel();
     _firstNameController.dispose();
     _secondNameController.dispose();
     _emailController.dispose();
@@ -160,6 +168,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _organizationSectorController.dispose();
     _trainingPreviewController.dispose();
     super.dispose();
+  }
+
+  void _startTrainingPreviewAutoSlide() {
+    _trainingPreviewAutoSlideTimer?.cancel();
+    _trainingPreviewAutoSlideTimer = Timer.periodic(
+      _trainingPreviewAutoSlideDelay,
+      (_) {
+        if (!mounted) return;
+        _moveTrainingPreview(1);
+      },
+    );
   }
 
   void _goHome() {
@@ -445,12 +464,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _syncSelectedStudentInstitutionFromInput() {
-    final match = _findInstitutionByName(
-      _institutions,
-      _studentInstitutionController.text,
-    );
-    _selectedUniversityId = match?['university_id']?.toString();
+    final match =
+        _findInstitutionByName(
+          _universities,
+          _studentInstitutionController.text,
+        ) ??
+        _findInstitutionByName(
+          _institutions,
+          _studentInstitutionController.text,
+        );
     if (match != null) {
+      _selectedUniversityId = match['university_id']?.toString();
       _studentInstitutionController.text = match['name']?.toString() ?? '';
     }
   }
@@ -1142,7 +1166,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     Navigator.pop(context);
                     final role = normalizeUserRole(authProvider.user?['role']);
 
-                    if (isStudentRole(role)) {
+                    if (isStudentRole(role) || _selectedRole == 'student') {
                       Navigator.pushAndRemoveUntil(
                         context,
                         MaterialPageRoute(
@@ -1150,7 +1174,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         (route) => false,
                       );
-                    } else if (isCompanyRole(role)) {
+                    } else if (isCompanyRole(role) ||
+                        _selectedRole == 'organization') {
                       Navigator.pushAndRemoveUntil(
                         context,
                         MaterialPageRoute(
@@ -1166,7 +1191,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         (route) => false,
                       );
-                    } else if (role == 'university') {
+                    } else if (role == 'university' ||
+                        _selectedRole == 'university' ||
+                        _selectedRole == 'institution') {
                       Navigator.pushAndRemoveUntil(
                         context,
                         MaterialPageRoute(
@@ -1204,31 +1231,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Column(
       children: [
         Container(
-          height: 108,
-          width: 108,
+          height: 124,
+          width: 124,
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Colors.white,
             shape: BoxShape.circle,
+            border: Border.all(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.16),
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+                color: AppTheme.primaryBlue.withValues(alpha: 0.18),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
           child: ClipOval(
             child: Image.asset(
               'assets/images/splash_logo.png',
-              height: 108,
-              width: 108,
-              fit: BoxFit.cover,
+              fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
                 return Container(
-                  color: Colors.blue.shade100,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    shape: BoxShape.circle,
+                  ),
                   child: const Icon(
                     Icons.verified,
-                    size: 50,
+                    size: 44,
                     color: Colors.blue,
                   ),
                 );
@@ -2924,9 +2956,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _moveTrainingPreview(int direction) {
-    const slideCount = 4;
-    final nextIndex = (_trainingPreviewIndex + direction) % slideCount;
-    final resolvedIndex = nextIndex < 0 ? slideCount - 1 : nextIndex;
+    final nextIndex =
+        (_trainingPreviewIndex + direction) % _trainingPreviewSlideCount;
+    final resolvedIndex = nextIndex < 0
+        ? _trainingPreviewSlideCount - 1
+        : nextIndex;
 
     if (_trainingPreviewController.hasClients) {
       _trainingPreviewController.animateToPage(
@@ -2955,121 +2989,129 @@ class _RegisterScreenState extends State<RegisterScreen> {
         Color(0xFF047545),
         'assets/images/pt.png',
       ),
-      (
-        Icons.local_hospital_outlined,
-        'Clinical Practice',
-        'Supervised practical exposure in hospitals and health facilities.',
-        Color(0xFF0F766E),
-        null,
-      ),
-      (
-        Icons.school_outlined,
-        'Teaching Practice',
-        'Classroom practice and academic mentorship for education students.',
-        Color(0xFF7C3AED),
-        null,
-      ),
     ];
 
-    return Container(
-      height: isDesktop ? 720 : 430,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFC8ECF8), Color(0xFFE2F4D9)],
-        ),
-        borderRadius: BorderRadius.circular(isDesktop ? 28 : 22),
-      ),
-      padding: EdgeInsets.all(isDesktop ? 34 : 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Practical Training',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 30,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrowPanel = constraints.maxWidth < 520;
+        final horizontalCardPadding = isNarrowPanel ? 14.0 : 24.0;
+
+        return Container(
+          height: isDesktop ? 720 : 430,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF081A33), Color(0xFF12366D), Color(0xFF007892)],
+              stops: [0, 0.62, 1],
             ),
+            borderRadius: BorderRadius.circular(8),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Explore pathways that connect classroom learning with real '
-            'workplace experience.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.88),
-              fontSize: 14,
-              height: 1.45,
-              letterSpacing: 0,
-            ),
-          ),
-          const Spacer(),
-          SizedBox(
-            height: isDesktop ? 390 : 250,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                PageView.builder(
-                  controller: _trainingPreviewController,
-                  itemCount: slides.length,
-                  onPageChanged: (index) {
-                    setState(() => _trainingPreviewIndex = index);
-                  },
-                  itemBuilder: (context, index) {
-                    final slide = slides[index];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _TrainingPreviewCard(
-                        icon: slide.$1,
-                        title: slide.$2,
-                        body: slide.$3,
-                        color: slide.$4,
-                        imageAsset: slide.$5,
-                      ),
-                    );
-                  },
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _TrainingPreviewArrow(
-                    icon: Icons.arrow_back_rounded,
-                    onPressed: () => _moveTrainingPreview(-1),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _TrainingPreviewArrow(
-                    icon: Icons.arrow_forward_rounded,
-                    onPressed: () => _moveTrainingPreview(1),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding: EdgeInsets.all(isNarrowPanel ? 22 : 30),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (var index = 0; index < slides.length; index++)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  height: 10,
-                  width: _trainingPreviewIndex == index ? 22 : 10,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: _trainingPreviewIndex == index
-                        ? AppTheme.primaryBlue
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(999),
+              RichText(
+                text: TextSpan(
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isNarrowPanel ? 30 : 36,
+                    fontWeight: FontWeight.w900,
+                    height: 1.05,
+                    letterSpacing: 0,
                   ),
+                  children: const [
+                    TextSpan(text: 'Practical '),
+                    TextSpan(
+                      text: 'Training',
+                      style: TextStyle(color: Color(0xFFFFC21A)),
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Explore pathways that connect classroom learning with real '
+                'workplace experience.',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  fontSize: isNarrowPanel ? 14 : 16,
+                  height: 1.45,
+                  letterSpacing: 0,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    PageView.builder(
+                      controller: _trainingPreviewController,
+                      itemCount: slides.length,
+                      onPageChanged: (index) {
+                        setState(() => _trainingPreviewIndex = index);
+                      },
+                      itemBuilder: (context, index) {
+                        final slide = slides[index];
+                        return Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: horizontalCardPadding,
+                          ),
+                          child: _TrainingPreviewCard(
+                            icon: slide.$1,
+                            title: slide.$2,
+                            body: slide.$3,
+                            color: slide.$4,
+                            imageAsset: slide.$5,
+                            isCompact: isNarrowPanel,
+                          ),
+                        );
+                      },
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _TrainingPreviewArrow(
+                        icon: Icons.arrow_back_rounded,
+                        onPressed: () => _moveTrainingPreview(-1),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _TrainingPreviewArrow(
+                        icon: Icons.arrow_forward_rounded,
+                        onPressed: () => _moveTrainingPreview(1),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var index = 0; index < slides.length; index++)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      height: 10,
+                      width: _trainingPreviewIndex == index ? 22 : 10,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: _trainingPreviewIndex == index
+                            ? const Color(0xFFFFC21A)
+                            : Colors.white.withValues(alpha: 0.62),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Center(child: _TrainingPreviewStoreBadges()),
             ],
           ),
-          const Spacer(),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -3142,8 +3184,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     final language = context.watch<LanguageProvider>();
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final isDesktop = screenWidth >= 900;
-    final showPortalChrome = kIsWeb && isDesktop;
+    final isNativeMobileApp = PlatformHelper.isMobileApp;
+    final isDesktop = !isNativeMobileApp && screenWidth >= 1180;
+    final showPortalChrome = PlatformHelper.isWeb && isDesktop;
     final contentMaxWidth = isDesktop ? 1480.0 : 640.0;
 
     return Scaffold(
@@ -3245,6 +3288,7 @@ class _TrainingPreviewCard extends StatelessWidget {
     required this.title,
     required this.body,
     required this.color,
+    required this.isCompact,
     this.imageAsset,
   });
 
@@ -3252,19 +3296,23 @@ class _TrainingPreviewCard extends StatelessWidget {
   final String title;
   final String body;
   final Color color;
+  final bool isCompact;
   final String? imageAsset;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: EdgeInsets.all(isCompact ? 12 : 16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        color: Colors.white.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: const Color(0xFFFFC21A).withValues(alpha: 0.34),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 24,
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 22,
             offset: const Offset(0, 12),
           ),
         ],
@@ -3275,8 +3323,9 @@ class _TrainingPreviewCard extends StatelessWidget {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: const Color(0xFFF5F9FC),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFD6E5F2)),
               ),
               child: Stack(
                 children: [
@@ -3300,7 +3349,7 @@ class _TrainingPreviewCard extends StatelessWidget {
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.transparent,
-                              Colors.black.withValues(alpha: 0.18),
+                              Colors.black.withValues(alpha: 0.34),
                             ],
                           ),
                         ),
@@ -3336,15 +3385,12 @@ class _TrainingPreviewCard extends StatelessWidget {
                     ),
                   ],
                   Positioned(
-                    left: 18,
-                    bottom: 18,
-                    right: 18,
+                    left: 14,
+                    bottom: 14,
+                    right: 14,
                     child: Row(
                       children: [
-                        _TrainingPreviewMiniIcon(
-                          icon: Icons.business_center_outlined,
-                          color: color,
-                        ),
+                        _TrainingPreviewMiniIcon(icon: icon, color: color),
                         const SizedBox(width: 8),
                         _TrainingPreviewMiniIcon(
                           icon: Icons.groups_outlined,
@@ -3362,27 +3408,102 @@ class _TrainingPreviewCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: isCompact ? 12 : 18),
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppTheme.textDark,
-              fontSize: 18,
+            style: TextStyle(
+              color: const Color(0xFF1A3471),
+              fontSize: isCompact ? 16 : 19,
               fontWeight: FontWeight.w800,
               letterSpacing: 0,
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isCompact ? 6 : 8),
           Text(
             body,
             textAlign: TextAlign.center,
-            maxLines: 3,
+            maxLines: isCompact ? 2 : 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 13,
+              color: AppTheme.textSecondary,
+              fontSize: isCompact ? 12 : 13,
               height: 1.4,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrainingPreviewStoreBadges extends StatelessWidget {
+  const _TrainingPreviewStoreBadges();
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 390),
+      child: Column(
+        children: const [
+          Text(
+            'Download the IPTkiganjani app on Google Play or App Store',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              height: 1.35,
+              letterSpacing: 0,
+            ),
+          ),
+          SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              _TrainingPreviewStoreBadge(
+                icon: Icons.play_arrow_rounded,
+                label: 'Google Play',
+              ),
+              _TrainingPreviewStoreBadge(icon: Icons.apple, label: 'App Store'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrainingPreviewStoreBadge extends StatelessWidget {
+  const _TrainingPreviewStoreBadge({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 18),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
               letterSpacing: 0,
             ),
           ),

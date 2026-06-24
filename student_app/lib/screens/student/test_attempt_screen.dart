@@ -557,10 +557,10 @@ class _QuestionAnswerCard extends StatelessWidget {
                       vertical: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: selected ? Colors.blue.shade50 : Colors.white,
+                      color: selected ? StudentRoleTheme.surface : Colors.white,
                       border: Border.all(
                         color: selected
-                            ? Colors.blue.shade700
+                            ? StudentRoleTheme.primary
                             : const Color(0xFFE5E7EB),
                       ),
                       borderRadius: BorderRadius.circular(8),
@@ -572,7 +572,7 @@ class _QuestionAnswerCard extends StatelessWidget {
                               ? Icons.radio_button_checked_rounded
                               : Icons.radio_button_unchecked_rounded,
                           color: selected
-                              ? Colors.blue.shade700
+                              ? StudentRoleTheme.primary
                               : Colors.grey.shade600,
                         ),
                         const SizedBox(width: 10),

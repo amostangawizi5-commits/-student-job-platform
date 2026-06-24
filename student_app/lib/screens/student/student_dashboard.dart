@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/coordinator_workspace_service.dart';
+import '../../utils/assets.dart';
 import '../../utils/role_theme.dart';
 import '../../utils/theme.dart';
 import '../../widgets/language_picker_dialog.dart';
@@ -19,7 +20,11 @@ import '../auth/login_screen.dart';
 enum _StudentMoreAction { settings, language, logout }
 
 const Color _studentBrandPrimary = StudentRoleTheme.primary;
+const Color _studentBrandNavy = StudentRoleTheme.navy;
+const Color _studentBrandAccent = StudentRoleTheme.accent;
 const Color _studentBrandSurface = StudentRoleTheme.surface;
+const Color _studentBrandSurfaceSoft = StudentRoleTheme.surfaceSoft;
+const Color _studentBrandBorder = StudentRoleTheme.border;
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -634,148 +639,22 @@ class _StudentDashboardState extends State<StudentDashboard> {
         }
       },
       child: Scaffold(
-        backgroundColor: Colors.grey.shade50,
-        appBar: AppBar(
-          backgroundColor: _studentBrandSurface,
-          elevation: 0,
-          leadingWidth: 76,
-          leading: Padding(
-            padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6),
-            child: Container(
-              height: 48,
-              width: 48,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.2),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/images/splash_logo.png',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Icon(
-                      Icons.verified,
-                      size: 28,
-                      color: _studentBrandPrimary,
-                    );
-                  },
-                ),
-              ),
-            ),
+        backgroundColor: _studentBrandSurfaceSoft,
+        appBar: PreferredSize(
+          preferredSize: Size.fromHeight(isDesktop ? 74 : 108),
+          child: _StudentPortalHeader(
+            isCompact: !isDesktop,
+            unreadNotifications: _unreadNotifications,
+            language: language,
+            onNotificationsPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+              );
+              _loadUnreadNotifications(forceRefresh: true);
+            },
+            onMoreSelected: _handleMoreAction,
           ),
-          centerTitle: true,
-          title: const Text(
-            'INDUSTRIAL PRACTICAL TRAINING SYSTEM',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: _studentBrandPrimary,
-            ),
-          ),
-          actions: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.notifications_outlined,
-                    color: _studentBrandPrimary,
-                    size: 24,
-                  ),
-                  tooltip: language.tr('notifications'),
-                  onPressed: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const NotificationsScreen(),
-                      ),
-                    );
-                    _loadUnreadNotifications(forceRefresh: true);
-                  },
-                ),
-                if (_unreadNotifications > 0)
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 18,
-                        minHeight: 18,
-                      ),
-                      child: Text(
-                        _unreadNotifications > 99
-                            ? '99+'
-                            : '$_unreadNotifications',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            PopupMenuButton<_StudentMoreAction>(
-              tooltip: language.tr('more_actions'),
-              onSelected: _handleMoreAction,
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _StudentMoreAction.settings,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.settings_outlined, size: 18),
-                      const SizedBox(width: 10),
-                      Text(language.tr('settings')),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _StudentMoreAction.language,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.language_outlined, size: 18),
-                      const SizedBox(width: 10),
-                      Text(language.tr('change_language')),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: _StudentMoreAction.logout,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.logout_rounded, size: 18),
-                      const SizedBox(width: 10),
-                      Text(language.tr('logout')),
-                    ],
-                  ),
-                ),
-              ],
-              icon: const Icon(
-                Icons.more_vert_rounded,
-                color: _studentBrandPrimary,
-              ),
-            ),
-            const SizedBox(width: 4),
-          ],
         ),
         body: Row(
           children: [
@@ -921,6 +800,321 @@ class _StudentNavigationItem {
   final String label;
   final IconData icon;
   final IconData inactiveIcon;
+}
+
+class _StudentPortalHeader extends StatelessWidget {
+  const _StudentPortalHeader({
+    required this.isCompact,
+    required this.unreadNotifications,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final bool isCompact;
+  final int unreadNotifications;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_StudentMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _studentBrandSurfaceSoft,
+      elevation: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: _studentBrandSurfaceSoft,
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.shadow.withValues(alpha: 0.12),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 14 : 58,
+            vertical: isCompact ? 6 : 12,
+          ),
+          child: isCompact
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        const _StudentHeaderBrand(),
+                        const Spacer(),
+                        _StudentHeaderActions(
+                          unreadNotifications: unreadNotifications,
+                          language: language,
+                          onNotificationsPressed: onNotificationsPressed,
+                          onMoreSelected: onMoreSelected,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const _StudentHeaderCenterTitle(isCompact: true),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const _StudentHeaderBrand(),
+                    const Expanded(child: _StudentHeaderCenterTitle()),
+                    _StudentHeaderActions(
+                      unreadNotifications: unreadNotifications,
+                      language: language,
+                      onNotificationsPressed: onNotificationsPressed,
+                      onMoreSelected: onMoreSelected,
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StudentHeaderBrand extends StatelessWidget {
+  const _StudentHeaderBrand();
+
+  static const Color _brandNavy = StudentRoleTheme.navy;
+  static const Color _brandOrange = StudentRoleTheme.accentOrange;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 46,
+          width: 78,
+          child: Image.asset(
+            AppAssets.homeLogo,
+            fit: BoxFit.contain,
+            alignment: Alignment.center,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) {
+              return Image.asset(
+                AppAssets.splashLogo,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.school_rounded,
+                    color: _brandNavy,
+                    size: 30,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        RichText(
+          text: const TextSpan(
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+            children: [
+              TextSpan(
+                text: 'IPT ',
+                style: TextStyle(color: _brandNavy),
+              ),
+              TextSpan(
+                text: 'Kiganjani',
+                style: TextStyle(color: _brandOrange),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StudentHeaderCenterTitle extends StatelessWidget {
+  const _StudentHeaderCenterTitle({this.isCompact = false});
+
+  final bool isCompact;
+
+  static const Color _brandNavy = StudentRoleTheme.navy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'THE UNITED REPUBLIC OF TANZANIA\nPRACTICAL TRAINING SYSTEM',
+      textAlign: TextAlign.center,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: _brandNavy,
+        fontSize: isCompact ? 12 : 15,
+        height: 1.25,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
+      ),
+    );
+  }
+}
+
+class _StudentHeaderActions extends StatelessWidget {
+  const _StudentHeaderActions({
+    required this.unreadNotifications,
+    required this.language,
+    required this.onNotificationsPressed,
+    required this.onMoreSelected,
+  });
+
+  final int unreadNotifications;
+  final LanguageProvider language;
+  final VoidCallback onNotificationsPressed;
+  final PopupMenuItemSelected<_StudentMoreAction> onMoreSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _StudentNotificationButton(
+          unreadNotifications: unreadNotifications,
+          tooltip: language.tr('notifications'),
+          onPressed: onNotificationsPressed,
+        ),
+        const SizedBox(width: 8),
+        _StudentHeaderMenuButton(
+          language: language,
+          onSelected: onMoreSelected,
+        ),
+      ],
+    );
+  }
+}
+
+class _StudentNotificationButton extends StatelessWidget {
+  const _StudentNotificationButton({
+    required this.unreadNotifications,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final int unreadNotifications;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        SizedBox(
+          height: 38,
+          width: 38,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: _studentBrandAccent,
+              backgroundColor: _studentBrandPrimary,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: Tooltip(
+              message: tooltip,
+              child: const Icon(Icons.notifications_outlined, size: 21),
+            ),
+          ),
+        ),
+        if (unreadNotifications > 0)
+          Positioned(
+            right: -4,
+            top: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 1.4),
+              ),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              child: Text(
+                unreadNotifications > 99 ? '99+' : '$unreadNotifications',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _StudentHeaderMenuButton extends StatelessWidget {
+  const _StudentHeaderMenuButton({
+    required this.language,
+    required this.onSelected,
+  });
+
+  final LanguageProvider language;
+  final PopupMenuItemSelected<_StudentMoreAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_StudentMoreAction>(
+      tooltip: language.tr('more_actions'),
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _StudentMoreAction.settings,
+          child: Row(
+            children: [
+              const Icon(Icons.settings_outlined, size: 18),
+              const SizedBox(width: 10),
+              Text(language.tr('settings')),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: _StudentMoreAction.language,
+          child: Row(
+            children: [
+              const Icon(Icons.language_outlined, size: 18),
+              const SizedBox(width: 10),
+              Text(language.tr('change_language')),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _StudentMoreAction.logout,
+          child: Row(
+            children: [
+              const Icon(Icons.logout_rounded, size: 18),
+              const SizedBox(width: 10),
+              Text(language.tr('logout')),
+            ],
+          ),
+        ),
+      ],
+      icon: const Icon(Icons.more_vert_rounded),
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      iconColor: _studentBrandNavy,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    );
+  }
 }
 
 // HomeScreen
@@ -1137,7 +1331,7 @@ class _HomeScreenState extends State<HomeScreen> {
             TextButton(
               onPressed: _openAnnouncements,
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFF2563EB),
+                foregroundColor: _studentBrandPrimary,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               ),
               child: const Text(
@@ -1155,9 +1349,7 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: const Color(0xFF93C5FD).withValues(alpha: 0.9),
-              ),
+              border: Border.all(color: _studentBrandBorder),
               boxShadow: [
                 BoxShadow(
                   color: _studentBrandPrimary.withValues(alpha: 0.05),
@@ -1172,12 +1364,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
+                    color: _studentBrandSurface,
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: const Icon(
                     Icons.campaign_outlined,
-                    color: Color(0xFF94A3B8),
+                    color: _studentBrandPrimary,
                     size: 28,
                   ),
                 ),
@@ -1235,12 +1427,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFEFF6FF),
+                            color: _studentBrandSurface,
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: const Icon(
                             Icons.campaign_rounded,
-                            color: Color(0xFF2563EB),
+                            color: _studentBrandPrimary,
                             size: 22,
                           ),
                         ),
@@ -1350,7 +1542,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icons.assignment,
                   isCompact ? 'Apps' : 'Applications',
                   _isLoadingStats ? '...' : '$_applicationsCount',
-                  Colors.blue,
+                  _studentBrandPrimary,
                   () => _goToApplicationsFilter('all'),
                   compact: isCompact,
                 ),
@@ -1366,7 +1558,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icons.rate_review_outlined,
                   'Review',
                   _isLoadingStats ? '...' : '$_reviewCount',
-                  Colors.indigo,
+                  _studentBrandNavy,
                   () => _goToApplicationsFilter('review'),
                   compact: isCompact,
                 ),
@@ -1374,7 +1566,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Icons.visibility,
                   isCompact ? 'Views' : 'Profile Views',
                   _isLoadingStats ? '...' : '$_profileViewsCount',
-                  Colors.purple,
+                  _studentBrandAccent,
                   () => _goToTab(3),
                   compact: isCompact,
                 ),
@@ -1488,7 +1680,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: _buildActionCard(
                   Icons.search,
                   'Browse training',
-                  Colors.blue,
+                  _studentBrandPrimary,
                   () => _goToTab(1),
                 ),
               ),
@@ -1790,7 +1982,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF2F8FF),
+                    color: _studentBrandSurface,
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
                       color: _studentBrandPrimary.withValues(alpha: 0.35),

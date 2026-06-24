@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../models/job.dart';
 import '../../providers/auth_provider.dart';
+import '../../utils/role_theme.dart';
 
 class JobDetailsScreen extends StatefulWidget {
   final String jobId;
@@ -518,7 +519,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                     ),
                   ],
                 ),
-                child: Icon(icon, color: Colors.blue.shade700, size: 20),
+                child: Icon(icon, color: StudentRoleTheme.primary, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -990,7 +991,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                           width: 60,
                           height: 60,
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
+                            color: StudentRoleTheme.surface,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
@@ -1001,7 +1002,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                               style: TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.blue.shade700,
+                                color: StudentRoleTheme.primary,
                               ),
                             ),
                           ),
@@ -1206,9 +1207,11 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8),
                               decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
+                                color: StudentRoleTheme.surface,
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.blue.shade100),
+                                border: Border.all(
+                                  color: StudentRoleTheme.border,
+                                ),
                               ),
                               child: CheckboxListTile(
                                 value: _acknowledgedSkills[skillKey] ?? false,
@@ -1302,7 +1305,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                         ),
                         backgroundColor: isClosed
                             ? Colors.grey.shade400
-                            : Colors.blue.shade700,
+                            : StudentRoleTheme.primary,
                       ),
                       child: _isApplying
                           ? const SizedBox(
@@ -1354,7 +1357,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: Colors.blue.shade600),
+          Icon(icon, size: 20, color: StudentRoleTheme.primary),
           const SizedBox(height: 8),
           Text(
             label,

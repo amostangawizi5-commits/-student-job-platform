@@ -14,6 +14,7 @@ import '../../services/api_service.dart';
 import '../../services/browser_pdf_opener.dart';
 import '../../services/coordinator_workspace_service.dart';
 import '../../services/local_file_service.dart';
+import '../../utils/role_theme.dart';
 import 'test_attempt_screen.dart';
 
 class MyApplicationsScreen extends StatefulWidget {
@@ -408,7 +409,7 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: const BorderSide(
-                  color: Color(0xFF2563EB),
+                  color: StudentRoleTheme.primary,
                   width: 1.4,
                 ),
               ),
@@ -423,9 +424,9 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
               _buildInlineInfoPill(
                 icon: Icons.assignment_outlined,
                 label: '$resultCount result${resultCount == 1 ? '' : 's'}',
-                backgroundColor: const Color(0xFFEFF6FF),
-                borderColor: const Color(0xFFBFDBFE),
-                textColor: const Color(0xFF1D4ED8),
+                backgroundColor: StudentRoleTheme.surface,
+                borderColor: StudentRoleTheme.border,
+                textColor: StudentRoleTheme.primaryDark,
               ),
               _buildInlineInfoPill(
                 icon: Icons.filter_list_rounded,
@@ -826,11 +827,11 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
       case 'pending':
         return Colors.orange;
       case 'assigned':
-        return const Color(0xFF2563EB);
+        return StudentRoleTheme.primary;
       case 'shortlisted':
-        return Colors.blue;
+        return StudentRoleTheme.primary;
       case '':
-        return Colors.purple;
+        return StudentRoleTheme.accentOrange;
       case 'accepted':
         return Colors.green;
       case 'confirmed':
@@ -1558,9 +1559,9 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
-    Color backgroundColor = const Color(0xFFEAF3FF),
-    Color borderColor = const Color(0xFFB8D4FF),
-    Color textColor = const Color(0xFF1D4ED8),
+    Color backgroundColor = StudentRoleTheme.surface,
+    Color borderColor = StudentRoleTheme.border,
+    Color textColor = StudentRoleTheme.primaryDark,
   }) {
     return Material(
       color: Colors.transparent,
@@ -2143,16 +2144,16 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                                 : onlineTestTitle,
                             backgroundColor: isOnlineTestCompleted
                                 ? const Color(0xFFF1F5F9)
-                                : const Color(0xFFEFF6FF),
+                                : StudentRoleTheme.surface,
                             borderColor: isOnlineTestCompleted
                                 ? const Color(0xFFCBD5E1)
-                                : const Color(0xFF93C5FD),
+                                : StudentRoleTheme.border,
                             iconColor: isOnlineTestCompleted
                                 ? const Color(0xFF64748B)
-                                : const Color(0xFF1D4ED8),
+                                : StudentRoleTheme.primaryDark,
                             textColor: isOnlineTestCompleted
                                 ? const Color(0xFF475569)
-                                : const Color(0xFF1D4ED8),
+                                : StudentRoleTheme.primaryDark,
                             onTap: isOnlineTestCompleted
                                 ? null
                                 : () => _openOnlineTest(applicationMap),
@@ -2258,15 +2259,15 @@ class _MyApplicationsScreenState extends State<MyApplicationsScreen> {
                             label: 'Assigned Placement',
                             subtitle:
                                 '${app['coordinator_name'] ?? 'Coordinator'} assigned you to $companyName. Waiting for company acceptance.${('${app['company_feedback'] ?? ''}').trim().isEmpty ? '' : ' Notes: ${app['company_feedback']}'}',
-                            backgroundColor: const Color(0xFFEFF6FF),
-                            borderColor: const Color(0xFFBFDBFE),
-                            iconColor: const Color(0xFF2563EB),
-                            textColor: const Color(0xFF1D4ED8),
+                            backgroundColor: StudentRoleTheme.surface,
+                            borderColor: StudentRoleTheme.border,
+                            iconColor: StudentRoleTheme.primary,
+                            textColor: StudentRoleTheme.primaryDark,
                             onTap: null,
                             showChevron: false,
                             trailing: const Icon(
                               Icons.hourglass_top_rounded,
-                              color: Color(0xFF2563EB),
+                              color: StudentRoleTheme.primary,
                               size: 22,
                             ),
                           ),

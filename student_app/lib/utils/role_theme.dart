@@ -1,19 +1,27 @@
 import 'package:flutter/material.dart';
 
 class StudentRoleTheme {
-  static const Color primary = Color(0xFF1976D2);
-  static const Color primaryDark = Color(0xFF1565C0);
-  static const Color surface = Color(0xFFE3F2FD);
-  static const Color surfaceSoft = Color(0xFFF4F9FF);
-  static const Color border = Color(0xFF90CAF9);
+  static const Color navy = Color(0xFF1A3471);
+  static const Color primary = Color(0xFF007892);
+  static const Color primaryDark = Color(0xFF0D2E59);
+  static const Color accent = Color(0xFFFFC21A);
+  static const Color accentOrange = Color(0xFFE97612);
+  static const Color surface = Color(0xFFEAF7FF);
+  static const Color surfaceSoft = Color(0xFFF7FBFF);
+  static const Color border = Color(0xFFD6E5F2);
+  static const Color accentSoft = Color(0xFFFFF8EA);
 }
 
 class OrganizationRoleTheme {
+  static const Color navy = StudentRoleTheme.navy;
   static const Color primary = StudentRoleTheme.primary;
   static const Color primaryDark = StudentRoleTheme.primaryDark;
+  static const Color accent = StudentRoleTheme.accent;
+  static const Color accentOrange = StudentRoleTheme.accentOrange;
   static const Color surface = StudentRoleTheme.surface;
   static const Color surfaceSoft = StudentRoleTheme.surfaceSoft;
   static const Color border = StudentRoleTheme.border;
+  static const Color accentSoft = StudentRoleTheme.accentSoft;
 }
 
 class AdminRoleTheme {

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/coordinator_workspace_service.dart';
+import '../../utils/role_theme.dart';
 import '../../utils/theme.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -328,19 +329,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Color _getColorForType(String type) {
     switch (type) {
       case 'coordinator_announcement':
-        return AppTheme.primaryBlue;
+        return StudentRoleTheme.primary;
       case 'student_company_confirmed':
         return Colors.teal;
       case 'coordinator_manual_assignment':
-        return Colors.indigo;
+        return StudentRoleTheme.navy;
       case 'university_approval_approved':
         return AppTheme.primaryGreen;
       case 'university_approval_rejected':
         return Colors.red;
       case 'shortlisted':
-        return Colors.blue;
+        return StudentRoleTheme.primary;
       case '':
-        return Colors.purple;
+        return StudentRoleTheme.accentOrange;
       case 'accepted':
         return AppTheme.primaryGreen;
       case 'rejected':
@@ -450,7 +451,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               onPressed: _markAllAsRead,
               child: Text(
                 'Mark all read',
-                style: TextStyle(color: AppTheme.primaryBlue),
+                style: TextStyle(color: StudentRoleTheme.primary),
               ),
             ),
         ],
@@ -526,12 +527,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       decoration: BoxDecoration(
                         color: isRead
                             ? Colors.white
-                            : AppTheme.primaryBlue.withValues(alpha: 0.05),
+                            : StudentRoleTheme.primary.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color: isRead
                               ? Colors.grey.shade200
-                              : AppTheme.primaryBlue.withValues(alpha: 0.3),
+                              : StudentRoleTheme.primary.withValues(alpha: 0.3),
                         ),
                       ),
                       child: Padding(
@@ -657,7 +658,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     width: 10,
                                     height: 10,
                                     decoration: BoxDecoration(
-                                      color: AppTheme.primaryBlue,
+                                      color: StudentRoleTheme.primary,
                                       shape: BoxShape.circle,
                                     ),
                                   ),
@@ -691,7 +692,7 @@ class _NotificationDetailRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: AppTheme.primaryBlue),
+        Icon(icon, size: 18, color: StudentRoleTheme.primary),
         const SizedBox(width: 8),
         Expanded(
           child: RichText(

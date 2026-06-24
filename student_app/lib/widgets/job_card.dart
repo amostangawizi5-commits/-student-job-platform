@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/job.dart';
+import '../utils/role_theme.dart';
 import '../utils/theme.dart';
 
 class JobCard extends StatelessWidget {
@@ -187,10 +188,10 @@ class JobCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     side: BorderSide(
-                      color: AppTheme.primaryBlue.withValues(alpha: 0.35),
+                      color: StudentRoleTheme.primary.withValues(alpha: 0.35),
                     ),
-                    foregroundColor: AppTheme.primaryBlue,
-                    backgroundColor: const Color(0xFFF8FBFF),
+                    foregroundColor: StudentRoleTheme.primary,
+                    backgroundColor: StudentRoleTheme.surfaceSoft,
                   ),
                   child: const Text(
                     'Details',
@@ -201,7 +202,7 @@ class JobCard extends StatelessWidget {
                 ElevatedButton(
                   onPressed: primaryAction,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryBlue,
+                    backgroundColor: StudentRoleTheme.primary,
                     foregroundColor: Colors.white,
                     disabledBackgroundColor: const Color(0xFFCBD5E1),
                     disabledForegroundColor: Colors.white,
