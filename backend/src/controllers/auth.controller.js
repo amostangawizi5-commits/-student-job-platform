@@ -341,7 +341,8 @@ const fetchOfficial = async (institutionNames) => {
     return dedupeInstitutions(result.rows).map(annotateInstitution);
 };
 
-const fetchAllUniversity = async () => {
+const fetchAllUniversities = async () => {
+    const tcuInstitutionNames = TCU_REGISTERED_.map(({ name }) => name.toLowerCase());
     const result = await query(
         `SELECT university_id, name, location
          FROM (
@@ -355,7 +356,7 @@ const fetchAllUniversity = async () => {
              ORDER BY LOWER(name), university_id
          ) official_
          ORDER BY name`,
-        [SINGLE_UNIVERSITY_NAMES]
+        [tcuInstitutionNames]
     );
 
     return dedupeInstitutions(result.rows).map((institution) => ({
@@ -1387,7 +1388,7 @@ const get = async (req, res) => {
 const getUniversities = async (req, res) => {
     try {
         await ensureDefault();
-        const universities = await fetchAllUniversity();
+        const universities = await fetchAllUniversities();
         
         res.json({
             success: true,
