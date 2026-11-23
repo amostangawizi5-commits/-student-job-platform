@@ -214,7 +214,7 @@ class _PosttrainingcreenState extends State<Posttrainingcreen> {
               onSurface: _companyJobPrimaryDark,
             ),
           ),
-          child: child!,
+          child: child ?? const SizedBox.shrink(),
         );
       },
     );
@@ -235,7 +235,7 @@ class _PosttrainingcreenState extends State<Posttrainingcreen> {
               onSurface: _companyJobPrimaryDark,
             ),
           ),
-          child: child!,
+          child: child ?? const SizedBox.shrink(),
         );
       },
     );
@@ -318,107 +318,110 @@ class _PosttrainingcreenState extends State<Posttrainingcreen> {
   }
 
   Future<void> _submitJob() async {
-    if (_formKey.currentState!.validate()) {
-      if (!_allowAllStudents && _selectedTargetCandidates.isEmpty) {
-        ScaffoldMessenger.of(context).showAppSnackBar(
-          const SnackBar(
-            content: Text('Select at least one target candidate year'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+    final formState = _formKey.currentState;
+    if (formState == null || !formState.validate()) {
+      return;
+    }
 
-      if (_selectedDeadline == null) {
-        ScaffoldMessenger.of(context).showAppSnackBar(
-          const SnackBar(
-            content: Text('Select application deadline date and time'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+    final deadline = _selectedDeadline;
+    if (deadline == null) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text('Select application deadline date and time'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-      setState(() => _isSubmitting = true);
+    if (!_allowAllStudents && _selectedTargetCandidates.isEmpty) {
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(
+          content: Text('Select at least one target candidate year'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-      try {
-        final selectedPrograms = _allowAllStudents
-            ? <String>[]
-            : _eligiblePrograms();
-        final jobData = {
-          'title': _titleController.text.trim(),
-          'type': _selectedType,
-          'target_candidates': _allowAllStudents
-              ? _targetOptions
-              : _sanitizeTargetCandidates(_selectedTargetCandidates),
-          'description': _descriptionController.text.trim(),
-          'location': _locationController.text.trim(),
-          'salary_range': null,
-          'required_applicants': int.parse(
-            _requiredApplicantsController.text.trim(),
-          ),
-          'application_deadline': _selectedDeadline!.toIso8601String(),
-          'eligible_programs': selectedPrograms,
-          'minimum_gpa': _allowAllStudents
-              ? null
-              : double.tryParse(_minimumGpaController.text.trim()),
-          'minimum_academic_year': _allowAllStudents
-              ? null
-              : _minimumAcademicYear,
-          'eligibility_notes': _allowAllStudents
-              ? null
-              : _eligibilityNotesController.text.trim(),
-          'eligibility_match_mode': _allowAllStudents
-              ? 'all'
-              : _eligibilityMatchMode,
-          'skills': _allowAllStudents ? <String>[] : _selectedSkillIds,
-        };
+    setState(() => _isSubmitting = true);
 
-        final response = _isEditing
-            ? await _apiService.updateJob(widget.jobId!, jobData)
-            : await _apiService.postJob(jobData);
-        if (!mounted) return;
+    try {
+      final selectedPrograms = _allowAllStudents
+          ? <String>[]
+          : _eligiblePrograms();
+      final jobData = {
+        'title': _titleController.text.trim(),
+        'type': _selectedType,
+        'target_candidates': _allowAllStudents
+            ? _targetOptions
+            : _sanitizeTargetCandidates(_selectedTargetCandidates),
+        'description': _descriptionController.text.trim(),
+        'location': _locationController.text.trim(),
+        'salary_range': null,
+        'required_applicants': int.parse(
+          _requiredApplicantsController.text.trim(),
+        ),
+        'application_deadline': deadline.toIso8601String(),
+        'eligible_programs': selectedPrograms,
+        'minimum_gpa': _allowAllStudents
+            ? null
+            : double.tryParse(_minimumGpaController.text.trim()),
+        'minimum_academic_year': _allowAllStudents
+            ? null
+            : _minimumAcademicYear,
+        'eligibility_notes': _allowAllStudents
+            ? null
+            : _eligibilityNotesController.text.trim(),
+        'eligibility_match_mode': _allowAllStudents
+            ? 'all'
+            : _eligibilityMatchMode,
+        'skills': _allowAllStudents ? <String>[] : _selectedSkillIds,
+      };
 
-        if (response['success']) {
-          ScaffoldMessenger.of(context).showAppSnackBar(
-            SnackBar(
-              content: Text(
-                _isEditing
-                    ? 'Practical training updated successfully!'
-                    : 'Practical training posted successfully!',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-          Navigator.pop(context, true);
-        } else {
-          ScaffoldMessenger.of(context).showAppSnackBar(
-            SnackBar(
-              content: Text(
-                response['message'] ?? 'Failed to post practical training',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } catch (e) {
-        if (!mounted) return;
+      final response = _isEditing
+          ? await _apiService.updateJob(widget.jobId!, jobData)
+          : await _apiService.postJob(jobData);
+      if (!mounted) return;
+
+      if (response['success']) {
         ScaffoldMessenger.of(context).showAppSnackBar(
           SnackBar(
             content: Text(
-              ApiService.normalizeErrorMessage(
-                e,
-                fallback:
-                    'Failed to save practical training. Please try again.',
-              ),
+              _isEditing
+                  ? 'Practical training updated successfully!'
+                  : 'Practical training posted successfully!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context, true);
+      } else {
+        ScaffoldMessenger.of(context).showAppSnackBar(
+          SnackBar(
+            content: Text(
+              response['message'] ?? 'Failed to post practical training',
             ),
             backgroundColor: Colors.red,
           ),
         );
-      } finally {
-        if (mounted) {
-          setState(() => _isSubmitting = false);
-        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(
+          content: Text(
+            ApiService.normalizeErrorMessage(
+              e,
+              fallback: 'Failed to save practical training. Please try again.',
+            ),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
       }
     }
   }
@@ -544,29 +547,31 @@ class _PosttrainingcreenState extends State<Posttrainingcreen> {
                       ),
                       child: Column(
                         children: [
-                          SwitchListTile(
-                            value: _allowAllStudents,
-                            activeThumbColor: _companyJobPrimary,
-                            activeTrackColor: _companytrainingurface,
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text(
-                              'Allow all students to apply',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: _companyJobPrimaryDark,
+                          Material(
+                            color: Colors.transparent,
+                            child: SwitchListTile(
+                              value: _allowAllStudents,
+                              activeThumbColor: _companyJobPrimary,
+                              activeTrackColor: _companytrainingurface,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'Allow all students to apply',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: _companyJobPrimaryDark,
+                                ),
                               ),
+                              onChanged: (value) {
+                                setState(() {
+                                  _allowAllStudents = value;
+                                  if (value) {
+                                    _selectedTargetCandidates =
+                                        List<String>.from(_targetOptions);
+                                    _minimumAcademicYear = null;
+                                  }
+                                });
+                              },
                             ),
-                            onChanged: (value) {
-                              setState(() {
-                                _allowAllStudents = value;
-                                if (value) {
-                                  _selectedTargetCandidates = List<String>.from(
-                                    _targetOptions,
-                                  );
-                                  _minimumAcademicYear = null;
-                                }
-                              });
-                            },
                           ),
                           if (!_allowAllStudents) ...[
                             Container(
@@ -614,41 +619,44 @@ class _PosttrainingcreenState extends State<Posttrainingcreen> {
                             _buildSectionLabel('Target Candidates *'),
                             const SizedBox(height: 8),
                             ..._targetOptions.map((option) {
-                              return CheckboxListTile(
-                                title: Text(
-                                  _getTargetLabel(option),
-                                  style: const TextStyle(
-                                    color: _companyJobPrimaryDark,
-                                    fontWeight: FontWeight.w600,
+                              return Material(
+                                color: Colors.transparent,
+                                child: CheckboxListTile(
+                                  title: Text(
+                                    _getTargetLabel(option),
+                                    style: const TextStyle(
+                                      color: _companyJobPrimaryDark,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
+                                  value: _selectedTargetCandidates.contains(
+                                    option,
+                                  ),
+                                  activeColor: _companyJobPrimary,
+                                  checkColor: Colors.white,
+                                  onChanged: (checked) {
+                                    setState(() {
+                                      if (checked == true) {
+                                        _selectedTargetCandidates = [
+                                          ..._selectedTargetCandidates,
+                                          option,
+                                        ];
+                                      } else {
+                                        _selectedTargetCandidates =
+                                            _selectedTargetCandidates
+                                                .where(
+                                                  (candidate) =>
+                                                      candidate != option,
+                                                )
+                                                .toList();
+                                      }
+                                    });
+                                  },
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  controlAffinity:
+                                      ListTileControlAffinity.leading,
                                 ),
-                                value: _selectedTargetCandidates.contains(
-                                  option,
-                                ),
-                                activeColor: _companyJobPrimary,
-                                checkColor: Colors.white,
-                                onChanged: (checked) {
-                                  setState(() {
-                                    if (checked == true) {
-                                      _selectedTargetCandidates = [
-                                        ..._selectedTargetCandidates,
-                                        option,
-                                      ];
-                                    } else {
-                                      _selectedTargetCandidates =
-                                          _selectedTargetCandidates
-                                              .where(
-                                                (candidate) =>
-                                                    candidate != option,
-                                              )
-                                              .toList();
-                                    }
-                                  });
-                                },
-                                dense: true,
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
                               );
                             }),
                             const SizedBox(height: 12),
