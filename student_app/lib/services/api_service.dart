@@ -9,15 +9,15 @@ import '../data/tcu_university_institutions.dart';
 
 class ApiService {
   static const String _localApiBaseUrl = 'http://localhost:5000';
-  static const String _hostedApiBaseUrl =
-      'https://student-job-platform-api.onrender.com';
-  static const String _defaultAndroidDeviceApiBaseUrl = _hostedApiBaseUrl;
+  static const String _androidEmulatorApiBaseUrl = 'http://10.0.2.2:5000';
+  static const String _defaultAndroidDeviceApiBaseUrl =
+      _androidEmulatorApiBaseUrl;
   static const String _androidDeviceApiBaseUrl = String.fromEnvironment(
     'ANDROID_LOCAL_API_BASE_URL',
     defaultValue: _defaultAndroidDeviceApiBaseUrl,
   );
-  static const String _webBaseUrl = _hostedApiBaseUrl;
-  static const String _defaultBaseUrl = _hostedApiBaseUrl;
+  static const String _webBaseUrl = _localApiBaseUrl;
+  static const String _defaultBaseUrl = _localApiBaseUrl;
   static const String _tokenStorageKey = 'token';
   static const String _apiBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
@@ -1979,6 +1979,62 @@ class ApiService {
     } catch (e) {
       _log(' Error getting projects: $e');
       return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getStudentPublicProfile() async {
+    try {
+      return await _request(
+        'GET',
+        '/api/student/public-profile',
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('Error getting student public profile: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateStudentPublicProfile(
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      return await _request(
+        'PUT',
+        '/api/student/public-profile',
+        data: data,
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('Error updating student public profile: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e)};
+    }
+  }
+
+  Future<Map<String, dynamic>> getStudentDirectory({
+    String? search,
+    String? skill,
+    String? universityId,
+    int limit = 24,
+    int offset = 0,
+  }) async {
+    try {
+      return await _request(
+        'GET',
+        '/api/company/student-directory',
+        queryParams: {
+          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          if (skill != null && skill.trim().isNotEmpty) 'skill': skill.trim(),
+          if (universityId != null && universityId.trim().isNotEmpty)
+            'university_id': universityId.trim(),
+          'limit': '$limit',
+          'offset': '$offset',
+        },
+        requiresAuth: true,
+      );
+    } catch (e) {
+      _log('Error getting student directory: $e');
+      return {'success': false, 'message': normalizeErrorMessage(e), 'data': []};
     }
   }
 

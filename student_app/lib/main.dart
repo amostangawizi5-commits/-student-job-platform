@@ -1,14 +1,19 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/auth_provider.dart';
 import 'providers/language_provider.dart';
 import 'screens/splash_screen.dart';
+import 'screens/launch_screen.dart';
 import 'screens/student/test_attempt_screen.dart';
 import 'utils/theme.dart';
+import 'utils/web_portal_routes.dart';
 
 void main() {
+  setUrlStrategy(PathUrlStrategy());
   runApp(const MyApp());
 }
 
@@ -18,6 +23,9 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final testToken = Uri.base.queryParameters['test_token']?.trim();
+    final initialRoute = testToken != null && testToken.isNotEmpty
+        ? null
+        : (kIsWeb ? WebPortalRoutes.initialPath(Uri.base.path) : '/launch');
 
     return MultiProvider(
       providers: [
@@ -174,10 +182,22 @@ class MyApp extends StatelessWidget {
                 ),
               ),
             ),
-            routes: {'/splash': (context) => const SplashScreen()},
+            initialRoute: testToken != null && testToken.isNotEmpty
+                ? null
+                : initialRoute,
+            routes: {
+              WebPortalRoutes.home: (context) => const SplashScreen(),
+              WebPortalRoutes.splash: (context) => const SplashScreen(),
+              '/launch': (context) => const LaunchScreen(),
+              WebPortalRoutes.training: (context) => const SplashScreen(),
+              WebPortalRoutes.trainingCompany: (context) =>
+                  const SplashScreen(),
+              WebPortalRoutes.university: (context) => const SplashScreen(),
+              WebPortalRoutes.admin: (context) => const SplashScreen(),
+            },
             home: testToken != null && testToken.isNotEmpty
                 ? TestAttemptScreen(token: testToken)
-                : const SplashScreen(),
+                : null,
           );
         },
       ),

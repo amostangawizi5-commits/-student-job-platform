@@ -67,6 +67,15 @@ function normalizeStringArray(rawValue) {
     return [...new Set(values.map((item) => `${item}`.trim()).filter(Boolean))];
 }
 
+function normalizeSkillIds(rawValue) {
+    if (rawValue === undefined || rawValue === null) return [];
+    if (!Array.isArray(rawValue)) {
+        throw new JobValidationError('Skills must be provided as an array');
+    }
+
+    return normalizeStringArray(rawValue);
+}
+
 function normalizeEligiblePrograms(rawValue) {
     if (rawValue === undefined) return undefined;
     return normalizeStringArray(rawValue);
@@ -100,6 +109,22 @@ function normalizeOptionalText(rawValue) {
     if (rawValue === undefined) return undefined;
     const value = `${rawValue || ''}`.trim();
     return value ? value : null;
+}
+
+function normalizeJobText(rawValue, fieldName, { required = false } = {}) {
+    if (rawValue === undefined || rawValue === null) {
+        if (required) {
+            throw new JobValidationError(`${fieldName} is required`);
+        }
+        return undefined;
+    }
+
+    const value = `${rawValue}`.trim();
+    if (!value && required) {
+        throw new JobValidationError(`${fieldName} is required`);
+    }
+
+    return value || null;
 }
 
 function normalizeEligibilityMatchMode(rawValue) {
@@ -136,6 +161,7 @@ function normalizeApplicationDeadline(rawValue, { required = false } = {}) {
 }
 
 function sanitizeJobPayload(payload, { requireCoreFields = false } = {}) {
+    const source = payload && typeof payload === 'object' ? payload : {};
     const sanitized = {};
     const allowedFields = [
         'title',
@@ -155,26 +181,39 @@ function sanitizeJobPayload(payload, { requireCoreFields = false } = {}) {
     ];
 
     for (const field of allowedFields) {
-        if (payload[field] !== undefined) {
-            sanitized[field] = payload[field];
+        if (source[field] !== undefined) {
+            sanitized[field] = source[field];
         }
     }
 
-    if (payload.target_candidates !== undefined) {
-        const targetCandidates = normalizeStringArray(payload.target_candidates);
+    for (const [field, label] of [
+        ['title', 'Job title'],
+        ['type', 'Job type'],
+        ['description', 'Job description'],
+        ['location', 'Job location']
+    ]) {
+        if (source[field] !== undefined || requireCoreFields) {
+            sanitized[field] = normalizeJobText(source[field], label, {
+                required: true
+            });
+        }
+    }
+
+    if (source.target_candidates !== undefined) {
+        const targetCandidates = normalizeStringArray(source.target_candidates);
         if (requireCoreFields && targetCandidates.length === 0) {
             throw new JobValidationError('Select at least one target candidate group');
         }
         sanitized.target_candidates = targetCandidates;
     }
 
-    const normalizedSalaryRange = normalizeSalaryRange(payload.salary_range);
+    const normalizedSalaryRange = normalizeSalaryRange(source.salary_range);
     if (normalizedSalaryRange !== undefined) {
         sanitized.salary_range = normalizedSalaryRange;
     }
 
     const normalizedRequiredApplicants = normalizeRequiredApplicants(
-        payload.required_applicants,
+        source.required_applicants,
         { required: requireCoreFields }
     );
     if (normalizedRequiredApplicants !== undefined) {
@@ -182,7 +221,7 @@ function sanitizeJobPayload(payload, { requireCoreFields = false } = {}) {
     }
 
     const normalizedDeadline = normalizeApplicationDeadline(
-        payload.application_deadline,
+        source.application_deadline,
         { required: requireCoreFields }
     );
     if (normalizedDeadline !== undefined) {
@@ -190,36 +229,44 @@ function sanitizeJobPayload(payload, { requireCoreFields = false } = {}) {
     }
 
     const normalizedEligiblePrograms = normalizeEligiblePrograms(
-        payload.eligible_programs
+        source.eligible_programs
     );
     if (normalizedEligiblePrograms !== undefined) {
         sanitized.eligible_programs = normalizedEligiblePrograms;
     }
 
-    const normalizedMinimumGpa = normalizeMinimumGpa(payload.minimum_gpa);
+    const normalizedMinimumGpa = normalizeMinimumGpa(source.minimum_gpa);
     if (normalizedMinimumGpa !== undefined) {
         sanitized.minimum_gpa = normalizedMinimumGpa;
     }
 
     const normalizedMinimumAcademicYear = normalizeMinimumAcademicYear(
-        payload.minimum_academic_year
+        source.minimum_academic_year
     );
     if (normalizedMinimumAcademicYear !== undefined) {
         sanitized.minimum_academic_year = normalizedMinimumAcademicYear;
     }
 
     const normalizedEligibilityNotes = normalizeOptionalText(
-        payload.eligibility_notes
+        source.eligibility_notes
     );
     if (normalizedEligibilityNotes !== undefined) {
         sanitized.eligibility_notes = normalizedEligibilityNotes;
     }
 
     const normalizedEligibilityMatchMode = normalizeEligibilityMatchMode(
-        payload.eligibility_match_mode
+        source.eligibility_match_mode
     );
     if (normalizedEligibilityMatchMode !== undefined) {
         sanitized.eligibility_match_mode = normalizedEligibilityMatchMode;
+    }
+
+    if (source.status !== undefined) {
+        const status = `${source.status}`.trim().toLowerCase();
+        if (!['open', 'closed'].includes(status)) {
+            throw new JobValidationError('Job status must be either "open" or "closed"');
+        }
+        sanitized.status = status;
     }
 
     return sanitized;
@@ -291,18 +338,34 @@ const getJobById = async (req, res) => {
 // Create job (Company only)
 const createJob = async (req, res) => {
     try {
+        const skillIds = normalizeSkillIds(req.body?.skills);
         const jobData = {
             ...sanitizeJobPayload(req.body, { requireCoreFields: true }),
             company_id: req.user.user_id
         };
         
-        const job = await JobModel.create(jobData);
-        
-        // Add skills if provided
-        if (Array.isArray(req.body.skills)) {
-            for (const skillId of req.body.skills) {
+        let job;
+        try {
+            job = await JobModel.create(jobData);
+
+            // Add skills after the post is created. If a supplied skill is
+            // invalid, remove the post again so the request remains atomic.
+            for (const skillId of skillIds) {
                 await JobModel.addtrainingkill(job.job_id, skillId);
             }
+        } catch (error) {
+            if (job?.job_id) {
+                try {
+                    await JobModel.delete(job.job_id);
+                } catch (cleanupError) {
+                    console.error('Create job cleanup error:', cleanupError);
+                }
+            }
+
+            if (error?.code === '23503') {
+                throw new JobValidationError('One or more selected skills are invalid');
+            }
+            throw error;
         }
         
         res.status(201).json({

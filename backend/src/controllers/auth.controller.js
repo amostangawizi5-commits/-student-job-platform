@@ -249,6 +249,11 @@ const buildFullName = ({ firstName, secondName, fallbackFullName }) => {
     return normalizeNamePart(fallbackFullName);
 };
 
+const getMissingRegistrationField = (userData, field, message) => {
+    const value = `${userData?.[field] ?? ''}`.trim();
+    return value ? null : message;
+};
+
 const splitFullName = (value) => {
     const normalized = normalizeNamePart(value);
     if (!normalized) {
@@ -705,7 +710,8 @@ const register = async (req, res) => {
     let uploadedCollegeLogo = null;
 
     try {
-        const userData = req.body;
+        const userData =
+            req.body && typeof req.body === 'object' ? req.body : {};
         const requestedRole = `${userData.role || ''}`.trim().toLowerCase();
         const normalizedRole = requestedRole === 'institution' ? 'university' : requestedRole;
         const allowedRoles = new Set(['student', 'company', 'university']);
@@ -943,6 +949,27 @@ const register = async (req, res) => {
             userData.full_name = `${userData.college_name || ''}`.trim();
             userData.phone = `${userData.college_phone || ''}`.trim();
         }
+
+        // These fields are required by every account type and are otherwise
+        // rejected later by the database with an unhelpful 500 response.
+        const commonRegistrationFields = [
+            ['email', 'Email is required'],
+            ['password', 'Password is required'],
+            ['phone', 'Phone number is required']
+        ];
+
+        for (const [field, message] of commonRegistrationFields) {
+            const missingMessage = getMissingRegistrationField(userData, field, message);
+            if (missingMessage) {
+                return res.status(400).json({
+                    success: false,
+                    message: missingMessage
+                });
+            }
+        }
+
+        userData.email = `${userData.email}`.trim().toLowerCase();
+        userData.password = `${userData.password}`;
         
         // Check if email already exists
         const emailExists = await UserModel.emailExists(userData.email);
@@ -1020,10 +1047,13 @@ const register = async (req, res) => {
                 console.error('College logo cleanup error:', cleanupError);
             }
         }
-        res.status(500).json({ 
+        const isDuplicate = error?.code === '23505';
+        res.status(isDuplicate ? 409 : 500).json({
             success: false, 
-            message: 'Registration failed', 
-            error: error.message 
+            message: isDuplicate
+                ? 'This registration information is already in use'
+                : 'Registration failed',
+            error: error.message
         });
     }
 };

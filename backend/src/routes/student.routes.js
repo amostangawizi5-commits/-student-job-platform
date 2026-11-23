@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authMiddleware, authorize } = require('../middleware/auth.middleware');
+const studentDirectoryController = require('../controllers/student-directory.controller');
+
+router.get(
+  '/public-profile',
+  authMiddleware,
+  authorize('student', ''),
+  studentDirectoryController.getOwnPublicProfile,
+);
+router.put(
+  '/public-profile',
+  authMiddleware,
+  authorize('student', ''),
+  studentDirectoryController.updateOwnPublicProfile,
+);
 
 // GET - Get student skills
 router.get('/skills', authMiddleware, authorize('student', ''), async (req, res) => {

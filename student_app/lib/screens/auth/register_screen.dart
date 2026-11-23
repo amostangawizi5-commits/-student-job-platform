@@ -13,11 +13,8 @@ import '../../services/api_service.dart';
 import '../../utils/platform_helper.dart';
 import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
-import '../admin/admin_dashboard.dart';
+import '../../utils/web_portal_routes.dart';
 import '../home_screen.dart' as public_home;
-import '../organization/organization_dashboard.dart';
-import '../student/student_dashboard.dart';
-import '../university/university_dashboard.dart';
 import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -80,6 +77,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Timer? _trainingPreviewAutoSlideTimer;
 
   String? _selectedRole;
+  int _studentRegistrationStep = 0;
+  final List<GlobalKey<FormState>> _studentStepFormKeys =
+      List<GlobalKey<FormState>>.generate(3, (_) => GlobalKey<FormState>());
   String? _selectedUniversityId;
   String? _selectedCollegeUniversityId;
   int? _expectedGraduationYear;
@@ -349,6 +349,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _resetRoleSelection() {
     setState(() {
       _selectedRole = null;
+      _studentRegistrationStep = 0;
       _selectedUniversityId = null;
       _selectedOrganizationSubtype = null;
       _selectedGovernmentCategory = null;
@@ -726,6 +727,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _selectRole(String role) {
     setState(() {
       _selectedRole = role;
+      _studentRegistrationStep = 0;
       _selectedUniversityId = null;
       _selectedOrganizationSubtype = null;
       _selectedGovernmentCategory = null;
@@ -831,9 +833,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _handleRegister() async {
     if (_selectedRole == 'student') {
       _syncSelectedStudentInstitutionFromInput();
-    }
-
-    if (!_formKey.currentState!.validate()) {
+      for (var index = 0; index < _studentStepFormKeys.length; index++) {
+        if (!(_studentStepFormKeys[index].currentState?.validate() ?? false)) {
+          setState(() => _studentRegistrationStep = index);
+          return;
+        }
+      }
+    } else if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
@@ -1167,38 +1173,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     final role = normalizeUserRole(authProvider.user?['role']);
 
                     if (isStudentRole(role) || _selectedRole == 'student') {
-                      Navigator.pushAndRemoveUntil(
+                      Navigator.pushNamedAndRemoveUntil(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => const StudentDashboard(),
-                        ),
+                        WebPortalRoutes.training,
                         (route) => false,
                       );
                     } else if (isCompanyRole(role) ||
                         _selectedRole == 'organization') {
-                      Navigator.pushAndRemoveUntil(
+                      Navigator.pushNamedAndRemoveUntil(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => const OrganizationDashboard(),
-                        ),
+                        WebPortalRoutes.trainingCompany,
                         (route) => false,
                       );
                     } else if (role == 'admin') {
-                      Navigator.pushAndRemoveUntil(
+                      Navigator.pushNamedAndRemoveUntil(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => const AdminDashboard(),
-                        ),
+                        WebPortalRoutes.admin,
                         (route) => false,
                       );
                     } else if (role == 'university' ||
                         _selectedRole == 'university' ||
                         _selectedRole == 'institution') {
-                      Navigator.pushAndRemoveUntil(
+                      Navigator.pushNamedAndRemoveUntil(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => const UniversityDashboard(),
-                        ),
+                        WebPortalRoutes.university,
                         (route) => false,
                       );
                     }
@@ -1703,7 +1701,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ];
   }
 
-  Widget _buildStudentFields(LanguageProvider language, bool isDesktop) {
+  Widget _buildStudentAcademicFields(
+    LanguageProvider language,
+    bool isDesktop,
+  ) {
     final children = [
       _ResponsiveField(child: _buildStudentearchField(language)),
       _ResponsiveField(
@@ -1764,14 +1765,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildResponsiveFields(children, isDesktop: isDesktop),
-        const SizedBox(height: 14),
-        _buildStudentIdUploader(language),
-      ],
-    );
+    return _buildResponsiveFields(children, isDesktop: isDesktop);
   }
 
   Widget _buildStudentearchField(LanguageProvider language) {
@@ -2827,6 +2821,93 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  void _continueStudentRegistrationStep() {
+    final key = _studentStepFormKeys[_studentRegistrationStep];
+    if (!(key.currentState?.validate() ?? false)) return;
+    if (_studentRegistrationStep < _studentStepFormKeys.length - 1) {
+      setState(() => _studentRegistrationStep++);
+    }
+  }
+
+  Widget _buildStudentRegistrationSteps(
+    LanguageProvider language,
+    bool isDesktop,
+  ) {
+    return Stepper(
+      type: isDesktop ? StepperType.horizontal : StepperType.vertical,
+      currentStep: _studentRegistrationStep,
+      onStepTapped: (index) {
+        if (index <= _studentRegistrationStep) {
+          setState(() => _studentRegistrationStep = index);
+        }
+      },
+      onStepContinue: _continueStudentRegistrationStep,
+      onStepCancel: () {
+        if (_studentRegistrationStep > 0) {
+          setState(() => _studentRegistrationStep--);
+        }
+      },
+      controlsBuilder: (context, details) {
+        final isLastStep = _studentRegistrationStep == 2;
+        return Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Row(
+            children: [
+              ElevatedButton(
+                onPressed: _isSubmitting
+                    ? null
+                    : (isLastStep ? _handleRegister : details.onStepContinue),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(
+                  isLastStep ? 'Create Student Account' : 'Next',
+                ),
+              ),
+              if (_studentRegistrationStep > 0) ...[
+                const SizedBox(width: 12),
+                TextButton(
+                  onPressed: _isSubmitting ? null : details.onStepCancel,
+                  child: const Text('Back'),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+      steps: [
+        Step(
+          title: const Text('Account'),
+          subtitle: const Text('Your contact and password'),
+          isActive: _studentRegistrationStep >= 0,
+          content: Form(
+            key: _studentStepFormKeys[0],
+            child: _buildStudentBasicFields(language, isDesktop),
+          ),
+        ),
+        Step(
+          title: const Text('Academic details'),
+          subtitle: const Text('Institution and programme'),
+          isActive: _studentRegistrationStep >= 1,
+          content: Form(
+            key: _studentStepFormKeys[1],
+            child: _buildStudentAcademicFields(language, isDesktop),
+          ),
+        ),
+        Step(
+          title: const Text('Verification'),
+          subtitle: const Text('Upload student ID'),
+          isActive: _studentRegistrationStep >= 2,
+          content: Form(
+            key: _studentStepFormKeys[2],
+            child: _buildStudentIdUploader(language),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildForm(LanguageProvider language, bool isDesktop) {
     final roleLabel = _accountRoleLabel(language, _selectedRole);
     final shouldShowOrganizationFields =
@@ -2904,52 +2985,58 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 12),
           ],
-          if (!_isUniversityLikeRole && shouldShowOrganizationFields) ...[
+          if (_selectedRole == 'student') ...[
+            _buildSectionTitle('Student registration'),
+            const SizedBox(height: 8),
+            _buildStudentRegistrationSteps(language, isDesktop),
+          ],
+          if (_selectedRole != 'student' &&
+              !_isUniversityLikeRole &&
+              shouldShowOrganizationFields) ...[
             _buildSectionTitle(language.tr('basic_information')),
             const SizedBox(height: 12),
-            _selectedRole == 'student'
-                ? _buildStudentBasicFields(language, isDesktop)
-                : _buildCommonFields(language, isDesktop),
+            _buildCommonFields(language, isDesktop),
             const SizedBox(height: 22),
           ],
-          if (_selectedRole != 'organization' ||
-              shouldShowOrganizationFields) ...[
+          if (_selectedRole != 'student' &&
+              (_selectedRole != 'organization' ||
+                  shouldShowOrganizationFields)) ...[
             _buildSectionTitle(_detailSectionLabel(language)),
             const SizedBox(height: 12),
-            if (_selectedRole == 'student')
-              _buildStudentFields(language, isDesktop)
-            else if (_selectedRole == 'organization')
+            if (_selectedRole == 'organization')
               _buildOrganizationFields(language, isDesktop)
             else
               _buildUniversityFields(language, isDesktop),
           ],
-          const SizedBox(height: 28),
-          ElevatedButton(
-            onPressed: _isSubmitting ? null : _handleRegister,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primaryBlue,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          if (_selectedRole != 'student') ...[
+            const SizedBox(height: 28),
+            ElevatedButton(
+              onPressed: _isSubmitting ? null : _handleRegister,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryBlue,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      language.tr('register'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
-            child: _isSubmitting
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text(
-                    language.tr('register'),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-          ),
+          ],
         ],
       ),
     );

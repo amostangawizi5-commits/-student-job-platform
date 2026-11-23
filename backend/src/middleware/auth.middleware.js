@@ -8,7 +8,9 @@ const isMissingColumnError = (error, columnName) =>
 
 const authMiddleware = async (req, res, next) => {
     // Get token from header
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authorization = `${req.header('Authorization') || ''}`.trim();
+    const tokenMatch = authorization.match(/^Bearer\s+(.+)$/i);
+    const token = tokenMatch ? tokenMatch[1].trim() : '';
     
     if (!token) {
         return res.status(401).json({ 

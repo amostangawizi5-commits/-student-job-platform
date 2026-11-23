@@ -26,6 +26,7 @@ import 'company_test_management_screen.dart';
 import 'post_job_screen.dart';
 import 'edit_organization_profile_screen.dart';
 import 'organization_notifications_screen.dart';
+import 'student_directory_screen.dart';
 
 enum _OrganizationMoreAction { settings, language, logout }
 
@@ -102,7 +103,7 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex >= 0 && widget.initialIndex <= 3
+    _currentIndex = widget.initialIndex >= 0 && widget.initialIndex <= 4
         ? widget.initialIndex
         : 0;
     _selectedTrainingId = widget.initialTrainingId;
@@ -195,6 +196,8 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
         return language.tr('applications');
       case 3:
         return language.tr('profile');
+      case 4:
+        return 'Student Directory';
       default:
         return language.tr('dashboard');
     }
@@ -210,6 +213,8 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
         return Icons.groups_rounded;
       case 3:
         return Icons.business_rounded;
+      case 4:
+        return Icons.person_search_rounded;
       default:
         return Icons.dashboard_rounded;
     }
@@ -226,6 +231,7 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
         onGoTotraining: () => navigateToTab(1),
       ),
       const OrganizationProfileScreen(),
+      const StudentDirectoryScreen(),
     ];
   }
 
@@ -453,6 +459,11 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
                     activeIcon: const Icon(Icons.business),
                     label: language.tr('profile'),
                   ),
+                  const BottomNavigationBarItem(
+                    icon: Icon(Icons.person_search_outlined),
+                    activeIcon: Icon(Icons.person_search),
+                    label: 'Students',
+                  ),
                 ],
               ),
             );
@@ -498,7 +509,7 @@ class _OrganizationDashboardState extends State<OrganizationDashboard> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            for (var index = 0; index < 4; index++) ...[
+                            for (var index = 0; index < 5; index++) ...[
                               _OrganizationSidebarNavItem(
                                 label: _tabLabel(language, index),
                                 icon: _tabIcon(index),

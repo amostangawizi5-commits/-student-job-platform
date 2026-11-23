@@ -25,6 +25,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final ApiService _apiService = ApiService();
   Map<String, dynamic>? _user;
   List<dynamic> _projects = [];
+  bool _isPublicProfile = false;
+  bool _isSavingPublicProfile = false;
   bool _isLoading = true;
   bool _isDownloadingIdentificationCard = false;
   bool _isUploadingProfileImage = false;
@@ -185,7 +187,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
 
       final projectsResponse = await _apiService.getStudentProjects();
+      final publicProfileResponse = await _apiService.getStudentPublicProfile();
       if (!mounted) return;
+
+      final publicProfile = publicProfileResponse['data'];
+      final isPublic = publicProfile is Map
+          ? publicProfile['is_public'] == true
+          : false;
 
       setState(() {
         _user = user;
@@ -195,6 +203,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             nestedKeys: const ['projects', 'student_projects'],
           ),
         );
+        _isPublicProfile = isPublic;
         _isLoading = false;
       });
     } catch (e) {
@@ -202,6 +211,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _setPublicProfileVisibility(bool value) async {
+    setState(() => _isSavingPublicProfile = true);
+    final response = await _apiService.updateStudentPublicProfile({
+      'is_public': value,
+    });
+    if (!mounted) return;
+
+    final success = _isSuccessResponse(response);
+    setState(() {
+      _isSavingPublicProfile = false;
+      if (success) _isPublicProfile = value;
+    });
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      SnackBar(
+        content: Text(
+          success
+              ? (value
+                  ? 'Companies can now discover your profile.'
+                  : 'Your profile is hidden from companies.')
+              : (response['message'] ?? 'Unable to update profile visibility.'),
+        ),
+        backgroundColor: success ? Colors.green : Colors.red,
+      ),
+    );
   }
 
   String _fileNameFromUrl(String? url) {
@@ -1268,6 +1303,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               : (expectedYear?.toString() ?? 'Not specified'),
                         ),
                       ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              Container(
+                constraints: const BoxConstraints(maxWidth: 1300),
+                child: Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: SwitchListTile.adaptive(
+                    value: _isPublicProfile,
+                    onChanged: _isSavingPublicProfile
+                        ? null
+                        : _setPublicProfileVisibility,
+                    secondary: const Icon(
+                      Icons.campaign_outlined,
+                      color: StudentRoleTheme.primary,
+                    ),
+                    title: const Text('Show my profile to companies'),
+                    subtitle: Text(
+                      _isPublicProfile
+                          ? 'Companies can find your programme, skills and projects.'
+                          : 'Turn this on to advertise yourself to companies.',
                     ),
                   ),
                 ),

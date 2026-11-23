@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../utils/user_role.dart';
 import '../utils/assets.dart';
 import '../utils/theme.dart';
+import '../utils/web_portal_routes.dart';
 import 'admin/admin_dashboard.dart';
 import 'home_screen.dart' as public_home;
 import 'auth/login_screen.dart';
@@ -89,7 +90,8 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _bootstrapApp() async {
-    final nextScreen = await _resolveNextScreen();
+    final routeName = ModalRoute.of(context)?.settings.name;
+    final nextScreen = await _resolveNextScreen(routeName);
     if (!mounted) return;
 
     Navigator.of(
@@ -97,7 +99,7 @@ class _SplashScreenState extends State<SplashScreen>
     ).pushReplacement(MaterialPageRoute(builder: (context) => nextScreen));
   }
 
-  Future<Widget> _resolveNextScreen() async {
+  Future<Widget> _resolveNextScreen(String? routeName) async {
     final authProvider = context.read<AuthProvider>();
 
     await authProvider.checkAuthStatus();
@@ -117,6 +119,14 @@ class _SplashScreenState extends State<SplashScreen>
       if (role == 'admin') {
         return const AdminDashboard();
       }
+    }
+
+    final requestedPath = WebPortalRoutes.normalizePath(
+      routeName ?? Uri.base.path,
+    );
+
+    if (WebPortalRoutes.portalRoutes.contains(requestedPath)) {
+      return const LoginScreen();
     }
 
     return _isMobileDevice

@@ -6,6 +6,7 @@ const { authMiddleware, authorize } = require('../middleware/auth.middleware');
 const universityOrganizationChatController = require('../controllers/university-organization-chat.controller');
 const testController = require('../controllers/test.controller');
 const { uploadAsset, deleteAssetByUrl } = require('../services/file-storage.service');
+const studentDirectoryController = require('../controllers/student-directory.controller');
 
 const matchesAllowedUpload = (file, { allowedExtensions, allowedMimeTypes }) => {
   const ext = `${file.originalname || ''}`.split('.').pop()?.toLowerCase();
@@ -210,6 +211,12 @@ router.delete(
 );
 
 router.get('/tests', authMiddleware, authorize('company'), testController.listTests);
+router.get(
+  '/student-directory',
+  authMiddleware,
+  authorize('company', 'university', 'admin'),
+  studentDirectoryController.listStudentDirectory,
+);
 router.post('/tests', authMiddleware, authorize('company'), testController.createTest);
 router.get('/tests/:testId', authMiddleware, authorize('company'), testController.getTest);
 router.post(

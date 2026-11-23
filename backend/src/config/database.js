@@ -417,6 +417,142 @@ const ensureStudentRegistrationSchema = async () => {
     `);
 };
 
+// Keep portfolio data normalized so the core student row stays small and
+// skills/projects can grow independently.
+const ensureStudentPortfolioSchema = async () => {
+    if (!(await tableExists('students'))) return;
+
+    const studentIdType = await getFormattedColumnType('students', 'student_id');
+    if (!studentIdType) return;
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS skills (
+            skill_id SERIAL PRIMARY KEY,
+            name VARCHAR(160) NOT NULL UNIQUE,
+            category VARCHAR(120),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    const skillIdType = await getFormattedColumnType('skills', 'skill_id');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS student_skills (
+            student_id ${studentIdType} NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+            skill_id ${skillIdType} NOT NULL REFERENCES skills(skill_id) ON DELETE CASCADE,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (student_id, skill_id)
+        )
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            student_id ${studentIdType} NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            technologies TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+            github_link TEXT,
+            live_demo_link TEXT,
+            image_url TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS student_public_profiles (
+            student_id ${studentIdType} PRIMARY KEY REFERENCES students(student_id) ON DELETE CASCADE,
+            is_public BOOLEAN NOT NULL DEFAULT FALSE,
+            headline VARCHAR(180),
+            about TEXT,
+            desired_role VARCHAR(180),
+            preferred_location VARCHAR(180),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    await pool.query(`
+        ALTER TABLE student_public_profiles
+        ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS headline VARCHAR(180),
+        ADD COLUMN IF NOT EXISTS about TEXT,
+        ADD COLUMN IF NOT EXISTS desired_role VARCHAR(180),
+        ADD COLUMN IF NOT EXISTS preferred_location VARCHAR(180),
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    `);
+
+    await pool.query(`
+        UPDATE students
+        SET program = NULLIF(BTRIM(program), ''),
+            bio = NULLIF(BTRIM(bio), ''),
+            github_url = NULLIF(BTRIM(github_url), ''),
+            linkedin_url = NULLIF(BTRIM(linkedin_url), '')
+    `);
+    await pool.query(`
+        UPDATE student_public_profiles
+        SET headline = NULLIF(BTRIM(headline), ''),
+            about = NULLIF(BTRIM(about), ''),
+            desired_role = NULLIF(BTRIM(desired_role), ''),
+            preferred_location = NULLIF(BTRIM(preferred_location), '')
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS student_skills_skill_student_idx
+        ON student_skills (skill_id, student_id)
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS projects_student_created_idx
+        ON projects (student_id, created_at DESC)
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS student_public_profiles_public_updated_idx
+        ON student_public_profiles (updated_at DESC)
+        WHERE is_public = TRUE
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS student_public_profiles_role_idx
+        ON student_public_profiles (LOWER(desired_role))
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS students_university_program_idx
+        ON students (university_id, LOWER(program))
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS users_role_active_idx
+        ON users (role, is_active)
+    `);
+
+    // PostgreSQL's trigram indexes make the directory's ILIKE search fast
+    // without making the extension a hard requirement for startup.
+    try {
+        await pool.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS users_full_name_trgm_idx
+            ON users USING gin (LOWER(COALESCE(full_name, '')) gin_trgm_ops)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS students_program_trgm_idx
+            ON students USING gin (LOWER(COALESCE(program, '')) gin_trgm_ops)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS student_public_profiles_search_trgm_idx
+            ON student_public_profiles USING gin (
+                LOWER(
+                    COALESCE(headline, '') || ' ' ||
+                    COALESCE(about, '') || ' ' ||
+                    COALESCE(desired_role, '') || ' ' ||
+                    COALESCE(preferred_location, '')
+                )
+                gin_trgm_ops
+            )
+        `);
+    } catch (error) {
+        console.warn('Optional trigram search indexes skipped:', error?.message || error);
+    }
+};
+
 const ensureJobEligibilitySchema = async () => {
     const companyIdType = await getFormattedColumnType('companies', 'company_id');
     const applicationJobIdType = await getFormattedColumnType(
@@ -464,11 +600,19 @@ const ensureJobEligibilitySchema = async () => {
 
     await pool.query(`
         ALTER TABLE training
+        ADD COLUMN IF NOT EXISTS type VARCHAR(120) NOT NULL DEFAULT '_program',
+        ADD COLUMN IF NOT EXISTS target_candidates TEXT[] DEFAULT ARRAY[]::text[],
+        ADD COLUMN IF NOT EXISTS salary_range TEXT,
+        ADD COLUMN IF NOT EXISTS required_applicants INTEGER DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS application_deadline TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '30 days'),
         ADD COLUMN IF NOT EXISTS eligible_programs TEXT[] DEFAULT ARRAY[]::text[],
         ADD COLUMN IF NOT EXISTS minimum_gpa NUMERIC(4,2),
         ADD COLUMN IF NOT EXISTS minimum_academic_year INTEGER,
         ADD COLUMN IF NOT EXISTS eligibility_notes TEXT,
-        ADD COLUMN IF NOT EXISTS eligibility_match_mode VARCHAR(10) NOT NULL DEFAULT 'all'
+        ADD COLUMN IF NOT EXISTS eligibility_match_mode VARCHAR(10) NOT NULL DEFAULT 'all',
+        ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open',
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     `);
 
     await pool.query(`
@@ -1260,6 +1404,10 @@ const connectDB = async () => {
         await runStartupMigration(
             'student registration schema',
             ensureStudentRegistrationSchema
+        );
+        await runStartupMigration(
+            'student portfolio and public directory schema',
+            ensureStudentPortfolioSchema
         );
         await runStartupMigration('job eligibility schema', ensureJobEligibilitySchema);
         await runStartupMigration(

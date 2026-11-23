@@ -131,7 +131,7 @@ Important:
 
 - Do not use `http://localhost:5000` for production web builds.
 - iPhone users must open the hosted web URL over HTTPS.
-- The app now defaults web builds to the hosted Render API unless you override `API_BASE_URL`.
+- The app defaults local web/desktop builds to `http://localhost:5000`; production builds must set `API_BASE_URL` to the hosted API.
 
 ## 9. Important Production Notes
 

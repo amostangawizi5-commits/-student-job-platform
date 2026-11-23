@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: iptkiganjani-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: student_job_platform
+      POSTGRES_USER: student_job_platform
+      POSTGRES_PASSWORD: student_job_platform
+    ports:
+      - "55432:5432"
+    volumes:
+      - iptkiganjani_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student_job_platform -d student_job_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  iptkiganjani_postgres_data:

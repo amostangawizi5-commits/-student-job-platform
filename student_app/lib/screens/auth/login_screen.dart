@@ -9,12 +9,9 @@ import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
+import '../../utils/web_portal_routes.dart';
 import '../home_screen.dart' as public_home;
 import 'register_screen.dart';
-import '../student/student_dashboard.dart';
-import '../organization/organization_dashboard.dart';
-import '../admin/admin_dashboard.dart';
-import '../university/university_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -154,27 +151,27 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (isStudentRole(role)) {
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushNamedAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const StudentDashboard()),
+          WebPortalRoutes.training,
           (route) => false,
         );
       } else if (isCompanyRole(role)) {
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushNamedAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const OrganizationDashboard()),
+          WebPortalRoutes.trainingCompany,
           (route) => false,
         );
       } else if (role == 'university') {
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushNamedAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const UniversityDashboard()),
+          WebPortalRoutes.university,
           (route) => false,
         );
       } else if (role == 'admin') {
-        Navigator.pushAndRemoveUntil(
+        Navigator.pushNamedAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const AdminDashboard()),
+          WebPortalRoutes.admin,
           (route) => false,
         );
       }
