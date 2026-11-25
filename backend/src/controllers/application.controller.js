@@ -386,8 +386,8 @@ async function ensureStudentProfileExists({ userId, role }) {
     const studentType = role === '' ? '' : 'current';
 
     await query(
-        `INSERT INTO students (student_id, student_type)
-         VALUES ($1, $2)
+        `INSERT INTO students (student_id, student_type, status)
+         VALUES ($1, $2, 'pending')
          ON CONFLICT (student_id) DO NOTHING`,
         [userId, studentType]
     );
@@ -706,9 +706,18 @@ const applyForJob = async (req, res) => {
     let uploadedCoverLetter = null;
     let uploadedSupportiveDocument = null;
     try {
-        const { job_id, cover_letter } = req.body;
+        const job_id = cleanTextValue(req.body?.job_id);
+        const cover_letter = cleanTextValue(req.body?.cover_letter);
         const student_id = req.user.user_id;
         const uploadedFiles = req.files || {};
+
+        if (!job_id) {
+            return res.status(400).json({
+                success: false,
+                message: 'The selected opportunity is invalid. Please open it again and retry.'
+            });
+        }
+
         const coverLetterFile = Array.isArray(uploadedFiles.cover_letter_file)
             ? uploadedFiles.cover_letter_file[0]
             : null;
@@ -909,6 +918,19 @@ const applyForJob = async (req, res) => {
             data: application
         });
     } catch (error) {
+        const errorCode = `${error?.code || ''}`.trim();
+        let message = 'Failed to submit application';
+
+        if (errorCode === '23505') {
+            message = 'You have already applied for this opportunity.';
+        } else if (errorCode === '23503') {
+            message = 'The selected opportunity or student profile is no longer available.';
+        } else if (errorCode === '23502') {
+            message = 'Your student profile is incomplete. Please update your profile and try again.';
+        } else if (errorCode === '42P01') {
+            message = 'Application service is not ready. Please restart the backend and try again.';
+        }
+
         if (uploadedSupportiveDocument?.secureUrl) {
             await deleteAssetByUrl({
                 fileUrl: uploadedSupportiveDocument.secureUrl,
@@ -918,7 +940,7 @@ const applyForJob = async (req, res) => {
         console.error('Apply error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to submit application',
+            message,
             error: error.message
         });
     }

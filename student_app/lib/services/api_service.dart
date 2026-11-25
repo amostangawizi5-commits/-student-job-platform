@@ -1382,7 +1382,6 @@ class ApiService {
     String? supportiveDocumentName,
   }) async {
     try {
-      final token = await getToken();
       final data = <String, dynamic>{
         'job_id': jobId,
         'cover_letter': coverLetter,
@@ -1418,18 +1417,14 @@ class ApiService {
 
       final formData = FormData.fromMap(data);
 
-      final response = await _dio.post(
-        '$baseUrl/api/applications',
+      final response = await _request(
+        'POST',
+        '/api/applications',
         data: formData,
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'multipart/form-data',
-          },
-        ),
+        requiresAuth: true,
       );
       _invalidatetrainingCache();
-      return response.data;
+      return response;
     } on DioException catch (e) {
       _log('Error applying for job: $e');
       final errorData = e.response?.data;
