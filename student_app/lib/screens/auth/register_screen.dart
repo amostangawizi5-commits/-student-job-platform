@@ -77,9 +77,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Timer? _trainingPreviewAutoSlideTimer;
 
   String? _selectedRole;
-  int _studentRegistrationStep = 0;
-  final List<GlobalKey<FormState>> _studentStepFormKeys =
-      List<GlobalKey<FormState>>.generate(3, (_) => GlobalKey<FormState>());
   String? _selectedUniversityId;
   String? _selectedCollegeUniversityId;
   int? _expectedGraduationYear;
@@ -349,7 +346,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _resetRoleSelection() {
     setState(() {
       _selectedRole = null;
-      _studentRegistrationStep = 0;
       _selectedUniversityId = null;
       _selectedOrganizationSubtype = null;
       _selectedGovernmentCategory = null;
@@ -727,7 +723,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _selectRole(String role) {
     setState(() {
       _selectedRole = role;
-      _studentRegistrationStep = 0;
       _selectedUniversityId = null;
       _selectedOrganizationSubtype = null;
       _selectedGovernmentCategory = null;
@@ -805,6 +800,49 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  InputDecoration _studentFieldDecoration({
+    required String label,
+    String? hintText,
+    Widget? prefixIcon,
+    Widget? suffixIcon,
+    String? helperText,
+  }) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: BorderSide(color: AppTheme.borderGrey.withValues(alpha: 0.9)),
+    );
+
+    return InputDecoration(
+      labelText: label.toUpperCase(),
+      labelStyle: TextStyle(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.78),
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        letterSpacing: 0.7,
+      ),
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      hintText: hintText,
+      hintStyle: TextStyle(color: AppTheme.textLight.withValues(alpha: 0.9)),
+      prefixIcon: prefixIcon,
+      suffixIcon: suffixIcon,
+      helperText: helperText,
+      filled: true,
+      fillColor: const Color(0xFFF9FAFC),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      border: border,
+      enabledBorder: border,
+      focusedBorder: border.copyWith(
+        borderSide: const BorderSide(color: AppTheme.primaryGreen, width: 1.5),
+      ),
+      errorBorder: border.copyWith(
+        borderSide: const BorderSide(color: AppTheme.error),
+      ),
+      focusedErrorBorder: border.copyWith(
+        borderSide: const BorderSide(color: AppTheme.error, width: 1.5),
+      ),
+    );
+  }
+
   void _showSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showAppSnackBar(
       SnackBar(
@@ -833,13 +871,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _handleRegister() async {
     if (_selectedRole == 'student') {
       _syncSelectedStudentInstitutionFromInput();
-      for (var index = 0; index < _studentStepFormKeys.length; index++) {
-        if (!(_studentStepFormKeys[index].currentState?.validate() ?? false)) {
-          setState(() => _studentRegistrationStep = index);
-          return;
-        }
-      }
-    } else if (!(_formKey.currentState?.validate() ?? false)) {
+    }
+
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
@@ -1529,10 +1563,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _ResponsiveField(
         child: TextFormField(
           controller: _firstNameController,
-          decoration: InputDecoration(
-            labelText: language.tr('first_name'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('first_name'),
+            hintText: language.tr('first_name'),
             prefixIcon: const Icon(Icons.person_outline),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
@@ -1548,10 +1582,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _ResponsiveField(
         child: TextFormField(
           controller: _secondNameController,
-          decoration: InputDecoration(
-            labelText: language.tr('second_name'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('second_name'),
+            hintText: language.tr('second_name'),
             prefixIcon: const Icon(Icons.badge_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
@@ -1578,10 +1612,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: TextFormField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
-          decoration: InputDecoration(
-            labelText: language.tr('email'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('email'),
+            hintText: 'Enter email',
             prefixIcon: const Icon(Icons.email_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -1606,11 +1640,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: TextFormField(
           controller: _phoneController,
           keyboardType: TextInputType.phone,
-          decoration: InputDecoration(
-            labelText: language.tr('phone_number'),
-            prefixIcon: const Icon(Icons.phone_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          decoration: _studentFieldDecoration(
+            label: language.tr('phone_number'),
             hintText: language.tr('phone_hint_tz'),
+            prefixIcon: const Icon(Icons.phone_outlined),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -1628,8 +1661,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: TextFormField(
           controller: _passwordController,
           obscureText: !_isPasswordVisible,
-          decoration: InputDecoration(
-            labelText: language.tr('password'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('password'),
+            hintText: 'Enter password',
             prefixIcon: const Icon(Icons.lock_outline),
             suffixIcon: IconButton(
               icon: Icon(
@@ -1642,7 +1676,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 });
               },
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             helperText: language.tr('password_helper'),
           ),
           validator: (value) {
@@ -1669,8 +1702,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: TextFormField(
           controller: _confirmPasswordController,
           obscureText: !_isConfirmPasswordVisible,
-          decoration: InputDecoration(
-            labelText: language.tr('confirm_password'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('confirm_password'),
+            hintText: 'Confirm password',
             prefixIcon: const Icon(Icons.lock_outline),
             suffixIcon: IconButton(
               icon: Icon(
@@ -1685,7 +1719,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 });
               },
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -1710,10 +1743,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _ResponsiveField(
         child: TextFormField(
           controller: _programController,
-          decoration: InputDecoration(
-            labelText: language.tr('program_course'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('program_course'),
+            hintText: 'Enter program',
             prefixIcon: const Icon(Icons.book_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -1726,10 +1759,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _ResponsiveField(
         child: TextFormField(
           controller: _registrationNumberController,
-          decoration: InputDecoration(
-            labelText: language.tr('registration_number'),
+          decoration: _studentFieldDecoration(
+            label: language.tr('registration_number'),
+            hintText: 'Enter registration number',
             prefixIcon: const Icon(Icons.badge_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
@@ -1743,9 +1776,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: DropdownButtonFormField<int>(
           initialValue: _expectedGraduationYear,
           isExpanded: true,
-          decoration: InputDecoration(
-            labelText: language.tr('expected_graduation_year'),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          decoration: _studentFieldDecoration(
+            label: language.tr('expected_graduation_year'),
+            hintText: 'Select year',
+            prefixIcon: const Icon(Icons.event_available_outlined),
           ),
           items: _studentExpectedYears.map((year) {
             return DropdownMenuItem<int>(
@@ -1777,8 +1811,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return DropdownButtonFormField<String>(
       initialValue: _selectedUniversityId,
       isExpanded: true,
-      decoration: InputDecoration(
-        labelText: language.tr('university'),
+      decoration: _studentFieldDecoration(
+        label: language.tr('university'),
         hintText: language.tr('select_your_university'),
         prefixIcon: const Icon(Icons.school_outlined),
         suffixIcon: _isLoading
@@ -1797,7 +1831,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onPressed: () => _loadData(forceRefresh: true),
                     )
                   : null),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         helperText: _universitiesError,
       ),
       items: universityOptions.map((university) {
@@ -2821,88 +2854,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  void _continueStudentRegistrationStep() {
-    final key = _studentStepFormKeys[_studentRegistrationStep];
-    if (!(key.currentState?.validate() ?? false)) return;
-    if (_studentRegistrationStep < _studentStepFormKeys.length - 1) {
-      setState(() => _studentRegistrationStep++);
-    }
-  }
-
   Widget _buildStudentRegistrationSteps(
     LanguageProvider language,
     bool isDesktop,
   ) {
-    return Stepper(
-      type: isDesktop ? StepperType.horizontal : StepperType.vertical,
-      currentStep: _studentRegistrationStep,
-      onStepTapped: (index) {
-        if (index <= _studentRegistrationStep) {
-          setState(() => _studentRegistrationStep = index);
-        }
-      },
-      onStepContinue: _continueStudentRegistrationStep,
-      onStepCancel: () {
-        if (_studentRegistrationStep > 0) {
-          setState(() => _studentRegistrationStep--);
-        }
-      },
-      controlsBuilder: (context, details) {
-        final isLastStep = _studentRegistrationStep == 2;
-        return Padding(
-          padding: const EdgeInsets.only(top: 16),
-          child: Row(
-            children: [
-              ElevatedButton(
-                onPressed: _isSubmitting
-                    ? null
-                    : (isLastStep ? _handleRegister : details.onStepContinue),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryBlue,
-                  foregroundColor: Colors.white,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildStudentBasicFields(language, isDesktop),
+        const SizedBox(height: 22),
+        _buildStudentAcademicFields(language, isDesktop),
+        const SizedBox(height: 22),
+        _buildStudentIdUploader(language),
+        const SizedBox(height: 28),
+        ElevatedButton(
+          onPressed: _isSubmitting ? null : _handleRegister,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primaryBlue,
+            foregroundColor: Colors.white,
+            elevation: 2,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: _isSubmitting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text(
+                  'Create Student Account',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                 ),
-                child: Text(
-                  isLastStep ? 'Create Student Account' : 'Next',
-                ),
-              ),
-              if (_studentRegistrationStep > 0) ...[
-                const SizedBox(width: 12),
-                TextButton(
-                  onPressed: _isSubmitting ? null : details.onStepCancel,
-                  child: const Text('Back'),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-      steps: [
-        Step(
-          title: const Text('Account'),
-          subtitle: const Text('Your contact and password'),
-          isActive: _studentRegistrationStep >= 0,
-          content: Form(
-            key: _studentStepFormKeys[0],
-            child: _buildStudentBasicFields(language, isDesktop),
-          ),
-        ),
-        Step(
-          title: const Text('Academic details'),
-          subtitle: const Text('Institution and programme'),
-          isActive: _studentRegistrationStep >= 1,
-          content: Form(
-            key: _studentStepFormKeys[1],
-            child: _buildStudentAcademicFields(language, isDesktop),
-          ),
-        ),
-        Step(
-          title: const Text('Verification'),
-          subtitle: const Text('Upload student ID'),
-          isActive: _studentRegistrationStep >= 2,
-          content: Form(
-            key: _studentStepFormKeys[2],
-            child: _buildStudentIdUploader(language),
-          ),
         ),
       ],
     );
@@ -2947,7 +2935,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            language.tr('create_new_account'),
+            _selectedRole == 'student'
+                ? 'Create your account'
+                : language.tr('create_new_account'),
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 20,
@@ -2957,7 +2947,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            _accountSubtitle(language),
+            _selectedRole == 'student'
+                ? 'Get started with IPTKiganjani in minutes'
+                : _accountSubtitle(language),
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
@@ -2986,8 +2978,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 12),
           ],
           if (_selectedRole == 'student') ...[
-            _buildSectionTitle('Student registration'),
-            const SizedBox(height: 8),
             _buildStudentRegistrationSteps(language, isDesktop),
           ],
           if (_selectedRole != 'student' &&

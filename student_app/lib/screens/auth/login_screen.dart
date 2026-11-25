@@ -9,8 +9,11 @@ import '../../providers/language_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../utils/user_role.dart';
-import '../../utils/web_portal_routes.dart';
 import '../home_screen.dart' as public_home;
+import '../admin/admin_dashboard.dart';
+import '../organization/organization_dashboard.dart';
+import '../student/student_dashboard.dart';
+import '../university/university_dashboard.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -150,31 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await Future.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
 
-      if (isStudentRole(role)) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          WebPortalRoutes.training,
-          (route) => false,
-        );
-      } else if (isCompanyRole(role)) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          WebPortalRoutes.trainingCompany,
-          (route) => false,
-        );
-      } else if (role == 'university') {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          WebPortalRoutes.university,
-          (route) => false,
-        );
-      } else if (role == 'admin') {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          WebPortalRoutes.admin,
-          (route) => false,
-        );
-      }
+      _openDashboardForRole(role);
       return;
     }
 
@@ -200,6 +179,26 @@ class _LoginScreenState extends State<LoginScreen> {
         behavior: SnackBarBehavior.floating,
         width: 280,
       ),
+    );
+  }
+
+  void _openDashboardForRole(String role) {
+    final Widget dashboard;
+    if (isStudentRole(role)) {
+      dashboard = const StudentDashboard();
+    } else if (isCompanyRole(role)) {
+      dashboard = const OrganizationDashboard();
+    } else if (role == 'university') {
+      dashboard = const UniversityDashboard();
+    } else if (role == 'admin') {
+      dashboard = const AdminDashboard();
+    } else {
+      return;
+    }
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => dashboard),
+      (route) => false,
     );
   }
 
@@ -294,9 +293,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: AppTheme.primaryBlue.withValues(
-                                            alpha: 0.18,
-                                          ),
+                                          color: AppTheme.primaryBlue
+                                              .withValues(alpha: 0.18),
                                           blurRadius: 18,
                                           offset: const Offset(0, 8),
                                         ),

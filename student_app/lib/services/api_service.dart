@@ -860,8 +860,8 @@ class ApiService {
         }
 
         final overrideHint = kIsWeb
-            ? 'If you are deploying the web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN'
-            : 'Android now uses $_androidDeviceApiBaseUrl by default, while Chrome/web uses $_webBaseUrl. If your PC IP changes, run with --dart-define=API_BASE_URL=http://YOUR-LAPTOP-IP:5000 or --dart-define=ANDROID_LOCAL_API_BASE_URL=http://YOUR-LAPTOP-IP:5000. For USB debugging, you can still run `adb reverse tcp:5000 tcp:5000` and use $_localApiBaseUrl.';
+            ? 'For a deployed web app, rebuild with --dart-define=API_BASE_URL=https://YOUR-API-DOMAIN.'
+            : 'Chrome/web use $_webBaseUrl. Android emulator uses $_androidEmulatorApiBaseUrl; for a physical phone run with --dart-define=ANDROID_LOCAL_API_BASE_URL=http://YOUR-LAPTOP-IP:5000 or use `adb reverse tcp:5000 tcp:5000`.';
         throw Exception(
           kIsWeb
               ? 'Cannot connect to server at $baseUrl. Please wait a few seconds and refresh. $overrideHint'

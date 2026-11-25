@@ -39,8 +39,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   final ApiService _apiService = ApiService();
 
   bool _isLoading = true;
-  bool _hasError = false;
-  String _errorMessage = '';
   Map<String, dynamic> _stats = const {};
   List<Map<String, dynamic>> _recentActivities = const [];
   List<Map<String, dynamic>> _topCompanies = const [];
@@ -73,8 +71,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Future<void> _fetchDashboardData() async {
     setState(() {
       _isLoading = true;
-      _hasError = false;
-      _errorMessage = '';
     });
 
     try {
@@ -145,11 +141,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         _pendingApplications = const [];
         _awardAnnouncements = const [];
         _isLoading = false;
-        _hasError = true;
-        _errorMessage = ApiService.normalizeErrorMessage(
-          error,
-          fallback: 'Some dashboard data could not be loaded right now.',
-        );
       });
     }
   }
@@ -638,21 +629,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_hasError)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Material(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Text(
-                    'Dashboard loaded with fallback data. $_errorMessage',
-                    style: TextStyle(color: Colors.red.shade700),
-                  ),
-                ),
-              ),
-            ),
           _buildWelcomeSection(),
           const SizedBox(height: 20),
           _buildNotificationPanel(),

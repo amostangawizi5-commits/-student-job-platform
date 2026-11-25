@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/auth_provider.dart';
 import '../utils/user_role.dart';
@@ -10,6 +11,7 @@ import '../utils/web_portal_routes.dart';
 import 'admin/admin_dashboard.dart';
 import 'home_screen.dart' as public_home;
 import 'auth/login_screen.dart';
+import 'onboarding_screen.dart';
 import 'organization/organization_dashboard.dart';
 import 'student/student_dashboard.dart';
 import 'university/university_dashboard.dart';
@@ -39,7 +41,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
 
     _logoAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
 
@@ -91,7 +93,23 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _bootstrapApp() async {
     final routeName = ModalRoute.of(context)?.settings.name;
-    final nextScreen = await _resolveNextScreen(routeName);
+    final nextScreenFuture = _resolveNextScreenSafely(routeName);
+
+    if (_isMobileDevice) {
+      final minimumDisplayTime = Future<void>.delayed(
+        const Duration(milliseconds: 200),
+      );
+      final nextScreen = await nextScreenFuture;
+      await minimumDisplayTime;
+      if (!mounted) return;
+
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (context) => nextScreen));
+      return;
+    }
+
+    final nextScreen = await nextScreenFuture;
     if (!mounted) return;
 
     Navigator.of(
@@ -99,7 +117,26 @@ class _SplashScreenState extends State<SplashScreen>
     ).pushReplacement(MaterialPageRoute(builder: (context) => nextScreen));
   }
 
+  Future<Widget> _resolveNextScreenSafely(String? routeName) async {
+    try {
+      return await _resolveNextScreen(routeName);
+    } catch (_) {
+      return const LoginScreen();
+    }
+  }
+
   Future<Widget> _resolveNextScreen(String? routeName) async {
+    if (_isMobileDevice) {
+      final preferences = await SharedPreferences.getInstance();
+      final hasCompletedOnboarding =
+          preferences.getBool(OnboardingScreen.completionPreferenceKey) ??
+          false;
+
+      return hasCompletedOnboarding
+          ? const LoginScreen()
+          : const OnboardingScreen();
+    }
+
     final authProvider = context.read<AuthProvider>();
 
     await authProvider.checkAuthStatus();
@@ -220,7 +257,7 @@ class _SplashScreenState extends State<SplashScreen>
                         padding: const EdgeInsets.all(22),
                         child: TweenAnimationBuilder<double>(
                           tween: Tween<double>(begin: 0.94, end: 1),
-                          duration: const Duration(milliseconds: 720),
+                          duration: const Duration(milliseconds: 200),
                           curve: Curves.easeOutCubic,
                           builder: (context, value, child) {
                             return Transform.scale(scale: value, child: child);

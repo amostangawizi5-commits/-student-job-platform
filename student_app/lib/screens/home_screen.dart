@@ -159,39 +159,55 @@ class _HomeScreenState extends State<HomeScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isCompact = constraints.maxWidth < 760;
-            return SingleChildScrollView(
-              controller: _scrollController,
-              child: Column(
-                children: [
-                  if (!isCompact)
-                    _PortalHeader(
-                      isCompact: isCompact,
-                      onHomePressed: _openHomePage,
-                      onTrainingPressed: _openTrainingPage,
-                      onLoginPressed: _openLogin,
-                    ),
-                  _HeroSection(
-                    isCompact: isCompact,
-                    onBrowsePressed: _openTrainingPage,
-                    onCreateAccountPressed: _openRegister,
-                    onLoginPressed: _openLogin,
+            final header = _PortalHeader(
+              isCompact: isCompact,
+              onHomePressed: _openHomePage,
+              onTrainingPressed: _openTrainingPage,
+              onLoginPressed: _openLogin,
+            );
+
+            return Stack(
+              children: [
+                SingleChildScrollView(
+                  controller: _scrollController,
+                  padding: EdgeInsets.only(top: isCompact ? 0 : 88),
+                  child: Column(
+                    children: [
+                      _HeroSection(
+                        isCompact: isCompact,
+                        onBrowsePressed: _openTrainingPage,
+                        onCreateAccountPressed: _openRegister,
+                        onLoginPressed: _openLogin,
+                      ),
+                      if (!isCompact)
+                        _VacancyCategories(
+                          isCompact: isCompact,
+                          onCategorySelected: _openTrainingPage,
+                        ),
+                      if (!isCompact) _ApplicationTips(isCompact: isCompact),
+                      if (!isCompact)
+                        _FaqSection(
+                          expandedIndex: _expandedFaqIndex,
+                          onChanged: (index) {
+                            setState(() => _expandedFaqIndex = index);
+                          },
+                        ),
+                      _PortalFooter(showDownloadBadges: !isCompact),
+                    ],
                   ),
-                  if (!isCompact)
-                    _VacancyCategories(
-                      isCompact: isCompact,
-                      onCategorySelected: _openTrainingPage,
+                ),
+                if (!isCompact)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Material(
+                      color: Colors.white,
+                      elevation: 8,
+                      child: header,
                     ),
-                  if (!isCompact) _ApplicationTips(isCompact: isCompact),
-                  if (!isCompact)
-                    _FaqSection(
-                      expandedIndex: _expandedFaqIndex,
-                      onChanged: (index) {
-                        setState(() => _expandedFaqIndex = index);
-                      },
-                    ),
-                  _PortalFooter(showDownloadBadges: !isCompact),
-                ],
-              ),
+                  ),
+              ],
             );
           },
         ),
@@ -226,26 +242,41 @@ class TrainingPortalScreen extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isCompact = constraints.maxWidth < 760;
-            return CustomScrollView(
-              slivers: [
-                if (!isCompact)
-                  SliverToBoxAdapter(
-                    child: _PortalHeader(
-                      isCompact: isCompact,
-                      isTrainingSelected: true,
-                      onHomePressed: () => _goHome(context),
-                      onTrainingPressed: () {},
-                      onLoginPressed: () => _openLogin(context),
+            final header = _PortalHeader(
+              isCompact: isCompact,
+              isTrainingSelected: true,
+              onHomePressed: () => _goHome(context),
+              onTrainingPressed: () {},
+              onLoginPressed: () => _openLogin(context),
+            );
+
+            return Stack(
+              children: [
+                CustomScrollView(
+                  slivers: [
+                    if (!isCompact)
+                      const SliverPadding(padding: EdgeInsets.only(top: 88)),
+                    SliverToBoxAdapter(
+                      child: _TrainingListSection(
+                        isCompact: isCompact,
+                        onLoginPressed: () => _openLogin(context),
+                      ),
                     ),
-                  ),
-                SliverToBoxAdapter(
-                  child: _TrainingListSection(
-                    isCompact: isCompact,
-                    onLoginPressed: () => _openLogin(context),
-                  ),
+                    if (!isCompact)
+                      const SliverToBoxAdapter(child: _PortalFooter()),
+                  ],
                 ),
                 if (!isCompact)
-                  const SliverToBoxAdapter(child: _PortalFooter()),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Material(
+                      color: Colors.white,
+                      elevation: 8,
+                      child: header,
+                    ),
+                  ),
               ],
             );
           },
@@ -389,26 +420,43 @@ class _PublicInfoPage extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isCompact = constraints.maxWidth < 760;
-            return CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: _PortalHeader(
-                    isCompact: isCompact,
-                    onHomePressed: () => _goHome(context),
-                    onTrainingPressed: () => _goTraining(context),
-                    onLoginPressed: () => _openLogin(context),
-                  ),
+            final header = _PortalHeader(
+              isCompact: isCompact,
+              onHomePressed: () => _goHome(context),
+              onTrainingPressed: () => _goTraining(context),
+              onLoginPressed: () => _openLogin(context),
+            );
+
+            return Stack(
+              children: [
+                CustomScrollView(
+                  slivers: [
+                    if (!isCompact)
+                      const SliverPadding(padding: EdgeInsets.only(top: 88)),
+                    if (isCompact) SliverToBoxAdapter(child: header),
+                    SliverToBoxAdapter(
+                      child: _PublicInfoContent(
+                        title: title,
+                        subtitle: subtitle,
+                        sections: sections,
+                        showSupportContacts: showSupportContacts,
+                        isCompact: isCompact,
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: _PortalFooter()),
+                  ],
                 ),
-                SliverToBoxAdapter(
-                  child: _PublicInfoContent(
-                    title: title,
-                    subtitle: subtitle,
-                    sections: sections,
-                    showSupportContacts: showSupportContacts,
-                    isCompact: isCompact,
+                if (!isCompact)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Material(
+                      color: Colors.white,
+                      elevation: 8,
+                      child: header,
+                    ),
                   ),
-                ),
-                const SliverToBoxAdapter(child: _PortalFooter()),
               ],
             );
           },

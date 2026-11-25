@@ -212,6 +212,88 @@ const ensureApplicationWorkflowSchema = async () => {
     `);
 };
 
+const ensureApplicationsSchema = async () => {
+    const studentIdType =
+        (await getFormattedColumnType('students', 'student_id')) || 'uuid';
+    const jobIdType =
+        (await getFormattedColumnType('training', 'job_id')) || 'uuid';
+
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS applications (
+            application_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            student_id ${studentIdType} NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
+            job_id ${jobIdType} NOT NULL,
+            cover_letter TEXT,
+            status VARCHAR(40) NOT NULL DEFAULT 'pending',
+            company_feedback TEXT,
+            applied_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            supportive_document_url TEXT,
+            supportive_document_name TEXT,
+            supportive_document_verified BOOLEAN,
+            supportive_document_verification_notes TEXT,
+            supportive_document_reviewed_at TIMESTAMP,
+            response_letter_url TEXT,
+            response_letter_name TEXT,
+            response_letter_sent_at TIMESTAMP,
+            reporting_start_date DATE,
+            reporting_end_date DATE,
+            accepted_at TIMESTAMP,
+            student_confirmation_status VARCHAR(40),
+            student_confirmed_at TIMESTAMP,
+            student_confirmation_expires_at TIMESTAMP,
+            student_confirmation_released_at TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (student_id, job_id)
+        )
+    `);
+
+    await pool.query(`
+        ALTER TABLE applications
+        ADD COLUMN IF NOT EXISTS cover_letter TEXT,
+        ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'pending',
+        ADD COLUMN IF NOT EXISTS company_feedback TEXT,
+        ADD COLUMN IF NOT EXISTS applied_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS updated_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS supportive_document_url TEXT,
+        ADD COLUMN IF NOT EXISTS supportive_document_name TEXT,
+        ADD COLUMN IF NOT EXISTS supportive_document_verified BOOLEAN,
+        ADD COLUMN IF NOT EXISTS supportive_document_verification_notes TEXT,
+        ADD COLUMN IF NOT EXISTS supportive_document_reviewed_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS response_letter_url TEXT,
+        ADD COLUMN IF NOT EXISTS response_letter_name TEXT,
+        ADD COLUMN IF NOT EXISTS response_letter_sent_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS reporting_start_date DATE,
+        ADD COLUMN IF NOT EXISTS reporting_end_date DATE,
+        ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS student_confirmation_status VARCHAR(40),
+        ADD COLUMN IF NOT EXISTS student_confirmed_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS student_confirmation_expires_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS student_confirmation_released_at TIMESTAMP
+    `);
+
+    await pool.query(`
+        ALTER TABLE applications
+        DROP CONSTRAINT IF EXISTS applications_status_check
+    `);
+
+    await pool.query(`
+        ALTER TABLE applications
+        ADD CONSTRAINT applications_status_check
+        CHECK (status IN ('pending', 'assigned', 'shortlisted', '', 'accepted', 'rejected'))
+    `);
+
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS applications_student_id_idx
+        ON applications (student_id, applied_date DESC)
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS applications_job_id_idx
+        ON applications (job_id, status)
+    `);
+};
+
 const ensureApplicationJobForeignKeySchema = async () => {
     const requiredTables = ['applications', 'training'];
     const availability = await Promise.all(requiredTables.map((table) => tableExists(table)));
@@ -1391,6 +1473,9 @@ const connectDB = async () => {
             required: true
         });
         await runStartupMigration('user role schema', ensureUserRoleSchema, {
+            required: true
+        });
+        await runStartupMigration('applications schema', ensureApplicationsSchema, {
             required: true
         });
         await runStartupMigration('user auth version schema', ensureUserAuthVersionSchema);

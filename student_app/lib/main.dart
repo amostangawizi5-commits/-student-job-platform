@@ -9,7 +9,9 @@ import 'providers/language_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/launch_screen.dart';
 import 'screens/student/test_attempt_screen.dart';
+import 'screens/home_screen.dart';
 import 'utils/theme.dart';
+import 'utils/platform_helper.dart';
 import 'utils/web_portal_routes.dart';
 
 void main() {
@@ -25,7 +27,11 @@ class MyApp extends StatelessWidget {
     final testToken = Uri.base.queryParameters['test_token']?.trim();
     final initialRoute = testToken != null && testToken.isNotEmpty
         ? null
-        : (kIsWeb ? WebPortalRoutes.initialPath(Uri.base.path) : '/launch');
+        : (PlatformHelper.isMobileApp
+              ? '/launch'
+              : (kIsWeb
+                    ? WebPortalRoutes.initialPath(Uri.base.path)
+                    : WebPortalRoutes.home));
 
     return MultiProvider(
       providers: [
@@ -186,7 +192,7 @@ class MyApp extends StatelessWidget {
                 ? null
                 : initialRoute,
             routes: {
-              WebPortalRoutes.home: (context) => const SplashScreen(),
+              WebPortalRoutes.home: (context) => const HomeScreen(),
               WebPortalRoutes.splash: (context) => const SplashScreen(),
               '/launch': (context) => const LaunchScreen(),
               WebPortalRoutes.training: (context) => const SplashScreen(),
